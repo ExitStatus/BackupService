@@ -1,0 +1,240 @@
+/* Dark theme for the Backup Service admin UI.
+   Palette is driven by CSS custom properties — tweak :root to re-skin. */
+
+:root {
+    color-scheme: dark;
+
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-2: #1f232c;
+    --border: #2c313c;
+
+    --text: #e6e8eb;
+    --text-muted: #9aa1ac;
+
+    --accent: #4f8cff;
+    --accent-hover: #6ba0ff;
+    --danger: #ff6b6b;
+
+    --radius: 8px;
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+h1, h2, h3 {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+h1 {
+    font-size: 1.6rem;
+}
+
+/* Headings are programmatically focused on navigation (FocusOnNavigate);
+   suppress the focus outline so no border shows around the title. */
+h1:focus,
+h2:focus,
+h3:focus {
+    outline: none;
+}
+
+/* Top bar (authenticated layout) */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.topbar .brand:hover {
+    color: var(--text);
+    text-decoration: none;
+}
+
+.topbar .user {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.topbar form {
+    margin: 0;
+}
+
+/* Page content container */
+.page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+
+/* Cards / panels */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+/* Buttons */
+button,
+.btn {
+    font: inherit;
+    cursor: pointer;
+    padding: 0.55rem 1rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff;
+    transition: background 0.15s ease;
+}
+
+button:hover,
+.btn:hover {
+    background: var(--accent-hover);
+}
+
+.btn-secondary {
+    background: var(--surface-2);
+    color: var(--text);
+    border-color: var(--border);
+}
+
+.btn-secondary:hover {
+    background: var(--border);
+}
+
+/* Icon-only button (e.g. settings cog in the top bar) */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    line-height: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.icon-btn:hover {
+    background: var(--border);
+}
+
+.icon-btn img {
+    display: block;
+    width: 24px;
+    height: 24px;
+}
+
+/* Forms */
+label {
+    display: block;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+input,
+select,
+textarea {
+    display: block;
+    width: 100%;
+    margin-top: 0.35rem;
+    padding: 0.55rem 0.7rem;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.25);
+}
+
+.validation-message {
+    color: var(--danger);
+    font-size: 0.85rem;
+}
+
+.alert-error {
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.8rem;
+    background: rgba(255, 107, 107, 0.1);
+    border: 1px solid rgba(255, 107, 107, 0.4);
+    border-radius: var(--radius);
+    color: var(--danger);
+}
+
+/* Auth (login) screen */
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.auth-card h1 {
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.auth-card button {
+    width: 100%;
+    margin-top: 0.5rem;
+}

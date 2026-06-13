@@ -1,0 +1,29 @@
+@page "/login"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+
+<PageTitle>Sign in</PageTitle>
+
+<div class="auth-card">
+    <h1>Backup Service</h1>
+
+    <EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login">
+        <DataAnnotationsValidator />
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert-error" role="alert">@ErrorMessage</div>
+        }
+
+        <label>
+            Username
+            <InputText @bind-Value="Input!.Username" autocomplete="username" />
+        </label>
+        <label>
+            Password
+            <InputText type="password" @bind-Value="Input!.Password" autocomplete="current-password" />
+        </label>
+
+        <button type="submit">Sign in</button>
+    </EditForm>
+</div>
