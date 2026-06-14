@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using BackupService.Authentication;
+using BackupService.Database;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components;
@@ -11,6 +12,9 @@ namespace BackupService.Components.Pages.Authentication
     {
         [Inject]
         private IAdminCredentialService CredentialService { get; set; } = default!;
+
+        [Inject]
+        private IAuthenticationHistoryService History { get; set; } = default!;
 
         [Inject]
         private NavigationManager Navigation { get; set; } = default!;
@@ -36,9 +40,12 @@ namespace BackupService.Components.Pages.Authentication
 
             if (!await CredentialService.VerifyAsync(input.Username, input.Password))
             {
+                await History.RecordAsync(AuthenticationEventType.LoginFailed);
                 ErrorMessage = "Invalid username or password.";
                 return;
             }
+
+            await History.RecordAsync(AuthenticationEventType.LoginSucceeded);
 
             var claims = new[] { new Claim(ClaimTypes.Name, input.Username) };
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

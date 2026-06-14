@@ -42,6 +42,7 @@ namespace BackupService
 
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddSingleton<IAdminCredentialService, AdminCredentialService>();
+            builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
 
             // Blazor Server (interactive server-side rendering).
             builder.Services.AddRazorComponents()

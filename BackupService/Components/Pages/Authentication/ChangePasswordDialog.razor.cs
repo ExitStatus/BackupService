@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BackupService.Authentication;
+using BackupService.Database;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.Authentication
@@ -13,6 +14,9 @@ namespace BackupService.Components.Pages.Authentication
     {
         [Inject]
         private IAdminCredentialService CredentialService { get; set; } = default!;
+
+        [Inject]
+        private IAuthenticationHistoryService History { get; set; } = default!;
 
         [Parameter]
         public EventCallback OnCancel { get; set; }
@@ -37,6 +41,7 @@ namespace BackupService.Components.Pages.Authentication
                 return;
             }
 
+            await History.RecordAsync(AuthenticationEventType.PasswordChanged);
             await OnSaved.InvokeAsync();
         }
 

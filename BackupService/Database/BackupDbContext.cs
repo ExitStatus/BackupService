@@ -10,5 +10,7 @@ namespace BackupService.Database
         public DbSet<BackupRecord> BackupRecords => Set<BackupRecord>();
 
         public DbSet<AdminCredential> AdminCredentials => Set<AdminCredential>();
+
+        public DbSet<AuthenticationHistory> AuthenticationHistory => Set<AuthenticationHistory>();
     }
 }

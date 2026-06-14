@@ -8,6 +8,45 @@
     <button @onclick="OpenDialog">Change Password</button>
 </div>
 
+<section class="history">
+    <h2>Authentication history</h2>
+
+    @if (_history is null)
+    {
+        <p>Loading…</p>
+    }
+    else if (_history.TotalCount == 0)
+    {
+        <p>No authentication history yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>When (UTC)</th>
+                    <th>Event</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _history.Items)
+                {
+                    <tr>
+                        <td>@entry.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@DescribeEvent(entry.EventType)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="pager">
+            <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_history.PageNumber <= 1)">Previous</button>
+            <span>Page @_history.PageNumber of @_history.TotalPages (@_history.TotalCount total)</span>
+            <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_history.PageNumber >= _history.TotalPages)">Next</button>
+        </div>
+    }
+</section>
+
 @if (_showDialog)
 {
     <ChangePasswordDialog OnCancel="CloseDialog" OnSaved="OnSaved" />
