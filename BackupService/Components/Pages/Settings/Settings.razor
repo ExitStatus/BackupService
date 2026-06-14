@@ -4,10 +4,10 @@
 
 <PageTitle>Settings</PageTitle>
 
-<div class="settings-layout">
+<div class="workspace">
     <SettingsSidepanel @bind-SelectedKey="_selectedKey" />
 
-    <div class="settings-content">
+    <div class="workspace-content">
         @switch (_selectedKey)
         {
             case "authentication":

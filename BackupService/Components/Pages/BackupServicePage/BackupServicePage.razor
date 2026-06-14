@@ -1,0 +1,24 @@
+@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>Backup Service</PageTitle>
+
+<div class="workspace">
+    <BackupServiceSidebar @bind-SelectedKey="_selectedKey" />
+
+    <div class="workspace-content">
+        @switch (_selectedKey)
+        {
+            case "dashboard":
+                <Dashboard />
+                break;
+
+            default:
+                <h1>Backup Service</h1>
+                <div class="card">
+                    <p>Select a section from the sidebar.</p>
+                </div>
+                break;
+        }
+    </div>
+</div>
