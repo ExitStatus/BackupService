@@ -109,5 +109,37 @@ namespace BackupService.UnitTests.Authentication
 
             result.Should().BeFalse();
         }
+
+        [Test]
+        public async Task ChangePasswordAsync_WithCorrectCurrentPassword_UpdatesStoredPassword()
+        {
+            await _service.EnsureSeededAsync();
+
+            var changed = await _service.ChangePasswordAsync("admin", "new-password");
+
+            changed.Should().BeTrue();
+            (await _service.VerifyAsync("admin", "new-password")).Should().BeTrue();
+            (await _service.VerifyAsync("admin", "admin")).Should().BeFalse();
+        }
+
+        [Test]
+        public async Task ChangePasswordAsync_WithWrongCurrentPassword_ReturnsFalseAndLeavesPasswordUnchanged()
+        {
+            await _service.EnsureSeededAsync();
+
+            var changed = await _service.ChangePasswordAsync("wrong-current", "new-password");
+
+            changed.Should().BeFalse();
+            (await _service.VerifyAsync("admin", "admin")).Should().BeTrue();
+            (await _service.VerifyAsync("admin", "new-password")).Should().BeFalse();
+        }
+
+        [Test]
+        public async Task ChangePasswordAsync_WhenNoCredentialSeeded_ReturnsFalse()
+        {
+            var changed = await _service.ChangePasswordAsync("admin", "new-password");
+
+            changed.Should().BeFalse();
+        }
     }
 }

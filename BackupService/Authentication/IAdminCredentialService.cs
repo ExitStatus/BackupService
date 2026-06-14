@@ -18,5 +18,12 @@ namespace BackupService.Authentication
         /// admin credential.
         /// </summary>
         Task<bool> VerifyAsync(string username, string password, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Changes the stored admin password. Returns true if <paramref name="currentPassword"/>
+        /// matched and the new (already-hashed) password was saved; false if the current
+        /// password was incorrect (in which case nothing is changed).
+        /// </summary>
+        Task<bool> ChangePasswordAsync(string currentPassword, string newPassword, CancellationToken cancellationToken = default);
     }
 }

@@ -1,0 +1,6 @@
+@if (_visible)
+{
+    <div class="notification @LevelClass @(_fadingOut ? "fade-out" : null)" role="status">
+        @_message
+    </div>
+}

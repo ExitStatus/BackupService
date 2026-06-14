@@ -1,0 +1,16 @@
+<h1>Authentication</h1>
+
+<div class="card">
+    <p>
+        The only login for this service is the built-in <strong>admin</strong> account.
+        You can change its password below.
+    </p>
+    <button @onclick="OpenDialog">Change Password</button>
+</div>
+
+@if (_showDialog)
+{
+    <ChangePasswordDialog OnCancel="CloseDialog" OnSaved="OnSaved" />
+}
+
+<Notification @ref="_notification" />

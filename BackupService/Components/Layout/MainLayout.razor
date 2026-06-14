@@ -1,23 +1,25 @@
 @inherits LayoutComponentBase
 
-<AuthorizeView>
-    <Authorized>
-        <header class="topbar">
-            <a href="" class="brand">Backup Service</a>
-            <div class="user">
-                <span>@context.User.Identity?.Name</span>
-                <a href="settings" class="icon-btn" title="Settings" aria-label="Settings">
-                    <img src="Icons/cog.png" width="24" height="24" alt="Settings" />
-                </a>
-                <form action="/logout" method="post">
-                    <AntiforgeryToken />
-                    <button type="submit" class="btn-secondary">Log out</button>
-                </form>
-            </div>
-        </header>
-    </Authorized>
-</AuthorizeView>
+<div class="app-shell">
+    <AuthorizeView>
+        <Authorized>
+            <header class="topbar">
+                <a href="" class="brand">Backup Service</a>
+                <div class="user">
+                    <span>@context.User.Identity?.Name</span>
+                    <a href="settings" class="icon-btn" title="Settings" aria-label="Settings">
+                        <img src="Icons/cog.png" width="24" height="24" alt="Settings" />
+                    </a>
+                    <form action="/logout" method="post">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn-secondary">Log out</button>
+                    </form>
+                </div>
+            </header>
+        </Authorized>
+    </AuthorizeView>
 
-<main class="page">
-    @Body
-</main>
+    <main class="app-main">
+        @Body
+    </main>
+</div>

@@ -16,6 +16,10 @@
     --accent-hover: #6ba0ff;
     --danger: #ff6b6b;
 
+    --notify-success: #2e7d32;
+    --notify-warning: #c9821a;
+    --notify-error: #c0392b;
+
     --radius: 8px;
     --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
 }
@@ -64,8 +68,23 @@ h3:focus {
     outline: none;
 }
 
+/* App shell — fills the viewport so content below the title bar can stretch
+   to the bottom (e.g. the settings side panel). */
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.app-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
 /* Top bar (authenticated layout) */
 .topbar {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -99,11 +118,63 @@ h3:focus {
     margin: 0;
 }
 
-/* Page content container */
+/* Page content container (opt-in: centred, max-width). */
 .page {
     max-width: 1100px;
     margin: 0 auto;
     padding: 2rem 1.5rem;
+}
+
+/* Settings page: left-docked navigation panel + content area, filling the
+   height of the main area (below the title bar). */
+.settings-layout {
+    display: flex;
+    height: 100%;
+}
+
+.settings-sidepanel {
+    flex: 0 0 220px;
+    overflow-y: auto;
+    padding: 0.75rem 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+}
+
+.settings-content {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: 2rem 1.5rem;
+}
+
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.6rem 1.25rem;
+    border: 0;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+}
+
+.settings-nav-item:hover {
+    background: var(--surface-2);
+}
+
+.settings-nav-item.active {
+    background: var(--surface-2);
+    border-left-color: var(--accent);
+    color: var(--text);
+}
+
+.settings-nav-item img {
+    width: 20px;
+    height: 20px;
 }
 
 /* Cards / panels */
@@ -208,6 +279,71 @@ textarea:focus {
     border: 1px solid rgba(255, 107, 107, 0.4);
     border-radius: var(--radius);
     color: var(--danger);
+}
+
+/* Modal dialog */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.modal {
+    width: 100%;
+    max-width: 380px;
+    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.modal h2 {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+/* Non-modal notification toast (bottom-right, fades out) */
+.notification {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 1100;
+    max-width: 360px;
+    padding: 0.8rem 1.2rem;
+    border-radius: var(--radius);
+    color: #fff;
+    box-shadow: var(--shadow);
+    opacity: 1;
+    transition: opacity 0.4s ease;
+}
+
+.notification.fade-out {
+    opacity: 0;
+}
+
+.notification.success {
+    background: var(--notify-success);
+}
+
+.notification.warning {
+    background: var(--notify-warning);
+}
+
+.notification.error {
+    background: var(--notify-error);
 }
 
 /* Auth (login) screen */

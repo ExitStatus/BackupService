@@ -1,9 +1,25 @@
 @page "/settings"
+@rendermode InteractiveServer
+@using BackupService.Components.Pages.Authentication
 
 <PageTitle>Settings</PageTitle>
 
-<h1>Settings</h1>
+<div class="settings-layout">
+    <SettingsSidepanel @bind-SelectedKey="_selectedKey" />
 
-<div class="card">
-    <p>Settings content coming soon.</p>
+    <div class="settings-content">
+        @switch (_selectedKey)
+        {
+            case "authentication":
+                <AuthenticationPanel />
+                break;
+
+            default:
+                <h1>Settings</h1>
+                <div class="card">
+                    <p>Select a section from the panel.</p>
+                </div>
+                break;
+        }
+    </div>
 </div>

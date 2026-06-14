@@ -1,0 +1,11 @@
+<nav class="settings-sidepanel">
+    @foreach (var item in Items)
+    {
+        <button type="button"
+                class="settings-nav-item @(item.Key == SelectedKey ? "active" : null)"
+                @onclick="() => SelectAsync(item.Key)">
+            <img src="@item.IconPath" alt="" />
+            <span>@item.Label</span>
+        </button>
+    }
+</nav>

@@ -58,5 +58,29 @@ namespace BackupService.Authentication
             return result is PasswordVerificationResult.Success
                 or PasswordVerificationResult.SuccessRehashNeeded;
         }
+
+        public async Task<bool> ChangePasswordAsync(string currentPassword, string newPassword, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            // Tracked (not AsNoTracking) so the update is persisted.
+            var credential = await db.AdminCredentials.FirstOrDefaultAsync(cancellationToken);
+            if (credential is null)
+            {
+                return false;
+            }
+
+            var verification = _passwordHasher.VerifyHashedPassword(credential, credential.PasswordHash, currentPassword);
+            if (verification is PasswordVerificationResult.Failed)
+            {
+                return false;
+            }
+
+            credential.PasswordHash = _passwordHasher.HashPassword(credential, newPassword);
+            await db.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation("Admin password changed for user {Username}.", credential.Username);
+            return true;
+        }
     }
 }
