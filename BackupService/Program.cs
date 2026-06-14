@@ -1,6 +1,7 @@
 using BackupService.Authentication;
 using BackupService.Components;
 using BackupService.Database;
+using BackupService.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
@@ -9,8 +10,18 @@ namespace BackupService
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static int Main(string[] args)
         {
+            // Service install/uninstall commands run and exit without starting the host.
+            if (args.Contains("--install"))
+            {
+                return WindowsServiceInstaller.Install();
+            }
+            if (args.Contains("--uninstall"))
+            {
+                return WindowsServiceInstaller.Uninstall();
+            }
+
             var builder = WebApplication.CreateBuilder(args);
 
             // Allow the host to run under the Windows Service Control Manager,
@@ -79,6 +90,7 @@ namespace BackupService
             });
 
             app.Run();
+            return 0;
         }
     }
 }
