@@ -1,0 +1,41 @@
+@using BackupService.FileSystem
+
+<div class="fb-tree-node">
+    <div class="fb-tree-row @(IsSelected ? "selected" : "")" style="padding-left:@(Depth * 14 + 6)px">
+        <button type="button"
+                class="fb-tree-chevron @(_expanded ? "open" : "")"
+                @onclick="Toggle"
+                aria-label="@(_expanded ? "Collapse" : "Expand")">
+            <span class="fb-chevron-glyph">@(_hasNoChildren ? "" : "❯")</span>
+        </button>
+        <button type="button" class="fb-tree-label" @onclick="NavigateAsync" @ondblclick="Toggle">
+            @if (IsDrive)
+            {
+                <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path fill="#9aa1ac" d="M3 6h18v5H3zM3 13h18v5H3z" />
+                    <circle cx="18" cy="15.5" r="1" fill="#4f8cff" />
+                </svg>
+            }
+            else
+            {
+                <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path fill="#e8b339" d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                </svg>
+            }
+            <span class="fb-tree-text">@Label</span>
+        </button>
+    </div>
+
+    @if (_expanded)
+    {
+        @foreach (var child in _children)
+        {
+            <FolderTreeNode Path="@child.FullPath"
+                            Label="@child.Name"
+                            IsDrive="false"
+                            Depth="Depth + 1"
+                            SelectedPath="@SelectedPath"
+                            OnNavigate="OnNavigate" />
+        }
+    }
+</div>

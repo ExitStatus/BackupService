@@ -1,30 +1,112 @@
+@using BackupService.FileSystem
+
 <div class="modal-overlay">
     <div class="modal folder-browser" role="dialog" aria-modal="true" aria-label="Select folder">
-        <h2>Select Folder</h2>
+        <div class="fb-titlebar">
+            <span class="fb-title">
+                <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path fill="#e8b339" d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                </svg>
+                Select Folder
+            </span>
+            <button type="button" class="fb-close" @onclick="OnCancel" aria-label="Close">✕</button>
+        </div>
 
-        <div class="folder-path">@(_currentPath ?? "This PC")</div>
-
-        <ul class="folder-list">
-            @if (_currentPath is null)
-            {
-                @foreach (var root in _roots)
+        <div class="fb-toolbar">
+            <button type="button" class="fb-nav" @onclick="Back" disabled="@(!CanBack)" aria-label="Back" title="Back">◄</button>
+            <button type="button" class="fb-nav" @onclick="Forward" disabled="@(!CanForward)" aria-label="Forward" title="Forward">►</button>
+            <button type="button" class="fb-nav" @onclick="Up" disabled="@(!CanUp)" aria-label="Up" title="Up">▲</button>
+            <div class="fb-address">
+                @for (var i = 0; i < _breadcrumb.Count; i++)
                 {
-                    <li><button type="button" class="folder-entry" @onclick="() => Open(root)">@root</button></li>
+                    var crumb = _breadcrumb[i];
+                    if (i > 0)
+                    {
+                        <span class="fb-crumb-sep">›</span>
+                    }
+                    <button type="button" class="fb-crumb" @onclick="() => Navigate(crumb.Path)">@crumb.Label</button>
                 }
-            }
-            else
-            {
-                <li><button type="button" class="folder-entry up" @onclick="GoUp">..</button></li>
-                @foreach (var dir in _directories)
-                {
-                    <li><button type="button" class="folder-entry" @onclick="() => Open(dir)">@DisplayName(dir)</button></li>
-                }
-            }
-        </ul>
+            </div>
+        </div>
 
-        <div class="modal-actions">
+        <div class="fb-body">
+            <div class="fb-sidebar">
+                <div class="fb-group-label">Quick access</div>
+                @foreach (var entry in _quickAccess)
+                {
+                    <FolderTreeNode Path="@entry.FullPath"
+                                    Label="@entry.Name"
+                                    IsDrive="false"
+                                    Depth="0"
+                                    SelectedPath="@_currentPath"
+                                    OnNavigate="Navigate" />
+                }
+
+                <div class="fb-group-label">This PC</div>
+                @foreach (var drive in _drives)
+                {
+                    <FolderTreeNode Path="@drive.RootPath"
+                                    Label="@drive.Label"
+                                    IsDrive="true"
+                                    Depth="0"
+                                    SelectedPath="@_currentPath"
+                                    OnNavigate="Navigate" />
+                }
+            </div>
+
+            <div class="fb-details">
+                <table class="fb-table">
+                    <thead>
+                        <tr>
+                            <th class="fb-col-name">Name</th>
+                            <th class="fb-col-date">Date modified</th>
+                            <th class="fb-col-type">Type</th>
+                            <th class="fb-col-size">Size</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in _entries)
+                        {
+                            <tr class="@(IsSelected(entry) ? "selected" : "")"
+                                @onclick="() => SelectEntry(entry)"
+                                @ondblclick="() => Navigate(entry.FullPath)">
+                                <td class="fb-col-name">
+                                    @if (_atThisPc)
+                                    {
+                                        <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                                            <path fill="#9aa1ac" d="M3 6h18v5H3zM3 13h18v5H3z" />
+                                            <circle cx="18" cy="15.5" r="1" fill="#4f8cff" />
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                                            <path fill="#e8b339" d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                                        </svg>
+                                    }
+                                    <span class="fb-name-text">@entry.Name</span>
+                                </td>
+                                <td class="fb-col-date">@FormatDate(entry.DateModified)</td>
+                                <td class="fb-col-type">@(_atThisPc ? "Local Disk" : "File folder")</td>
+                                <td class="fb-col-size"></td>
+                            </tr>
+                        }
+                        @if (_entries.Count == 0)
+                        {
+                            <tr class="fb-empty-row">
+                                <td colspan="4">This folder is empty.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="fb-footer">
+            <label class="fb-folder-label" for="fb-folder">Folder:</label>
+            <input id="fb-folder" type="text" class="fb-folder-input" @bind="_folderText" @bind:event="oninput" />
+            <button type="button" class="fb-select" @onclick="SelectAsync" disabled="@(string.IsNullOrWhiteSpace(_folderText))">Select Folder</button>
             <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
-            <button type="button" @onclick="SelectAsync" disabled="@(_currentPath is null)">Select</button>
         </div>
     </div>
 </div>

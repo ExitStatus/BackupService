@@ -6,11 +6,14 @@ namespace BackupService.FileSystem
     /// </summary>
     public interface IFolderBrowser
     {
-        /// <summary>The available drive roots (e.g. <c>C:\</c>, <c>D:\</c>).</summary>
-        IReadOnlyList<string> GetRoots();
+        /// <summary>The available drive roots (e.g. <c>C:\</c>, <c>D:\</c>) with Explorer-style labels.</summary>
+        IReadOnlyList<DriveEntry> GetDrives();
+
+        /// <summary>"Quick access" shortcuts (Desktop, Documents, Downloads, Pictures) that exist.</summary>
+        IReadOnlyList<FolderEntry> GetQuickAccess();
 
         /// <summary>Immediate subdirectories of <paramref name="path"/> (empty if unreadable).</summary>
-        IReadOnlyList<string> GetDirectories(string path);
+        IReadOnlyList<FolderEntry> GetDirectories(string path);
 
         /// <summary>The parent directory of <paramref name="path"/>, or null at a root.</summary>
         string? GetParent(string path);

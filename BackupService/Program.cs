@@ -76,10 +76,13 @@ namespace BackupService
             app.Services.GetRequiredService<IAdminCredentialService>()
                 .EnsureSeededAsync().GetAwaiter().GetResult();
 
-            app.UseStaticFiles();
             app.UseAuthentication();
             app.UseAuthorization();
             app.UseAntiforgery();
+
+            // Fingerprinted static assets (referenced via @Assets["app.css"] in App.razor)
+            // so CSS/JS changes bust the browser cache automatically.
+            app.MapStaticAssets();
 
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
