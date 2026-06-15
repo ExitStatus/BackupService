@@ -26,6 +26,8 @@ namespace BackupService.Database
 
         public bool WatchFolder { get; set; }
 
+        public bool AllowDeletions { get; set; }
+
         public OverwriteBehaviour OverwriteBehaviour { get; set; }
 
         public FolderPairStatus Status { get; set; }

@@ -45,6 +45,7 @@ namespace BackupService.Profiles
             SourceFolder = input.SourceFolder,
             TargetFolder = input.TargetFolder,
             WatchFolder = input.WatchFolder,
+            AllowDeletions = input.AllowDeletions,
             OverwriteBehaviour = input.OverwriteBehaviour,
             Status = FolderPairStatus.Idle,
             LastRunStatus = FolderPairLastRunStatus.None,
@@ -174,6 +175,7 @@ namespace BackupService.Profiles
                     existing.SourceFolder = input.SourceFolder;
                     existing.TargetFolder = input.TargetFolder;
                     existing.WatchFolder = input.WatchFolder;
+                    existing.AllowDeletions = input.AllowDeletions;
                     existing.OverwriteBehaviour = input.OverwriteBehaviour;
                 }
             }

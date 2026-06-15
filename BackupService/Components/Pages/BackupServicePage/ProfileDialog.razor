@@ -1,6 +1,6 @@
 <div class="modal-overlay">
     <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit profile" : "Create profile")">
-        <h2>@(IsEdit ? "Edit Profile" : "Create Profile")</h2>
+        <h2>@DialogTitle</h2>
 
         <p class="modal-intro">
             A folder pair profile is a one way copy from the source folder the target folder
@@ -20,14 +20,16 @@
                 <InputTextArea rows="3" @bind-Value="Input.Description" />
             </label>
 
-            <label>
-                Profile type
-                <Dropdown TValue="ProfileType"
-                          @bind-Value="Input.Type"
-                          Items="Enum.GetValues<ProfileType>()"
-                          DisplayText="t => t.GetDescription()"
-                          Disabled="IsEdit" />
-            </label>
+            @if (!IsEdit)
+            {
+                <label>
+                    Profile type
+                    <Dropdown TValue="ProfileType"
+                              @bind-Value="Input.Type"
+                              Items="Enum.GetValues<ProfileType>()"
+                              DisplayText="t => t.GetDescription()" />
+                </label>
+            }
 
             <label>
                 Schedule

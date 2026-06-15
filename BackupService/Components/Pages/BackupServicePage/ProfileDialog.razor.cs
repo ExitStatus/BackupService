@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using BackupService.Components.Controls;
 using BackupService.Enumerations;
+using BackupService.Extensions;
 using BackupService.Profiles;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
@@ -37,6 +38,10 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private bool IsEdit => ProfileId.HasValue;
 
+        private string DialogTitle => IsEdit
+            ? $"Edit {Input.Type.GetDescription()} Profile"
+            : "Create Profile";
+
         private string ScheduleText => _schedule is not null
             ? _schedule.ToHumanReadable()
             : ScheduleDefinition.Describe(_existingScheduleCron);
@@ -71,6 +76,7 @@ namespace BackupService.Components.Pages.BackupServicePage
                     SourceFolder = pair.SourceFolder,
                     TargetFolder = pair.TargetFolder,
                     WatchFolder = pair.WatchFolder,
+                    AllowDeletions = pair.AllowDeletions,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
                 });
             }
@@ -97,7 +103,7 @@ namespace BackupService.Components.Pages.BackupServicePage
                 var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
                 var folderPairs = _folderPairs
-                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.WatchFolder, p.OverwriteBehaviour))
+                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.WatchFolder, p.AllowDeletions, p.OverwriteBehaviour))
                     .ToList();
 
                 if (ProfileId is { } id)

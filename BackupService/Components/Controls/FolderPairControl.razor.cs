@@ -61,6 +61,7 @@ namespace BackupService.Components.Controls
             SourceFolder = source.SourceFolder,
             TargetFolder = source.TargetFolder,
             WatchFolder = source.WatchFolder,
+            AllowDeletions = source.AllowDeletions,
             OverwriteBehaviour = source.OverwriteBehaviour,
         };
     }
@@ -78,6 +79,8 @@ namespace BackupService.Components.Controls
         public string TargetFolder { get; set; } = string.Empty;
 
         public bool WatchFolder { get; set; }
+
+        public bool AllowDeletions { get; set; }
 
         public OverwriteBehaviour OverwriteBehaviour { get; set; }
     }
