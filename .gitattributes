@@ -1,0 +1,7 @@
+# Windows project: check out all text files with CRLF line endings.
+* text=auto eol=crlf
+
+# Binary assets: never alter line endings.
+*.png binary
+*.ico binary
+*.db binary
