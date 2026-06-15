@@ -1,5 +1,6 @@
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Logging;
 using BackupService.Profiles;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -32,7 +33,7 @@ namespace BackupService.UnitTests.Profiles
 
             var factory = new Mock<IDatabaseContextFactory>();
             factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
-            _service = new ProfileService(factory.Object);
+            _service = new ProfileService(factory.Object, new OperationLogFactory(factory.Object));
         }
 
         [TearDown]
@@ -79,6 +80,34 @@ namespace BackupService.UnitTests.Profiles
             var profile = await context.Profiles.Include(p => p.FolderPairs).SingleAsync();
 
             profile.FolderPairs.Select(p => p.SourceFolder).Should().BeEquivalentTo([@"C:\A", @"C:\B"]);
+        }
+
+        [Test]
+        public async Task CreateAsync_WritesOperationLogWithProfileDetails()
+        {
+            await _service.CreateAsync("Docs", "my docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            [
+                new FolderPairInput(0, "Pair A", @"C:\A", @"D:\A", WatchFolder: true, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.AlwaysOverwrite),
+                new FolderPairInput(0, "Pair B", @"C:\B", @"D:\B", WatchFolder: false, AllowDeletions: true, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
+            ]);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.Include(l => l.Details).SingleAsync();
+
+            log.Name.Should().Be("Profile created: Docs");
+
+            var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
+            messages.Should().Contain("Name: Docs");
+            messages.Should().Contain("Description: my docs");
+            messages.Should().Contain(m => m.StartsWith("Type:"));
+            messages.Should().Contain(m => m.StartsWith("Schedule:"));
+            messages.Should().Contain("Enabled: Yes");
+            // Each folder-pair detail is its own row, not one delimited string.
+            messages.Should().Contain("Folder pair: Pair A");
+            messages.Should().Contain(@"Source: C:\A");
+            messages.Should().Contain(@"Target: D:\A");
+            messages.Should().Contain("Folder pair: Pair B");
+            messages.Should().Contain("Allow deletions: Yes");
         }
 
         [Test]
@@ -130,6 +159,31 @@ namespace BackupService.UnitTests.Profiles
         }
 
         [Test]
+        public async Task UpdateAsync_WritesOperationLogOfChangedFields()
+        {
+            await _service.CreateAsync("Docs", "desc", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+                [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", WatchFolder: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+            var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
+            var pairId = original!.FolderPairs.Single().Id;
+
+            // Change the name, enabled, and the folder pair's target; leave description/schedule alone.
+            await _service.UpdateAsync(original.Id, "Photos", "desc", "0 2 * * *", enabled: false,
+                [new FolderPairInput(pairId, "Src pair", @"C:\Src", @"E:\Backup", WatchFolder: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.Include(l => l.Details)
+                .SingleAsync(l => l.Name == "Profile updated: Docs");
+
+            var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
+            messages.Should().Contain("Name changed from 'Docs' to 'Photos'");
+            messages.Should().Contain("Enabled changed from 'Yes' to 'No'");
+            messages.Should().Contain(@"Folder pair 'Src pair' target changed from 'D:\Dst' to 'E:\Backup'");
+            // Unchanged fields are not logged.
+            messages.Should().NotContain(m => m.StartsWith("Description"));
+            messages.Should().NotContain(m => m.StartsWith("Schedule"));
+        }
+
+        [Test]
         public async Task UpdateAsync_AddsAndRemovesFolderPairs()
         {
             await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
@@ -173,6 +227,25 @@ namespace BackupService.UnitTests.Profiles
             var act = async () => await _service.DeleteAsync(999);
 
             await act.Should().NotThrowAsync();
+        }
+
+        [Test]
+        public async Task DeleteAsync_WritesOperationLog()
+        {
+            await _service.CreateAsync("Docs", "my docs", ProfileType.FolderPair, null, enabled: true,
+                [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", WatchFolder: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+            var id = await GetOnlyProfileIdAsync();
+
+            await _service.DeleteAsync(id);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.Include(l => l.Details)
+                .SingleAsync(l => l.Name == "Profile deleted: Docs");
+
+            var messages = log.Details.Select(d => d.Message).ToList();
+            messages.Should().Contain("Name: Docs");
+            messages.Should().Contain("Description: my docs");
+            messages.Should().Contain(m => m.StartsWith("Type:"));
         }
 
         [Test]

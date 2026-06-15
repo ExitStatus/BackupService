@@ -17,6 +17,10 @@ namespace BackupService.Database
 
         public DbSet<FolderPair> FolderPairs => Set<FolderPair>();
 
+        public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
+
+        public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
