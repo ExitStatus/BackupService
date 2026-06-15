@@ -1,6 +1,7 @@
 using BackupService.Authentication;
 using BackupService.Components.Controls;
 using BackupService.Database;
+using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.Authentication

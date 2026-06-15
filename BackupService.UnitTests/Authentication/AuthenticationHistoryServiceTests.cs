@@ -1,5 +1,6 @@
 using BackupService.Authentication;
 using BackupService.Database;
+using BackupService.Enumerations;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;

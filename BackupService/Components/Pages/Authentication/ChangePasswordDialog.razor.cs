@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using BackupService.Authentication;
 using BackupService.Database;
+using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.Authentication

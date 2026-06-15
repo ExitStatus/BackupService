@@ -215,6 +215,15 @@ button:hover,
     background: var(--border);
 }
 
+.btn-danger {
+    background: var(--danger);
+    color: #1a1010;
+}
+
+.btn-danger:hover {
+    background: #ff8585;
+}
+
 /* Icon-only button (e.g. settings cog in the top bar) */
 .icon-btn {
     display: inline-flex;
@@ -268,6 +277,88 @@ textarea:focus {
     box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.25);
 }
 
+/* Custom dropdown (replaces native <select>, whose OS-drawn popup ignores the dark
+   theme on Windows). Fully theme-controlled. */
+.dropdown {
+    position: relative;
+    margin-top: 0.35rem;
+}
+
+.dropdown-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-align: left;
+}
+
+.dropdown-toggle:hover {
+    background: var(--surface-2);
+}
+
+.dropdown.open .dropdown-toggle {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.25);
+}
+
+.dropdown-toggle:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.dropdown-caret {
+    color: var(--text-muted);
+}
+
+.dropdown-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+}
+
+.dropdown-menu {
+    position: absolute;
+    z-index: 1201;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0.25rem 0;
+    list-style: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.8rem;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.dropdown-item:hover {
+    background: var(--border);
+}
+
+.dropdown-item.selected {
+    color: var(--accent);
+}
+
 .validation-message {
     color: var(--danger);
     font-size: 0.85rem;
@@ -316,6 +407,108 @@ textarea:focus {
     margin-top: 1.25rem;
 }
 
+.modal-intro {
+    margin-bottom: 1.25rem;
+    color: var(--text-muted);
+}
+
+/* Wider modals for the richer dialogs. */
+.modal.create-profile { max-width: 540px; }
+.modal.folder-browser { max-width: 540px; }
+.modal.schedule-dialog { max-width: 460px; }
+
+/* Checkboxes must not inherit the full-width input rule. */
+input[type="checkbox"] {
+    width: auto;
+    display: inline-block;
+    margin: 0 0.45rem 0 0;
+}
+
+label.check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    color: var(--text);
+}
+
+.field-label {
+    margin-bottom: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* A text input followed by an action button (Browse, Set schedule…). */
+.input-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.35rem;
+}
+
+.input-row > input {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+}
+
+.input-row > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+/* Page content header (title + primary action). */
+.content-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* Folder browser */
+.folder-path {
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+.folder-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.folder-entry {
+    width: 100%;
+    padding: 0.45rem 0.8rem;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.folder-entry:hover { background: var(--border); }
+.folder-entry.up { color: var(--text-muted); }
+
+/* Schedule builder */
+.weekdays {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.weekdays label.check { margin-bottom: 0; }
+
 /* Data table */
 .history {
     margin-top: 2rem;
@@ -348,8 +541,44 @@ textarea:focus {
     background: var(--surface-2);
 }
 
+/* Sortable column header: a button styled to read as a plain header label. */
+.sort-header {
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sort-header:hover {
+    background: transparent;
+    color: var(--text);
+}
+
 .table tbody tr:last-child td {
     border-bottom: 0;
+}
+
+/* Narrow trailing column holding a row action icon. */
+.table .action-col {
+    width: 1%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.table .action-col .icon-btn {
+    padding: 0.2rem;
+}
+
+.row-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: center;
 }
 
 .pager {

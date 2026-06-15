@@ -1,4 +1,5 @@
 using BackupService.Database;
+using BackupService.Enumerations;
 
 namespace BackupService.Authentication
 {

@@ -1,0 +1,62 @@
+<div class="modal-overlay">
+    <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit profile" : "Create profile")">
+        <h2>@(IsEdit ? "Edit Profile" : "Create Profile")</h2>
+
+        <p class="modal-intro">
+            A folder pair profile is a one way copy from the source folder the target folder
+            for a file oriented backup
+        </p>
+
+        <EditForm Model="Input" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+
+            <label>
+                Name
+                <InputText @bind-Value="Input.Name" />
+            </label>
+
+            <label>
+                Description
+                <InputTextArea rows="3" @bind-Value="Input.Description" />
+            </label>
+
+            <label>
+                Profile type
+                <Dropdown TValue="ProfileType"
+                          @bind-Value="Input.Type"
+                          Items="Enum.GetValues<ProfileType>()"
+                          DisplayText="t => t.GetDescription()"
+                          Disabled="IsEdit" />
+            </label>
+
+            <label>
+                Schedule
+                <div class="input-row">
+                    <input type="text" readonly value="@ScheduleText" />
+                    <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
+                </div>
+            </label>
+
+            @switch (Input.Type)
+            {
+                case ProfileType.FolderPair:
+                    <FolderPairControl @ref="_folderPairControl" Model="_folderPair" />
+                    break;
+            }
+
+            <ValidationSummary />
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+                <button type="submit">@(IsEdit ? "Save" : "Create")</button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@if (_showSchedule)
+{
+    <ScheduleDialog Initial="_schedule"
+                    OnApply="OnScheduleApplied"
+                    OnCancel="() => _showSchedule = false" />
+}

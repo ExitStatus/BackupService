@@ -1,14 +1,8 @@
+using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Controls
 {
-    public enum NotificationLevel
-    {
-        Success,
-        Warning,
-        Error,
-    }
-
     /// <summary>
     /// Reusable, non-modal toast notification. Call <see cref="Show"/> (via @ref) to
     /// display a message at the bottom-right of the window; it stays visible for

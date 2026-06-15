@@ -18,6 +18,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         private static readonly IReadOnlyList<NavItem> Items =
         [
             new NavItem("dashboard", "Dashboard", "Icons/dashboard.png"),
+            new NavItem("profiles", "Backup Profiles", "Icons/profiles.png"),
         ];
 
         protected override async Task OnInitializedAsync()

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using BackupService.Enumerations;
 
 namespace BackupService.Database
 {
@@ -26,13 +27,5 @@ namespace BackupService.Database
 
         [MaxLength(2048)]
         public string? ErrorMessage { get; set; }
-    }
-
-    public enum BackupStatus
-    {
-        Pending = 0,
-        Running = 1,
-        Completed = 2,
-        Failed = 3,
     }
 }

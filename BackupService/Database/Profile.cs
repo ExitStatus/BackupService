@@ -1,0 +1,33 @@
+using System.ComponentModel.DataAnnotations;
+using BackupService.Enumerations;
+
+namespace BackupService.Database
+{
+    /// <summary>
+    /// A backup profile: a named group of one or more <see cref="FolderPair"/> records.
+    /// </summary>
+    public class Profile
+    {
+        public int Id { get; set; }
+
+        [MaxLength(256)]
+        public required string Name { get; set; }
+
+        [MaxLength(1000)]
+        public string? Description { get; set; }
+
+        public ProfileType Type { get; set; }
+
+        /// <summary>Cron-style schedule string; null/empty when not scheduled.</summary>
+        [MaxLength(256)]
+        public string? Schedule { get; set; }
+
+        public DateTimeOffset DateCreated { get; set; }
+
+        public DateTimeOffset? DateLastRun { get; set; }
+
+        public ProfileStatus Status { get; set; }
+
+        public ICollection<FolderPair> FolderPairs { get; set; } = new List<FolderPair>();
+    }
+}

@@ -1,0 +1,35 @@
+<label>
+    Source folder
+    <div class="input-row">
+        <input type="text" @bind="Model.SourceFolder" />
+        <button type="button" class="btn-secondary" @onclick="BrowseSource">Browse</button>
+    </div>
+    @if (_sourceError)
+    {
+        <span class="validation-message">The Source folder field is required.</span>
+    }
+</label>
+
+<label>
+    Target folder
+    <div class="input-row">
+        <input type="text" @bind="Model.TargetFolder" />
+        <button type="button" class="btn-secondary" @onclick="BrowseTarget">Browse</button>
+    </div>
+    @if (_targetError)
+    {
+        <span class="validation-message">The Target folder field is required.</span>
+    }
+</label>
+
+<label class="check">
+    <input type="checkbox" @bind="Model.WatchFolder" />
+    Watch folder
+</label>
+
+@if (_browseFor is not null)
+{
+    <FolderBrowserDialog InitialPath="@CurrentBrowsePath"
+                         OnSelect="OnFolderSelected"
+                         OnCancel="() => _browseFor = null" />
+}

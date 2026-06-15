@@ -1,0 +1,12 @@
+<div class="modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="@Title">
+        <h2>@Title</h2>
+
+        <p class="modal-intro">@Message</p>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">@CancelText</button>
+            <button type="button" class="btn-danger" @onclick="OnConfirm">@ConfirmText</button>
+        </div>
+    </div>
+</div>

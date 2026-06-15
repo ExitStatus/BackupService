@@ -1,0 +1,30 @@
+<div class="modal-overlay">
+    <div class="modal folder-browser" role="dialog" aria-modal="true" aria-label="Select folder">
+        <h2>Select Folder</h2>
+
+        <div class="folder-path">@(_currentPath ?? "This PC")</div>
+
+        <ul class="folder-list">
+            @if (_currentPath is null)
+            {
+                @foreach (var root in _roots)
+                {
+                    <li><button type="button" class="folder-entry" @onclick="() => Open(root)">@root</button></li>
+                }
+            }
+            else
+            {
+                <li><button type="button" class="folder-entry up" @onclick="GoUp">..</button></li>
+                @foreach (var dir in _directories)
+                {
+                    <li><button type="button" class="folder-entry" @onclick="() => Open(dir)">@DisplayName(dir)</button></li>
+                }
+            }
+        </ul>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="SelectAsync" disabled="@(_currentPath is null)">Select</button>
+        </div>
+    </div>
+</div>

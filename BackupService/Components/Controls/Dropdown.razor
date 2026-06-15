@@ -1,0 +1,25 @@
+@typeparam TValue
+
+<div class="dropdown @(_open ? "open" : null)">
+    <button type="button" class="dropdown-toggle" disabled="@Disabled" @onclick="Toggle">
+        <span class="dropdown-value">@DisplayText(Value)</span>
+        <span class="dropdown-caret" aria-hidden="true">▾</span>
+    </button>
+
+    @if (_open)
+    {
+        <div class="dropdown-backdrop" @onclick="Close"></div>
+        <ul class="dropdown-menu" role="listbox">
+            @foreach (var item in Items)
+            {
+                var selected = EqualityComparer<TValue>.Default.Equals(item, Value);
+                <li role="option" aria-selected="@selected">
+                    <button type="button" class="dropdown-item @(selected ? "selected" : null)"
+                            @onclick="() => SelectAsync(item)">
+                        @DisplayText(item)
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+</div>

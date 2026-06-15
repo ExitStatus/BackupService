@@ -1,4 +1,5 @@
 using BackupService.Database;
+using BackupService.Enumerations;
 using Microsoft.EntityFrameworkCore;
 
 namespace BackupService.Authentication

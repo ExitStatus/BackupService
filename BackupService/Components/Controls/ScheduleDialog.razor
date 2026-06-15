@@ -1,0 +1,71 @@
+<div class="modal-overlay">
+    <div class="modal schedule-dialog" role="dialog" aria-modal="true" aria-label="Set schedule">
+        <h2>Schedule</h2>
+
+        <label>
+            Frequency
+            <Dropdown TValue="ScheduleMode"
+                      @bind-Value="_def.Mode"
+                      Items="Enum.GetValues<ScheduleMode>()"
+                      DisplayText="ModeLabel" />
+        </label>
+
+        @switch (_def.Mode)
+        {
+            case ScheduleMode.EveryNMinutes:
+                <label>
+                    Run every (minutes)
+                    <input type="number" min="1" max="59" @bind="_def.IntervalMinutes" />
+                </label>
+                break;
+
+            case ScheduleMode.Hourly:
+                <label>
+                    At minute
+                    <input type="number" min="0" max="59" @bind="_def.Minute" />
+                </label>
+                break;
+
+            case ScheduleMode.Daily:
+                <label>
+                    At time
+                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                </label>
+                break;
+
+            case ScheduleMode.Weekly:
+                <div class="field-label">On days</div>
+                <div class="weekdays">
+                    @foreach (var day in WeekDays)
+                    {
+                        <label class="check">
+                            <input type="checkbox" checked="@_def.DaysOfWeek.Contains(day)"
+                                   @onchange="e => ToggleDay(day, (bool)e.Value!)" />
+                            @day.ToString()[..3]
+                        </label>
+                    }
+                </div>
+                <label>
+                    At time
+                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                </label>
+                break;
+
+            case ScheduleMode.Monthly:
+                <label>
+                    On day of month
+                    <input type="number" min="1" max="31" @bind="_def.DayOfMonth" />
+                </label>
+                <label>
+                    At time
+                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                </label>
+                break;
+        }
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="ApplyAsync">Apply</button>
+        </div>
+    </div>
+</div>

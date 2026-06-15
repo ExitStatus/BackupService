@@ -3,6 +3,7 @@ using System;
 using BackupService.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BackupService.Database.Migrations
 {
     [DbContext(typeof(BackupDbContext))]
-    partial class BackupDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260615071014_MoveScheduleToProfile")]
+    partial class MoveScheduleToProfile
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
@@ -35,7 +38,7 @@ namespace BackupService.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AdminCredentials", (string)null);
+                    b.ToTable("AdminCredentials");
                 });
 
             modelBuilder.Entity("BackupService.Database.AuthenticationHistory", b =>
@@ -54,7 +57,7 @@ namespace BackupService.Database.Migrations
 
                     b.HasIndex("TimestampUtc");
 
-                    b.ToTable("AuthenticationHistory", (string)null);
+                    b.ToTable("AuthenticationHistory");
                 });
 
             modelBuilder.Entity("BackupService.Database.BackupRecord", b =>
@@ -91,7 +94,7 @@ namespace BackupService.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("BackupRecords", (string)null);
+                    b.ToTable("BackupRecords");
                 });
 
             modelBuilder.Entity("BackupService.Database.FolderPair", b =>
@@ -126,7 +129,7 @@ namespace BackupService.Database.Migrations
 
                     b.HasIndex("ProfileId");
 
-                    b.ToTable("FolderPairs", (string)null);
+                    b.ToTable("FolderPairs");
                 });
 
             modelBuilder.Entity("BackupService.Database.Profile", b =>
@@ -162,7 +165,7 @@ namespace BackupService.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Profiles", (string)null);
+                    b.ToTable("Profiles");
                 });
 
             modelBuilder.Entity("BackupService.Database.FolderPair", b =>
