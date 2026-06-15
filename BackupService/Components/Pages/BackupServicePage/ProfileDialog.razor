@@ -20,6 +20,9 @@
                 <InputTextArea rows="3" @bind-Value="Input.Description" />
             </label>
 
+            <div class="field-label">Enabled</div>
+            <ProfileEnabledControl @bind-Value="Input.Enabled" />
+
             @if (!IsEdit)
             {
                 <label>

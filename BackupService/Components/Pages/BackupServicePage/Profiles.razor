@@ -16,6 +16,7 @@ else
     <table class="table">
         <thead>
             <tr>
+                <th class="enabled-col">Enabled</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Name)">Name@(SortIndicator(ProfileSortColumn.Name))</button></th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Description)">Description@(SortIndicator(ProfileSortColumn.Description))</button></th>
                 <th>Type</th>
@@ -29,6 +30,10 @@ else
             @foreach (var profile in _profiles.Items)
             {
                 <tr>
+                    <td class="enabled-col">
+                        <ProfileEnabledControl Value="profile.Enabled"
+                                               ValueChanged="enabled => ToggleEnabledAsync(profile, enabled)" />
+                    </td>
                     <td>@profile.Name</td>
                     <td>@profile.Description</td>
                     <td>@profile.Type.GetDescription()</td>

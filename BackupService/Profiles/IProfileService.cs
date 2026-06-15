@@ -16,6 +16,7 @@ namespace BackupService.Profiles
             string? description,
             ProfileType type,
             string? scheduleCron,
+            bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default);
 
@@ -40,6 +41,12 @@ namespace BackupService.Profiles
         Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Sets just the <see cref="Profile.Enabled"/> flag (used by the inline grid toggle).
+        /// No-op if the profile doesn't exist.
+        /// </summary>
+        Task SetEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Updates an existing profile and syncs its folder pairs (adds new ones, updates
         /// matched ones by id, removes the rest). The profile type is fixed and not changed.
         /// </summary>
@@ -48,6 +55,7 @@ namespace BackupService.Profiles
             string name,
             string? description,
             string? scheduleCron,
+            bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default);
     }

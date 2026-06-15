@@ -85,6 +85,13 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync(_page);
         }
 
+        private async Task ToggleEnabledAsync(Profile profile, bool enabled)
+        {
+            await ProfileService.SetEnabledAsync(profile.Id, enabled);
+            profile.Enabled = enabled; // update the in-list entity without a full reload
+            _notification.Show(enabled ? "Profile enabled" : "Profile disabled", NotificationLevel.Success);
+        }
+
         private void OpenDelete(Profile profile) => _deleteTarget = profile;
 
         private async Task ConfirmDeleteAsync()

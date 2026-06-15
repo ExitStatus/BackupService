@@ -1,0 +1,8 @@
+<button type="button"
+        class="toggle @(Value ? "on" : "off")"
+        role="switch"
+        aria-checked="@Value"
+        @onclick="ToggleAsync"
+        disabled="@Disabled">
+    <span class="toggle-knob"></span>
+</button>

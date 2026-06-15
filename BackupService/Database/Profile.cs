@@ -18,6 +18,9 @@ namespace BackupService.Database
 
         public ProfileType Type { get; set; }
 
+        /// <summary>Whether the profile participates in backups. Defaults to enabled.</summary>
+        public bool Enabled { get; set; } = true;
+
         /// <summary>Cron-style schedule string; null/empty when not scheduled.</summary>
         [MaxLength(256)]
         public string? Schedule { get; set; }

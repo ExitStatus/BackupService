@@ -15,6 +15,7 @@ namespace BackupService.Profiles
             string? description,
             ProfileType type,
             string? scheduleCron,
+            bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default)
         {
@@ -26,6 +27,7 @@ namespace BackupService.Profiles
                 Description = description,
                 Type = type,
                 Schedule = scheduleCron,
+                Enabled = enabled,
                 DateCreated = DateTimeOffset.UtcNow,
                 Status = ProfileStatus.Idle,
             };
@@ -128,11 +130,26 @@ namespace BackupService.Profiles
             await db.SaveChangesAsync(cancellationToken);
         }
 
+        public async Task SetEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var profile = await db.Profiles.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+            if (profile is null)
+            {
+                return;
+            }
+
+            profile.Enabled = enabled;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
         public async Task UpdateAsync(
             int id,
             string name,
             string? description,
             string? scheduleCron,
+            bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default)
         {
@@ -150,6 +167,7 @@ namespace BackupService.Profiles
             profile.Name = name;
             profile.Description = description;
             profile.Schedule = scheduleCron;
+            profile.Enabled = enabled;
 
             // Remove pairs the user deleted (not present by id in the new set).
             var keptIds = folderPairs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();

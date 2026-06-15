@@ -62,6 +62,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             Input.Name = profile.Name;
             Input.Description = profile.Description;
             Input.Type = profile.Type;
+            Input.Enabled = profile.Enabled;
             _existingScheduleCron = profile.Schedule;
             // Parse the stored cron back into the builder so the schedule shows human-readable
             // and the schedule dialog opens pre-filled.
@@ -108,11 +109,11 @@ namespace BackupService.Components.Pages.BackupServicePage
 
                 if (ProfileId is { } id)
                 {
-                    await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, folderPairs);
+                    await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs);
                 }
                 else
                 {
-                    await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, folderPairs);
+                    await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs);
                 }
             }
 
@@ -127,6 +128,8 @@ namespace BackupService.Components.Pages.BackupServicePage
             public string? Description { get; set; }
 
             public ProfileType Type { get; set; } = ProfileType.FolderPair;
+
+            public bool Enabled { get; set; } = true;
         }
     }
 }

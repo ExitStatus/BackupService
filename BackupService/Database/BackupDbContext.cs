@@ -16,5 +16,15 @@ namespace BackupService.Database
         public DbSet<Profile> Profiles => Set<Profile>();
 
         public DbSet<FolderPair> FolderPairs => Set<FolderPair>();
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            // New profiles default to enabled; existing rows backfill to true on migration.
+            modelBuilder.Entity<Profile>()
+                .Property(p => p.Enabled)
+                .HasDefaultValue(true);
+        }
     }
 }
