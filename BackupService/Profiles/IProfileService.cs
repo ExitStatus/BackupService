@@ -9,16 +9,14 @@ namespace BackupService.Profiles
     public interface IProfileService
     {
         /// <summary>
-        /// Creates a new profile of the given type with a single folder pair.
+        /// Creates a new profile of the given type with one or more folder pairs.
         /// </summary>
         Task CreateAsync(
             string name,
             string? description,
             ProfileType type,
-            string sourceFolder,
-            string targetFolder,
-            bool watchFolder,
             string? scheduleCron,
+            IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -42,17 +40,15 @@ namespace BackupService.Profiles
         Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Updates an existing profile and its single folder pair. The profile type is fixed
-        /// and is not changed.
+        /// Updates an existing profile and syncs its folder pairs (adds new ones, updates
+        /// matched ones by id, removes the rest). The profile type is fixed and not changed.
         /// </summary>
         Task UpdateAsync(
             int id,
             string name,
             string? description,
-            string sourceFolder,
-            string targetFolder,
-            bool watchFolder,
             string? scheduleCron,
+            IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default);
     }
 }

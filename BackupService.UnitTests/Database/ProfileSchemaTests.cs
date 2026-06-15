@@ -45,6 +45,7 @@ namespace BackupService.UnitTests.Database
                     {
                         new FolderPair
                         {
+                            Name = "Docs pair",
                             SourceFolder = @"C:\Docs",
                             TargetFolder = @"D:\Backup\Docs",
                             WatchFolder = true,
@@ -65,6 +66,7 @@ namespace BackupService.UnitTests.Database
                 profile.Schedule.Should().Be("0 2 * * *");
 
                 var pair = profile.FolderPairs.Should().ContainSingle().Subject;
+                pair.Name.Should().Be("Docs pair");
                 pair.SourceFolder.Should().Be(@"C:\Docs");
                 pair.TargetFolder.Should().Be(@"D:\Backup\Docs");
                 pair.WatchFolder.Should().BeTrue();
@@ -84,8 +86,8 @@ namespace BackupService.UnitTests.Database
                     DateCreated = DateTimeOffset.UtcNow,
                     FolderPairs =
                     {
-                        new FolderPair { SourceFolder = "a", TargetFolder = "b" },
-                        new FolderPair { SourceFolder = "c", TargetFolder = "d" },
+                        new FolderPair { Name = "p1", SourceFolder = "a", TargetFolder = "b" },
+                        new FolderPair { Name = "p2", SourceFolder = "c", TargetFolder = "d" },
                     },
                 });
                 await context.SaveChangesAsync();

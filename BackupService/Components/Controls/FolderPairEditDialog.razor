@@ -1,0 +1,64 @@
+<div class="modal-overlay">
+    <div class="modal folder-pair-edit" role="dialog" aria-modal="true" aria-label="Folder pair">
+        <h2>Folder pair</h2>
+
+        <label>
+            Name
+            <input type="text" @bind="Model.Name" />
+            @if (_nameError)
+            {
+                <span class="validation-message">The Name field is required.</span>
+            }
+        </label>
+
+        <label>
+            Source folder
+            <div class="input-row">
+                <input type="text" @bind="Model.SourceFolder" />
+                <button type="button" class="btn-secondary" @onclick="BrowseSource">Browse</button>
+            </div>
+            @if (_sourceError)
+            {
+                <span class="validation-message">The Source folder field is required.</span>
+            }
+        </label>
+
+        <label>
+            Target folder
+            <div class="input-row">
+                <input type="text" @bind="Model.TargetFolder" />
+                <button type="button" class="btn-secondary" @onclick="BrowseTarget">Browse</button>
+            </div>
+            @if (_targetError)
+            {
+                <span class="validation-message">The Target folder field is required.</span>
+            }
+        </label>
+
+        <label class="check">
+            <input type="checkbox" @bind="Model.WatchFolder" />
+            Watch folder
+        </label>
+
+        <label>
+            Overwrite behaviour
+            <Dropdown TValue="OverwriteBehaviour"
+                      @bind-Value="Model.OverwriteBehaviour"
+                      Items="Enum.GetValues<OverwriteBehaviour>()"
+                      DisplayText="b => b.GetDescription()" />
+        </label>
+        <p class="help-text">@Model.OverwriteBehaviour.GetHelpText()</p>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="SaveAsync">Save</button>
+        </div>
+    </div>
+</div>
+
+@if (_browseFor is not null)
+{
+    <FolderBrowserDialog InitialPath="@CurrentBrowsePath"
+                         OnSelect="OnFolderSelected"
+                         OnCancel="() => _browseFor = null" />
+}

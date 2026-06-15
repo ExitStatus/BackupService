@@ -413,9 +413,20 @@ textarea:focus {
 }
 
 /* Wider modals for the richer dialogs. */
-.modal.create-profile { max-width: 540px; }
+.modal.create-profile { max-width: 810px; }
 .modal.folder-browser { max-width: 540px; }
 .modal.schedule-dialog { max-width: 460px; }
+.modal.folder-pair-edit { max-width: 540px; }
+
+/* Folder pairs list inside the profile dialog. */
+.folder-pairs-table {
+    margin: 0.35rem 0 0.75rem;
+}
+
+.folder-pairs-empty {
+    margin: 0.35rem 0 0.75rem;
+    color: var(--text-muted);
+}
 
 /* Checkboxes must not inherit the full-width input rule. */
 input[type="checkbox"] {
@@ -436,6 +447,13 @@ label.check {
     margin-bottom: 0.35rem;
     color: var(--text-muted);
     font-size: 0.9rem;
+}
+
+/* Explanatory help text under a field (e.g. the selected enum's HelpText). */
+.help-text {
+    margin: 0.35rem 0 1rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
 }
 
 /* A text input followed by an action button (Browse, Set schedule…). */

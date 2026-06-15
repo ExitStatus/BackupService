@@ -14,15 +14,13 @@ namespace BackupService.Profiles
             string name,
             string? description,
             ProfileType type,
-            string sourceFolder,
-            string targetFolder,
-            bool watchFolder,
             string? scheduleCron,
+            IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default)
         {
             await using var db = contextFactory.CreateDbContext();
 
-            db.Profiles.Add(new Profile
+            var profile = new Profile
             {
                 Name = name,
                 Description = description,
@@ -30,21 +28,27 @@ namespace BackupService.Profiles
                 Schedule = scheduleCron,
                 DateCreated = DateTimeOffset.UtcNow,
                 Status = ProfileStatus.Idle,
-                FolderPairs =
-                {
-                    new FolderPair
-                    {
-                        SourceFolder = sourceFolder,
-                        TargetFolder = targetFolder,
-                        WatchFolder = watchFolder,
-                        Status = FolderPairStatus.Idle,
-                        LastRunStatus = FolderPairLastRunStatus.None,
-                    },
-                },
-            });
+            };
 
+            foreach (var input in folderPairs)
+            {
+                profile.FolderPairs.Add(NewFolderPair(input));
+            }
+
+            db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
         }
+
+        private static FolderPair NewFolderPair(FolderPairInput input) => new()
+        {
+            Name = input.Name,
+            SourceFolder = input.SourceFolder,
+            TargetFolder = input.TargetFolder,
+            WatchFolder = input.WatchFolder,
+            OverwriteBehaviour = input.OverwriteBehaviour,
+            Status = FolderPairStatus.Idle,
+            LastRunStatus = FolderPairLastRunStatus.None,
+        };
 
         public async Task<PagedResult<Profile>> GetPageAsync(
             int pageNumber,
@@ -127,10 +131,8 @@ namespace BackupService.Profiles
             int id,
             string name,
             string? description,
-            string sourceFolder,
-            string targetFolder,
-            bool watchFolder,
             string? scheduleCron,
+            IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken = default)
         {
             await using var db = contextFactory.CreateDbContext();
@@ -148,22 +150,33 @@ namespace BackupService.Profiles
             profile.Description = description;
             profile.Schedule = scheduleCron;
 
-            var pair = profile.FolderPairs.FirstOrDefault();
-            if (pair is null)
+            // Remove pairs the user deleted (not present by id in the new set).
+            var keptIds = folderPairs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
+            foreach (var removed in profile.FolderPairs.Where(p => !keptIds.Contains(p.Id)).ToList())
             {
-                pair = new FolderPair
-                {
-                    SourceFolder = sourceFolder,
-                    TargetFolder = targetFolder,
-                    Status = FolderPairStatus.Idle,
-                    LastRunStatus = FolderPairLastRunStatus.None,
-                };
-                profile.FolderPairs.Add(pair);
+                profile.FolderPairs.Remove(removed);
             }
 
-            pair.SourceFolder = sourceFolder;
-            pair.TargetFolder = targetFolder;
-            pair.WatchFolder = watchFolder;
+            // Update matched pairs and add new ones.
+            foreach (var input in folderPairs)
+            {
+                var existing = input.Id != 0
+                    ? profile.FolderPairs.FirstOrDefault(p => p.Id == input.Id)
+                    : null;
+
+                if (existing is null)
+                {
+                    profile.FolderPairs.Add(NewFolderPair(input));
+                }
+                else
+                {
+                    existing.Name = input.Name;
+                    existing.SourceFolder = input.SourceFolder;
+                    existing.TargetFolder = input.TargetFolder;
+                    existing.WatchFolder = input.WatchFolder;
+                    existing.OverwriteBehaviour = input.OverwriteBehaviour;
+                }
+            }
 
             await db.SaveChangesAsync(cancellationToken);
         }

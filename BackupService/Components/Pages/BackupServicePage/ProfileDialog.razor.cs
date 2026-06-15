@@ -10,8 +10,8 @@ namespace BackupService.Components.Pages.BackupServicePage
     /// <summary>
     /// Self-contained modal for creating or editing a backup profile. With no
     /// <see cref="ProfileId"/> it creates; with one it loads that profile and saves changes.
-    /// The profile type selects which editor is shown (FolderPair → <see cref="FolderPairControl"/>)
-    /// and cannot be changed while editing.
+    /// The profile type selects which editor is shown (FolderPair → <see cref="FolderPairControl"/>,
+    /// which manages the profile's list of folder pairs) and cannot be changed while editing.
     /// </summary>
     public partial class ProfileDialog : ComponentBase
     {
@@ -29,7 +29,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         public EventCallback OnSaved { get; set; }
 
         private InputModel Input { get; set; } = new();
-        private readonly FolderPairModel _folderPair = new();
+        private readonly List<FolderPairModel> _folderPairs = [];
         private FolderPairControl? _folderPairControl;
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
@@ -62,12 +62,17 @@ namespace BackupService.Components.Pages.BackupServicePage
             // and the schedule dialog opens pre-filled.
             _schedule = ScheduleDefinition.FromCron(profile.Schedule);
 
-            var pair = profile.FolderPairs.FirstOrDefault();
-            if (pair is not null)
+            foreach (var pair in profile.FolderPairs)
             {
-                _folderPair.SourceFolder = pair.SourceFolder;
-                _folderPair.TargetFolder = pair.TargetFolder;
-                _folderPair.WatchFolder = pair.WatchFolder;
+                _folderPairs.Add(new FolderPairModel
+                {
+                    Id = pair.Id,
+                    Name = pair.Name,
+                    SourceFolder = pair.SourceFolder,
+                    TargetFolder = pair.TargetFolder,
+                    WatchFolder = pair.WatchFolder,
+                    OverwriteBehaviour = pair.OverwriteBehaviour,
+                });
             }
         }
 
@@ -91,27 +96,17 @@ namespace BackupService.Components.Pages.BackupServicePage
                 // Keep the existing schedule when the user hasn't built a new one.
                 var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
+                var folderPairs = _folderPairs
+                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.WatchFolder, p.OverwriteBehaviour))
+                    .ToList();
+
                 if (ProfileId is { } id)
                 {
-                    await ProfileService.UpdateAsync(
-                        id,
-                        Input.Name,
-                        Input.Description,
-                        _folderPair.SourceFolder,
-                        _folderPair.TargetFolder,
-                        _folderPair.WatchFolder,
-                        scheduleCron);
+                    await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, folderPairs);
                 }
                 else
                 {
-                    await ProfileService.CreateAsync(
-                        Input.Name,
-                        Input.Description,
-                        ProfileType.FolderPair,
-                        _folderPair.SourceFolder,
-                        _folderPair.TargetFolder,
-                        _folderPair.WatchFolder,
-                        scheduleCron);
+                    await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, folderPairs);
                 }
             }
 

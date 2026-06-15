@@ -15,6 +15,9 @@ namespace BackupService.Database
 
         public Profile? Profile { get; set; }
 
+        [MaxLength(256)]
+        public required string Name { get; set; }
+
         [MaxLength(1024)]
         public required string SourceFolder { get; set; }
 
@@ -22,6 +25,8 @@ namespace BackupService.Database
         public required string TargetFolder { get; set; }
 
         public bool WatchFolder { get; set; }
+
+        public OverwriteBehaviour OverwriteBehaviour { get; set; }
 
         public FolderPairStatus Status { get; set; }
 

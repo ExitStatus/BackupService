@@ -1,62 +1,84 @@
+using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Controls
 {
     /// <summary>
-    /// Editor for a single folder pair (source/target folders, watch flag). Hosts the
-    /// folder browser sub-dialog. Shown by the Create Profile dialog when the
-    /// <c>FolderPair</c> profile type is selected. The schedule is a profile-level field
-    /// collected by the parent dialog, not here.
+    /// Editor for a profile's list of folder pairs: shows each pair (source/target/watch) with
+    /// edit and delete actions, plus an Add button that opens <see cref="FolderPairEditDialog"/>.
+    /// Bound to the <see cref="List{T}"/> it mutates in place.
     /// </summary>
     public partial class FolderPairControl : ComponentBase
     {
         [Parameter]
-        public FolderPairModel Model { get; set; } = default!;
+        public List<FolderPairModel> Items { get; set; } = default!;
 
-        private string? _browseFor; // "source" or "target"
-        private bool _sourceError;
-        private bool _targetError;
+        private FolderPairModel? _editing;
+        private int _editIndex = -1; // -1 when adding a new pair
+        private bool _error;
 
-        private string? CurrentBrowsePath =>
-            _browseFor == "source" ? Model.SourceFolder : Model.TargetFolder;
-
-        private void BrowseSource() => _browseFor = "source";
-
-        private void BrowseTarget() => _browseFor = "target";
-
-        private void OnFolderSelected(string path)
+        private void AddNew()
         {
-            if (_browseFor == "source")
-            {
-                Model.SourceFolder = path;
-            }
-            else if (_browseFor == "target")
-            {
-                Model.TargetFolder = path;
-            }
-
-            _browseFor = null;
+            _editIndex = -1;
+            _editing = new FolderPairModel();
         }
 
-        /// <summary>
-        /// Validates the required fields, surfacing inline messages. Returns true when valid.
-        /// </summary>
+        private void Edit(int index)
+        {
+            _editIndex = index;
+            _editing = Clone(Items[index]);
+        }
+
+        private void Delete(int index) => Items.RemoveAt(index);
+
+        private void OnEditSaved(FolderPairModel model)
+        {
+            if (_editIndex >= 0)
+            {
+                Items[_editIndex] = model;
+            }
+            else
+            {
+                Items.Add(model);
+            }
+
+            _editing = null;
+            _error = false;
+        }
+
+        /// <summary>Requires at least one folder pair; surfaces an inline message otherwise.</summary>
         public bool Validate()
         {
-            _sourceError = string.IsNullOrWhiteSpace(Model.SourceFolder);
-            _targetError = string.IsNullOrWhiteSpace(Model.TargetFolder);
+            _error = Items.Count == 0;
             StateHasChanged();
-            return !_sourceError && !_targetError;
+            return !_error;
         }
+
+        private static FolderPairModel Clone(FolderPairModel source) => new()
+        {
+            Id = source.Id,
+            Name = source.Name,
+            SourceFolder = source.SourceFolder,
+            TargetFolder = source.TargetFolder,
+            WatchFolder = source.WatchFolder,
+            OverwriteBehaviour = source.OverwriteBehaviour,
+        };
     }
 
     /// <summary>Editable values for a folder pair within a profile.</summary>
     public sealed class FolderPairModel
     {
+        /// <summary>Existing folder pair id, or 0 for a newly added pair.</summary>
+        public int Id { get; set; }
+
+        public string Name { get; set; } = string.Empty;
+
         public string SourceFolder { get; set; } = string.Empty;
 
         public string TargetFolder { get; set; } = string.Empty;
 
         public bool WatchFolder { get; set; }
+
+        public OverwriteBehaviour OverwriteBehaviour { get; set; }
     }
 }
