@@ -32,7 +32,7 @@ namespace BackupService.UnitTests.Scheduling
             var def = new ScheduleDefinition { Mode = ScheduleMode.Daily, Hour = 2, Minute = 0 };
 
             def.ToCron().Should().Be("0 2 * * *");
-            def.ToHumanReadable().Should().Be("Every day at 02:00");
+            def.ToHumanReadable().Should().Be("Every day at 02:00 AM");
         }
 
         [Test]
@@ -47,7 +47,7 @@ namespace BackupService.UnitTests.Scheduling
             };
 
             def.ToCron().Should().Be("0 3 * * 1,3,5");
-            def.ToHumanReadable().Should().Be("Every Mon, Wed, Fri at 03:00");
+            def.ToHumanReadable().Should().Be("Every Mon, Wed, Fri at 03:00 AM");
         }
 
         [Test]
@@ -56,7 +56,7 @@ namespace BackupService.UnitTests.Scheduling
             var def = new ScheduleDefinition { Mode = ScheduleMode.Monthly, DayOfMonth = 15, Hour = 4, Minute = 0 };
 
             def.ToCron().Should().Be("0 4 15 * *");
-            def.ToHumanReadable().Should().Be("On day 15 of every month at 04:00");
+            def.ToHumanReadable().Should().Be("On day 15 of every month at 04:00 AM");
         }
 
         [TestCase(ScheduleMode.EveryNMinutes)]
@@ -97,7 +97,7 @@ namespace BackupService.UnitTests.Scheduling
 
         [TestCase(null, "Not scheduled")]
         [TestCase("", "Not scheduled")]
-        [TestCase("0 2 * * *", "Every day at 02:00")]
+        [TestCase("0 2 * * *", "Every day at 02:00 AM")]
         [TestCase("*/15 * * * *", "Every 15 minutes")]
         public void Describe_GivesHumanReadableOrNotScheduled(string? cron, string expected)
         {

@@ -27,7 +27,15 @@ namespace BackupService.Components.Dialogs
             DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday,
         ];
 
-        private string TimeText => $"{_def.Hour:00}:{_def.Minute:00}";
+        private TimeOnly ScheduleTime
+        {
+            get => new(_def.Hour, _def.Minute);
+            set
+            {
+                _def.Hour = value.Hour;
+                _def.Minute = value.Minute;
+            }
+        }
 
         private static string ModeLabel(ScheduleMode mode) => mode switch
         {
@@ -45,15 +53,6 @@ namespace BackupService.Components.Dialogs
             if (Initial is not null)
             {
                 _def = Clone(Initial);
-            }
-        }
-
-        private void OnTimeChanged(ChangeEventArgs e)
-        {
-            if (TimeOnly.TryParse(e.Value?.ToString(), out var time))
-            {
-                _def.Hour = time.Hour;
-                _def.Minute = time.Minute;
             }
         }
 

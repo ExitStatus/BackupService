@@ -1,0 +1,61 @@
+<div class="tp">
+    <button type="button" class="tp-trigger" @onclick="Open" disabled="@Disabled">
+        <span class="tp-trigger-text">@TriggerText</span>
+        <span class="tp-trigger-icon" aria-hidden="true"></span>
+    </button>
+</div>
+
+@if (_open)
+{
+    <div class="tp-backdrop" @onclick="Close"></div>
+    <div class="tp-popup" role="dialog" aria-modal="true" aria-label="Pick a time">
+        <div class="tp-header">
+            <div class="tp-display">
+                <button type="button" class="tp-display-part @(_field == Field.Hour ? "active" : null)"
+                        @onclick="() => SetField(Field.Hour)">@HeaderHour</button>
+                <span class="tp-display-colon">:</span>
+                <button type="button" class="tp-display-part @(_field == Field.Minute ? "active" : null)"
+                        @onclick="() => SetField(Field.Minute)">@HeaderMinute</button>
+            </div>
+            <div class="tp-ampm">
+                <button type="button" class="tp-ampm-btn @(!IsPm ? "active" : null)" @onclick="SetAm">AM</button>
+                <button type="button" class="tp-ampm-btn @(IsPm ? "active" : null)" @onclick="SetPm">PM</button>
+            </div>
+        </div>
+
+        <div class="tp-body">
+            <div class="tp-clock" @onclick="OnFaceClick">
+                <div class="tp-hand tp-hand-hour @(_field == Field.Hour ? "active" : null)" style="@HourHandStyle"></div>
+                <div class="tp-hand tp-hand-minute @(_field == Field.Minute ? "active" : null)" style="@MinuteHandStyle"></div>
+                <div class="tp-knob" style="@KnobStyle"></div>
+                <div class="tp-centre"></div>
+
+                @if (_field == Field.Hour)
+                {
+                    @for (var hour = 1; hour <= 12; hour++)
+                    {
+                        var value = hour;
+                        <button type="button" class="tp-num @(IsSelectedHour(value) ? "selected" : null)"
+                                style="@NumberStyle(value, 30)"
+                                @onclick="() => SelectHour(value)" @onclick:stopPropagation="true">@value</button>
+                    }
+                }
+                else
+                {
+                    @foreach (var minute in MinuteMarks)
+                    {
+                        var value = minute;
+                        <button type="button" class="tp-num @(IsSelectedMinute(value) ? "selected" : null)"
+                                style="@NumberStyle(value / 5, 30)"
+                                @onclick="() => SelectMinute(value)" @onclick:stopPropagation="true">@value.ToString("00")</button>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="tp-actions">
+            <button type="button" class="btn-secondary" @onclick="Close">Cancel</button>
+            <button type="button" @onclick="ApplyAsync">OK</button>
+        </div>
+    </div>
+}

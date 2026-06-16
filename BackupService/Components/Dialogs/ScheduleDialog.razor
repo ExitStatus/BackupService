@@ -29,7 +29,7 @@
             case ScheduleMode.Daily:
                 <label>
                     At time
-                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                    <TimePicker @bind-Value="ScheduleTime" />
                 </label>
                 break;
 
@@ -47,7 +47,7 @@
                 </div>
                 <label>
                     At time
-                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                    <TimePicker @bind-Value="ScheduleTime" />
                 </label>
                 break;
 
@@ -58,7 +58,7 @@
                 </label>
                 <label>
                     At time
-                    <input type="time" value="@TimeText" @onchange="OnTimeChanged" />
+                    <TimePicker @bind-Value="ScheduleTime" />
                 </label>
                 break;
         }

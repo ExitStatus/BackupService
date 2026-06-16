@@ -1,3 +1,4 @@
+using System.Globalization;
 using BackupService.Enumerations;
 using Cronos;
 
@@ -45,9 +46,9 @@ namespace BackupService.Scheduling
             ScheduleMode.EveryNMinutes =>
                 IntervalMinutes == 1 ? "Every minute" : $"Every {IntervalMinutes} minutes",
             ScheduleMode.Hourly => $"Every hour at minute {Minute:00}",
-            ScheduleMode.Daily => $"Every day at {Hour:00}:{Minute:00}",
-            ScheduleMode.Weekly => $"Every {WeeklyHumanDays()} at {Hour:00}:{Minute:00}",
-            ScheduleMode.Monthly => $"On day {DayOfMonth} of every month at {Hour:00}:{Minute:00}",
+            ScheduleMode.Daily => $"Every day at {FormatTime(Hour, Minute)}",
+            ScheduleMode.Weekly => $"Every {WeeklyHumanDays()} at {FormatTime(Hour, Minute)}",
+            ScheduleMode.Monthly => $"On day {DayOfMonth} of every month at {FormatTime(Hour, Minute)}",
             _ => string.Empty,
         };
 
@@ -142,6 +143,10 @@ namespace BackupService.Scheduling
             string.IsNullOrWhiteSpace(cron)
                 ? "Not scheduled"
                 : FromCron(cron)?.ToHumanReadable() ?? cron;
+
+        /// <summary>12-hour time with AM/PM (e.g. "05:00 AM"), matching the time picker.</summary>
+        private static string FormatTime(int hour, int minute) =>
+            new TimeOnly(hour, minute).ToString("hh:mm tt", CultureInfo.InvariantCulture);
 
         private string WeeklyCronDays()
         {
