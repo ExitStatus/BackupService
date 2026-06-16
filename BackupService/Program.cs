@@ -56,15 +56,24 @@ namespace BackupService
             builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
             builder.Services.AddSingleton<FileSystem.IFolderBrowser, FileSystem.FolderBrowser>();
             builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
+            builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
             builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
+
+            // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
+            // The scheduler is a single instance shared across its three roles (singleton,
+            // IBackupScheduler re-sync API, and the hosted background service).
+            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
+            builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
+            builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
+            builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
 
             // Blazor Server (interactive server-side rendering).
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
-            // Background backup worker.
-            builder.Services.AddHostedService<Worker>();
+            // The scheduler runs as the background service.
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
 
             var app = builder.Build();
 
@@ -77,6 +86,14 @@ namespace BackupService
             // Ensure the default admin credential exists.
             app.Services.GetRequiredService<IAdminCredentialService>()
                 .EnsureSeededAsync().GetAwaiter().GetResult();
+
+            // Every profile starts Idle in the in-memory status tracker (status is not persisted).
+            var statusService = app.Services.GetRequiredService<Profiles.IProfileStatusService>();
+            foreach (var summary in app.Services.GetRequiredService<Profiles.IProfileService>()
+                         .GetSummariesAsync().GetAwaiter().GetResult())
+            {
+                statusService.Set(summary.Id, Enumerations.ProfileStatus.Idle);
+            }
 
             app.UseAuthentication();
             app.UseAuthorization();

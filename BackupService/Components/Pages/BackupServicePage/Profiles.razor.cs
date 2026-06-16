@@ -6,12 +6,15 @@ using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.BackupServicePage
 {
-    public partial class Profiles : ComponentBase
+    public partial class Profiles : ComponentBase, IDisposable
     {
         private const int PageSize = 10;
 
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
+
+        [Inject]
+        private IProfileStatusService StatusService { get; set; } = default!;
 
         private bool _showDialog;
         private int? _editId;
@@ -23,7 +26,38 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _descending;
         private PagedResult<Profile>? _profiles;
 
-        protected override Task OnInitializedAsync() => LoadAsync(_page);
+        protected override Task OnInitializedAsync()
+        {
+            StatusService.Changed += OnStatusChanged;
+            return LoadAsync(_page);
+        }
+
+        private void OnStatusChanged(int profileId)
+        {
+            // When a profile on the current page changes status, reload the page data so fields the
+            // run updates (e.g. DateLastRun) refresh too — the Status cell reads the live service,
+            // but DateLastRun comes from the loaded entity, which is otherwise stale.
+            if (_profiles?.Items.Any(p => p.Id == profileId) == true)
+            {
+                InvokeAsync(async () =>
+                {
+                    await LoadAsync(_page);
+                    StateHasChanged();
+                });
+            }
+        }
+
+        public void Dispose()
+        {
+            StatusService.Changed -= OnStatusChanged;
+
+            // Release any lock held by an open dialog so it can't leak if we're torn down.
+            UnlockEditing();
+            if (_deleteTarget is not null)
+            {
+                StatusService.Unlock(_deleteTarget.Id);
+            }
+        }
 
         private async Task LoadAsync(int page)
         {
@@ -65,6 +99,12 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
+        private bool IsRunning(int id) => StatusService.Get(id) == ProfileStatus.Running;
+
+        private string EditTitle(int id) => IsRunning(id) ? "Cannot edit while a backup is running" : "Edit profile";
+
+        private string DeleteTitle(int id) => IsRunning(id) ? "Cannot delete while a backup is running" : "Delete profile";
+
         private void OpenCreate()
         {
             _editId = null;
@@ -73,16 +113,33 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private void OpenEdit(int id)
         {
+            // Lock the profile so a scheduled run won't fire while it's being edited.
+            StatusService.Lock(id);
             _editId = id;
             _showDialog = true;
         }
 
+        private void CancelDialog()
+        {
+            UnlockEditing();
+            _showDialog = false;
+        }
+
         private async Task OnSaved()
         {
+            UnlockEditing();
             var message = _editId is null ? "Profile created" : "Profile updated";
             _showDialog = false;
             _notification.Show(message, NotificationLevel.Success);
             await LoadAsync(_page);
+        }
+
+        private void UnlockEditing()
+        {
+            if (_editId is int id)
+            {
+                StatusService.Unlock(id);
+            }
         }
 
         private async Task ToggleEnabledAsync(Profile profile, bool enabled)
@@ -92,7 +149,21 @@ namespace BackupService.Components.Pages.BackupServicePage
             _notification.Show(enabled ? "Profile enabled" : "Profile disabled", NotificationLevel.Success);
         }
 
-        private void OpenDelete(Profile profile) => _deleteTarget = profile;
+        private void OpenDelete(Profile profile)
+        {
+            // Lock the profile so a scheduled run won't fire while the delete dialog is open.
+            StatusService.Lock(profile.Id);
+            _deleteTarget = profile;
+        }
+
+        private void CancelDelete()
+        {
+            if (_deleteTarget is not null)
+            {
+                StatusService.Unlock(_deleteTarget.Id);
+            }
+            _deleteTarget = null;
+        }
 
         private async Task ConfirmDeleteAsync()
         {
@@ -101,6 +172,7 @@ namespace BackupService.Components.Pages.BackupServicePage
                 return;
             }
 
+            // DeleteAsync removes the profile's status and lock entries.
             await ProfileService.DeleteAsync(_deleteTarget.Id);
             _deleteTarget = null;
             _notification.Show("Profile deleted", NotificationLevel.Success);

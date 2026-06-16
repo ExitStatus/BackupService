@@ -22,7 +22,7 @@ else
                 <th>Type</th>
                 <th>Schedule</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.DateLastRun)">Date last run@(SortIndicator(ProfileSortColumn.DateLastRun))</button></th>
-                <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Status)">Status@(SortIndicator(ProfileSortColumn.Status))</button></th>
+                <th>Status</th>
                 <th class="action-col"></th>
             </tr>
         </thead>
@@ -39,15 +39,17 @@ else
                     <td>@profile.Type.GetDescription()</td>
                     <td>@ScheduleDefinition.Describe(profile.Schedule)</td>
                     <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
-                    <td>@DescribeStatus(profile.Status)</td>
+                    <td>@DescribeStatus(StatusService.Get(profile.Id))</td>
                     <td class="action-col">
                         <div class="row-actions">
-                            <button type="button" class="icon-btn" title="Edit profile"
-                                    aria-label="Edit profile" @onclick="() => OpenEdit(profile.Id)">
+                            <button type="button" class="icon-btn" title="@EditTitle(profile.Id)"
+                                    aria-label="Edit profile" disabled="@IsRunning(profile.Id)"
+                                    @onclick="() => OpenEdit(profile.Id)">
                                 <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
                             </button>
-                            <button type="button" class="icon-btn" title="Delete profile"
-                                    aria-label="Delete profile" @onclick="() => OpenDelete(profile)">
+                            <button type="button" class="icon-btn" title="@DeleteTitle(profile.Id)"
+                                    aria-label="Delete profile" disabled="@IsRunning(profile.Id)"
+                                    @onclick="() => OpenDelete(profile)">
                                 <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
                             </button>
                         </div>
@@ -66,7 +68,7 @@ else
 
 @if (_showDialog)
 {
-    <ProfileDialog ProfileId="_editId" OnCancel="() => _showDialog = false" OnSaved="OnSaved" />
+    <ProfileDialog ProfileId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" />
 }
 
 @if (_deleteTarget is not null)
@@ -74,7 +76,7 @@ else
     <ConfirmDialog Title="Delete profile"
                    Message="@($"Delete the profile \"{_deleteTarget.Name}\"? This cannot be undone.")"
                    OnConfirm="ConfirmDeleteAsync"
-                   OnCancel="() => _deleteTarget = null" />
+                   OnCancel="CancelDelete" />
 }
 
 <Notification @ref="_notification" />

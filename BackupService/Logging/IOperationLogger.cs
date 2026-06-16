@@ -1,3 +1,5 @@
+using BackupService.Enumerations;
+
 namespace BackupService.Logging
 {
     /// <summary>
@@ -14,6 +16,13 @@ namespace BackupService.Logging
 
         /// <summary>Appends one detail row per supplied message.</summary>
         Task AppendAsync(params string[] messages);
+
+        /// <summary>
+        /// Updates the log header's primary message (<see cref="Database.OperationLog.Name"/>) and
+        /// severity — e.g. to replace a "started" title with a final "succeeded/failed in {duration}"
+        /// summary at the appropriate level, without adding another log record.
+        /// </summary>
+        Task SetSummaryAsync(string message, OperationLogLevel level);
 
         /// <summary>
         /// Appends a single detail line. When <paramref name="exception"/> is supplied, its full

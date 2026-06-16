@@ -29,8 +29,6 @@ namespace BackupService.Database
 
         public DateTimeOffset? DateLastRun { get; set; }
 
-        public ProfileStatus Status { get; set; }
-
         public ICollection<FolderPair> FolderPairs { get; set; } = new List<FolderPair>();
     }
 }

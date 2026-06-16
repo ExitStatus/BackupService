@@ -13,7 +13,9 @@ namespace BackupService.Profiles
     /// </summary>
     public sealed class ProfileService(
         IDatabaseContextFactory contextFactory,
-        IOperationLogFactory operationLogFactory) : IProfileService
+        IOperationLogFactory operationLogFactory,
+        IBackupScheduler scheduler,
+        IProfileStatusService statusService) : IProfileService
     {
         public async Task CreateAsync(
             string name,
@@ -34,7 +36,6 @@ namespace BackupService.Profiles
                 Schedule = scheduleCron,
                 Enabled = enabled,
                 DateCreated = DateTimeOffset.UtcNow,
-                Status = ProfileStatus.Idle,
             };
 
             foreach (var input in folderPairs)
@@ -46,6 +47,10 @@ namespace BackupService.Profiles
             await db.SaveChangesAsync(cancellationToken);
 
             await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, folderPairs, cancellationToken);
+
+            // Track the new profile's status (starts Idle) and register its schedule.
+            statusService.Set(profile.Id, ProfileStatus.Idle);
+            await scheduler.SyncAsync(profile.Id, cancellationToken);
         }
 
         private async Task LogProfileCreatedAsync(
@@ -131,9 +136,6 @@ namespace BackupService.Profiles
                     ProfileSortColumn.Description => descending
                         ? query.OrderByDescending(p => p.Description)
                         : query.OrderBy(p => p.Description),
-                    ProfileSortColumn.Status => descending
-                        ? query.OrderByDescending(p => p.Status)
-                        : query.OrderBy(p => p.Status),
                     _ => descending
                         ? query.OrderByDescending(p => p.Name)
                         : query.OrderBy(p => p.Name),
@@ -190,6 +192,10 @@ namespace BackupService.Profiles
                 $"Name: {name}",
                 $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}");
+
+            // The row is gone, so this unschedules the profile and drops its tracked status.
+            statusService.Remove(id);
+            await scheduler.SyncAsync(id, cancellationToken);
         }
 
         public async Task SetEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default)
@@ -210,6 +216,8 @@ namespace BackupService.Profiles
                 $"Profile {profile.Name} was {(enabled ? "enabled" : "disabled")}",
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
+
+            await scheduler.SyncAsync(id, cancellationToken);
         }
 
         public async Task UpdateAsync(
@@ -280,6 +288,8 @@ namespace BackupService.Profiles
             await LogProfileUpdatedAsync(
                 id, oldName, name, oldDescription, description, oldSchedule, scheduleCron,
                 oldEnabled, enabled, oldPairs, keptIds, folderPairs, cancellationToken);
+
+            await scheduler.SyncAsync(id, cancellationToken);
         }
 
         private async Task LogProfileUpdatedAsync(

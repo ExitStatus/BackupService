@@ -241,6 +241,15 @@ button:hover,
     background: var(--border);
 }
 
+.icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.icon-btn:disabled:hover {
+    background: var(--surface-2);
+}
+
 .icon-btn img {
     display: block;
     width: 24px;
@@ -918,40 +927,40 @@ label.check {
     display: none;
 }
 
-/* Expanded detail row: an inset sub-grid of the log's detail lines. */
+/* Expanded detail row: a terminal-style view of the log's detail lines. */
 .log-detail-row > td {
     padding: 0.6rem 0.9rem;
     background: var(--surface-2);
 }
 
-.log-detail-table {
-    margin: 0;
+/* Terminal output: monospace lines [timestamp] message, capped at ~20 lines then scrolls.
+   Lines don't wrap (like a real terminal) — long messages scroll horizontally. */
+.log-terminal {
+    max-height: 400px; /* 20 lines * 20px (LineHeight in Logs.razor.cs) */
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.4rem 0.6rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    font-size: 0.8rem;
 }
 
-.log-detail-table thead th {
-    background: var(--surface);
+.log-terminal-line {
+    height: 20px;
+    line-height: 20px;
+    white-space: pre;
+    color: var(--text);
 }
 
-.log-detail-table .seq-col {
-    width: 1%;
-    white-space: nowrap;
-    text-align: right;
-}
-
-.log-detail-table .time-col {
-    width: 1%;
-    white-space: nowrap;
+.log-terminal-time {
+    color: var(--text-muted);
 }
 
 /* Level column on the log header table: only as wide as the pill. */
 .table .level-col {
     width: 1%;
     white-space: nowrap;
-}
-
-.log-message {
-    width: 100%;
-    white-space: pre-wrap;
 }
 
 .log-detail-empty {

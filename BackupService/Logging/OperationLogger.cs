@@ -1,11 +1,14 @@
 using BackupService.Database;
+using BackupService.Enumerations;
+using Microsoft.EntityFrameworkCore;
 
 namespace BackupService.Logging
 {
     /// <summary>
     /// Default <see cref="IOperationLogger"/>. Writes detail lines through the DbContext factory
     /// (a short-lived context per call, per the project convention), one row per message, tracking
-    /// the next sequence number internally. Severity is fixed on the log header at creation time.
+    /// the next sequence number internally. The header's message/severity start at creation time and
+    /// can be revised in place via <see cref="SetSummaryAsync"/> (no extra log record).
     /// </summary>
     public sealed class OperationLogger(IDatabaseContextFactory contextFactory, int operationLogId) : IOperationLogger
     {
@@ -14,6 +17,21 @@ namespace BackupService.Logging
         public int OperationLogId { get; } = operationLogId;
 
         public Task AppendAsync(params string[] messages) => WriteAsync(messages);
+
+        public async Task SetSummaryAsync(string message, OperationLogLevel level)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var log = await db.OperationLogs.FirstOrDefaultAsync(l => l.Id == OperationLogId);
+            if (log is null)
+            {
+                return;
+            }
+
+            log.Name = message;
+            log.Level = level;
+            await db.SaveChangesAsync();
+        }
 
         public Task ErrorAsync(string message, Exception? exception = null)
         {

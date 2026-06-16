@@ -90,25 +90,11 @@ else
                                 }
                                 else
                                 {
-                                    <table class="table log-detail-table">
-                                        <thead>
-                                            <tr>
-                                                <th class="seq-col">#</th>
-                                                <th class="time-col">Timestamp</th>
-                                                <th>Message</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var detail in details)
-                                            {
-                                                <tr>
-                                                    <td class="seq-col">@detail.Sequence</td>
-                                                    <td class="time-col">@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
-                                                    <td class="log-message">@detail.Message</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
+                                    <div class="log-terminal" role="log" aria-label="Log output">
+                                        <Virtualize Items="details" Context="detail" ItemSize="LineHeight">
+                                            <div class="log-terminal-line"><span class="log-terminal-time">[@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
+                                        </Virtualize>
+                                    </div>
                                 }
                             }
                             else

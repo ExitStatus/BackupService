@@ -11,6 +11,10 @@ namespace BackupService.Components.Pages.BackupServicePage
     {
         private const int PageSize = 10;
 
+        // Terminal line height in px — must match .log-terminal-line in app.css (the control caps at
+        // ~20 of these before scrolling). Used as the Virtualize ItemSize for the detail output.
+        private const float LineHeight = 20f;
+
         [Inject]
         private IOperationLogService OperationLogService { get; set; } = default!;
 
@@ -43,8 +47,9 @@ namespace BackupService.Components.Pages.BackupServicePage
             !string.IsNullOrWhiteSpace(_filter) || _level is not null || _profileId is not null;
 
         // Which logs are expanded, and a cache of their detail lines (lazy-loaded on first expand).
+        // Stored as List so the terminal view can feed them to <Virtualize Items=...>.
         private readonly HashSet<int> _expanded = [];
-        private readonly Dictionary<int, IReadOnlyList<OperationLogDetail>> _details = [];
+        private readonly Dictionary<int, List<OperationLogDetail>> _details = [];
 
         protected override async Task OnInitializedAsync()
         {
@@ -117,7 +122,8 @@ namespace BackupService.Components.Pages.BackupServicePage
 
                 if (!_details.ContainsKey(logId))
                 {
-                    _details[logId] = await OperationLogService.GetDetailsAsync(logId);
+                    var details = await OperationLogService.GetDetailsAsync(logId);
+                    _details[logId] = details as List<OperationLogDetail> ?? details.ToList();
                 }
             }
         }

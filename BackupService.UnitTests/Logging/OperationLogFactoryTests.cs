@@ -81,6 +81,23 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task SetSummaryAsync_UpdatesHeaderMessageAndLevelInPlace()
+        {
+            var logger = await _factory.CreateAsync("Op started", OperationLogLevel.Info);
+            await logger.AppendAsync("did a thing");
+
+            await logger.SetSummaryAsync("Op failed in 5ms", OperationLogLevel.Error);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.SingleAsync();
+            log.Name.Should().Be("Op failed in 5ms");
+            log.Level.Should().Be(OperationLogLevel.Error);
+
+            // Still a single log header with its detail lines intact.
+            (await context.OperationLogDetails.CountAsync()).Should().Be(1);
+        }
+
+        [Test]
         public async Task AppendAsync_WithMultipleMessages_WritesOneRowPerMessage()
         {
             var logger = await _factory.CreateAsync("Op");

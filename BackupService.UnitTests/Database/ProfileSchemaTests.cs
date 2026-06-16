@@ -39,7 +39,6 @@ namespace BackupService.UnitTests.Database
                     Name = "Documents",
                     Description = "Back up my documents",
                     DateCreated = DateTimeOffset.UtcNow,
-                    Status = ProfileStatus.Idle,
                     Schedule = "0 2 * * *",
                     FolderPairs =
                     {
@@ -61,7 +60,6 @@ namespace BackupService.UnitTests.Database
 
                 profile.Name.Should().Be("Documents");
                 profile.Description.Should().Be("Back up my documents");
-                profile.Status.Should().Be(ProfileStatus.Idle);
                 profile.DateLastRun.Should().BeNull();
                 profile.Schedule.Should().Be("0 2 * * *");
 

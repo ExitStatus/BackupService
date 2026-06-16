@@ -2,6 +2,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
 using BackupService.Profiles;
+using BackupService.Scheduling;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -33,7 +34,7 @@ namespace BackupService.UnitTests.Profiles
 
             var factory = new Mock<IDatabaseContextFactory>();
             factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
-            _service = new ProfileService(factory.Object, new OperationLogFactory(factory.Object));
+            _service = new ProfileService(factory.Object, new OperationLogFactory(factory.Object), Mock.Of<IBackupScheduler>(), new ProfileStatusService());
         }
 
         [TearDown]
@@ -53,7 +54,6 @@ namespace BackupService.UnitTests.Profiles
             profile.Type.Should().Be(ProfileType.FolderPair);
             profile.Schedule.Should().Be("0 2 * * *");
             profile.Enabled.Should().BeTrue();
-            profile.Status.Should().Be(ProfileStatus.Idle);
             profile.DateCreated.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
             profile.DateLastRun.Should().BeNull();
 

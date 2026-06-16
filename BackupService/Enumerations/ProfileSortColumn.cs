@@ -8,6 +8,5 @@ namespace BackupService.Enumerations
         Name,
         Description,
         DateLastRun,
-        Status,
     }
 }
