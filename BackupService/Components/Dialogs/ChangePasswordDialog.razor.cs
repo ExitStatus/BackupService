@@ -1,10 +1,10 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using BackupService.Authentication;
 using BackupService.Database;
 using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Pages.Authentication
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Self-contained modal for changing the admin password. Validates that the new

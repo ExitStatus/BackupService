@@ -1,8 +1,8 @@
-using System.Globalization;
+﻿using System.Globalization;
 using BackupService.FileSystem;
 using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Controls
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Modal that browses folders on the server in a Windows Explorer style (left navigation
@@ -98,7 +98,7 @@ namespace BackupService.Components.Controls
                 return;
             }
 
-            Navigate(Browser.GetParent(_currentPath)); // null parent → back to This PC
+            Navigate(Browser.GetParent(_currentPath)); // null parent â†’ back to This PC
         }
 
         private void Load(string? path)

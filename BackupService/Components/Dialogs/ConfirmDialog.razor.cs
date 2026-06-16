@@ -1,6 +1,6 @@
-using Microsoft.AspNetCore.Components;
+﻿using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Controls
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Reusable modal confirmation. Set <see cref="Title"/>/<see cref="Message"/> and handle

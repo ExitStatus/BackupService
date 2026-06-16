@@ -1,8 +1,8 @@
-using BackupService.Enumerations;
+﻿using BackupService.Enumerations;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Controls
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Modal that builds a <see cref="ScheduleDefinition"/> from friendly controls. The

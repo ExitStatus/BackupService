@@ -1,6 +1,7 @@
+﻿using BackupService.Components.Controls;
 using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Controls
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Modal for adding or editing a single folder pair (source/target + Browse, watch flag).

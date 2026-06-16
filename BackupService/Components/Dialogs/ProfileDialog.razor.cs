@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using BackupService.Components.Controls;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -6,12 +6,12 @@ using BackupService.Profiles;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
 
-namespace BackupService.Components.Pages.BackupServicePage
+namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Self-contained modal for creating or editing a backup profile. With no
     /// <see cref="ProfileId"/> it creates; with one it loads that profile and saves changes.
-    /// The profile type selects which editor is shown (FolderPair → <see cref="FolderPairControl"/>,
+    /// The profile type selects which editor is shown (FolderPair â†’ <see cref="FolderPairControl"/>,
     /// which manages the profile's list of folder pairs) and cannot be changed while editing.
     /// </summary>
     public partial class ProfileDialog : ComponentBase
