@@ -95,6 +95,7 @@ namespace BackupService.UnitTests.Profiles
             var log = await context.OperationLogs.Include(l => l.Details).SingleAsync();
 
             log.Name.Should().Be("Profile created: Docs");
+            log.ProfileId.Should().Be(await GetOnlyProfileIdAsync());
 
             var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
@@ -239,8 +240,13 @@ namespace BackupService.UnitTests.Profiles
             await _service.DeleteAsync(id);
 
             await using var context = new BackupDbContext(_options);
+
+            // The "Profile created" log was associated with the profile and is cascade-deleted
+            // with it; only the unassociated deletion log survives.
+            (await context.OperationLogs.CountAsync()).Should().Be(1);
             var log = await context.OperationLogs.Include(l => l.Details)
                 .SingleAsync(l => l.Name == "Profile deleted: Docs");
+            log.ProfileId.Should().BeNull();
 
             var messages = log.Details.Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
@@ -276,6 +282,22 @@ namespace BackupService.UnitTests.Profiles
             profile.Enabled.Should().BeFalse();
             profile.Name.Should().Be("Docs"); // other fields untouched
             profile.FolderPairs.Should().ContainSingle();
+        }
+
+        [Test]
+        public async Task SetEnabledAsync_WritesOperationLogAssociatedWithProfile()
+        {
+            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+                [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", WatchFolder: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+            var id = await GetOnlyProfileIdAsync();
+
+            await _service.SetEnabledAsync(id, false);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.Include(l => l.Details)
+                .SingleAsync(l => l.Name == "Profile Docs was disabled");
+            log.ProfileId.Should().Be(id);
+            log.Details.Should().BeEmpty(); // self-describing: message in the name, no sub-entries
         }
 
         [Test]
@@ -321,6 +343,17 @@ namespace BackupService.UnitTests.Profiles
 
             var descending = await _service.GetPageAsync(1, 10, ProfileSortColumn.DateLastRun, descending: true);
             descending.Items.First().Name.Should().Be("Recent");
+        }
+
+        [Test]
+        public async Task GetSummariesAsync_ReturnsIdAndNameOrderedByName()
+        {
+            await SeedProfilesAsync("Banana", "Apple", "Cherry");
+
+            var summaries = await _service.GetSummariesAsync();
+
+            summaries.Select(s => s.Name).Should().ContainInOrder("Apple", "Banana", "Cherry");
+            summaries.Should().OnlyContain(s => s.Id > 0);
         }
 
         [Test]

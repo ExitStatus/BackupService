@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using BackupService.Enumerations;
 
 namespace BackupService.Database
@@ -19,6 +20,21 @@ namespace BackupService.Database
         /// <summary>Severity of the operation as a whole (set when the log is created).</summary>
         public OperationLogLevel Level { get; set; }
 
+        /// <summary>
+        /// The profile this log relates to, if any. Null for logs not tied to a specific
+        /// profile. Deleting the profile cascade-deletes its logs.
+        /// </summary>
+        public int? ProfileId { get; set; }
+
+        public Profile? Profile { get; set; }
+
         public ICollection<OperationLogDetail> Details { get; set; } = new List<OperationLogDetail>();
+
+        /// <summary>
+        /// Number of detail lines, populated by <c>IOperationLogService.GetPageAsync</c> for the
+        /// grid (so a detail-less log doesn't show an expand control). Not persisted.
+        /// </summary>
+        [NotMapped]
+        public int DetailCount { get; set; }
     }
 }

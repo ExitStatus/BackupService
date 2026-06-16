@@ -518,12 +518,25 @@ label.check {
     margin: 0;
 }
 
-.filter-bar .filter-level {
+.filter-bar .filter-level,
+.filter-bar .filter-profile {
     width: 12rem;
 }
 
-.filter-bar .filter-level .dropdown {
+.filter-bar .filter-level .dropdown,
+.filter-bar .filter-profile .dropdown {
     margin-top: 0;
+}
+
+/* Timestamp and Profile columns on the log header table: sized to content. */
+.table .time-col,
+.table .profile-col {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.muted {
+    color: var(--text-muted);
 }
 
 /* Folder browser — Windows Explorer-style picker (themed dark). */
@@ -871,14 +884,38 @@ label.check {
     text-align: center;
 }
 
+/* +/− drawn with pseudo-element bars so they're perfectly centred (text glyphs sit off-centre
+   on the baseline). The horizontal bar is always shown; the vertical bar (making the +) is
+   hidden when expanded, leaving a −. */
 .expand-btn {
+    position: relative;
     width: 1.6rem;
     height: 1.6rem;
     padding: 0;
-    line-height: 1;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text);
+}
+
+.expand-btn::before,
+.expand-btn::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--text);
+}
+
+.expand-btn::before {
+    width: 0.7rem;
+    height: 2px;
+}
+
+.expand-btn::after {
+    width: 2px;
+    height: 0.7rem;
+}
+
+.expand-btn.expanded::after {
+    display: none;
 }
 
 /* Expanded detail row: an inset sub-grid of the log's detail lines. */

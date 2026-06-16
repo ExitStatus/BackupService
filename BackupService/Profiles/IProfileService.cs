@@ -36,6 +36,11 @@ namespace BackupService.Profiles
         Task<Profile?> GetAsync(int id, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// All profiles as lightweight id+name summaries (name-ascending), for pickers/filters.
+        /// </summary>
+        Task<IReadOnlyList<ProfileSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Deletes a profile (and its folder pairs, via cascade). No-op if it doesn't exist.
         /// </summary>
         Task DeleteAsync(int id, CancellationToken cancellationToken = default);

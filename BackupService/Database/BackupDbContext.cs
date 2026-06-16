@@ -29,6 +29,14 @@ namespace BackupService.Database
             modelBuilder.Entity<Profile>()
                 .Property(p => p.Enabled)
                 .HasDefaultValue(true);
+
+            // A log optionally belongs to a profile; deleting the profile cascade-deletes its
+            // logs (cascade is the non-default behaviour for a nullable FK).
+            modelBuilder.Entity<OperationLog>()
+                .HasOne(l => l.Profile)
+                .WithMany()
+                .HasForeignKey(l => l.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

@@ -180,6 +180,44 @@ namespace BackupService.UnitTests.Logging
             result.Items.Single().Level.Should().Be(OperationLogLevel.Error);
         }
 
+        [Test]
+        public async Task GetPageAsync_PopulatesDetailCount()
+        {
+            await SeedAsync(
+                ("With detail", "a line"),
+                ("Without detail", null));
+
+            var result = await _service.GetPageAsync(1, 10);
+
+            result.Items.Single(l => l.Name == "With detail").DetailCount.Should().Be(1);
+            result.Items.Single(l => l.Name == "Without detail").DetailCount.Should().Be(0);
+        }
+
+        [Test]
+        public async Task GetPageAsync_FiltersByProfileAndIncludesProfileNavigation()
+        {
+            int photosId;
+            using (var context = new BackupDbContext(_options))
+            {
+                var photos = new Profile { Name = "Photos", DateCreated = DateTimeOffset.UtcNow };
+                var music = new Profile { Name = "Music", DateCreated = DateTimeOffset.UtcNow };
+                context.Profiles.AddRange(photos, music);
+                await context.SaveChangesAsync();
+                photosId = photos.Id;
+
+                context.OperationLogs.AddRange(
+                    new OperationLog { Name = "Profile created: Photos", TimestampUtc = DateTimeOffset.UtcNow, Level = OperationLogLevel.Info, ProfileId = photos.Id },
+                    new OperationLog { Name = "Profile created: Music", TimestampUtc = DateTimeOffset.UtcNow, Level = OperationLogLevel.Info, ProfileId = music.Id },
+                    new OperationLog { Name = "Unrelated", TimestampUtc = DateTimeOffset.UtcNow, Level = OperationLogLevel.Info, ProfileId = null });
+                await context.SaveChangesAsync();
+            }
+
+            var result = await _service.GetPageAsync(1, 10, profileId: photosId);
+
+            result.TotalCount.Should().Be(1);
+            result.Items.Single().Profile!.Name.Should().Be("Photos");
+        }
+
         private async Task SeedAsync(params (string Name, string? Message)[] logs)
         {
             using var context = new BackupDbContext(_options);

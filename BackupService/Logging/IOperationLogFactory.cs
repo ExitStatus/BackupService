@@ -9,9 +9,14 @@ namespace BackupService.Logging
     public interface IOperationLogFactory
     {
         /// <summary>
-        /// Inserts a new OperationLog record with the given name and severity (timestamped now)
-        /// and returns a logger that appends detail lines to it.
+        /// Inserts a new OperationLog record with the given name and severity (timestamped now),
+        /// optionally associated with a profile (<paramref name="profileId"/>; null = not tied to
+        /// a profile), and returns a logger that appends detail lines to it.
         /// </summary>
-        Task<IOperationLogger> CreateAsync(string name, OperationLogLevel level = OperationLogLevel.Info, CancellationToken cancellationToken = default);
+        Task<IOperationLogger> CreateAsync(
+            string name,
+            OperationLogLevel level = OperationLogLevel.Info,
+            int? profileId = null,
+            CancellationToken cancellationToken = default);
     }
 }

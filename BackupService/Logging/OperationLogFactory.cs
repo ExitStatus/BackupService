@@ -10,13 +10,17 @@ namespace BackupService.Logging
     public sealed class OperationLogFactory(IDatabaseContextFactory contextFactory) : IOperationLogFactory
     {
         public async Task<IOperationLogger> CreateAsync(
-            string name, OperationLogLevel level = OperationLogLevel.Info, CancellationToken cancellationToken = default)
+            string name,
+            OperationLogLevel level = OperationLogLevel.Info,
+            int? profileId = null,
+            CancellationToken cancellationToken = default)
         {
             var log = new OperationLog
             {
                 Name = name,
                 TimestampUtc = DateTimeOffset.UtcNow,
                 Level = level,
+                ProfileId = profileId,
             };
 
             await using (var db = contextFactory.CreateDbContext())

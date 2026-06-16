@@ -45,10 +45,11 @@ namespace BackupService.Profiles
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            await LogProfileCreatedAsync(name, description, type, scheduleCron, enabled, folderPairs, cancellationToken);
+            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, folderPairs, cancellationToken);
         }
 
         private async Task LogProfileCreatedAsync(
+            int profileId,
             string name,
             string? description,
             ProfileType type,
@@ -57,7 +58,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken)
         {
-            var log = await operationLogFactory.CreateAsync($"Profile created: {name}", cancellationToken: cancellationToken);
+            var log = await operationLogFactory.CreateAsync($"Profile created: {name}", profileId: profileId, cancellationToken: cancellationToken);
 
             await log.AppendAsync(
                 $"Name: {name}",
@@ -153,6 +154,17 @@ namespace BackupService.Profiles
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         }
 
+        public async Task<IReadOnlyList<ProfileSummary>> GetSummariesAsync(CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            return await db.Profiles
+                .AsNoTracking()
+                .OrderBy(p => p.Name)
+                .Select(p => new ProfileSummary(p.Id, p.Name))
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
         {
             await using var db = contextFactory.CreateDbContext();
@@ -171,6 +183,8 @@ namespace BackupService.Profiles
             db.Profiles.Remove(profile);
             await db.SaveChangesAsync(cancellationToken);
 
+            // Not associated with the profile (it's gone, and that association would cascade-delete
+            // this very record) — the deletion log is meant to survive.
             var log = await operationLogFactory.CreateAsync($"Profile deleted: {name}", cancellationToken: cancellationToken);
             await log.AppendAsync(
                 $"Name: {name}",
@@ -190,6 +204,12 @@ namespace BackupService.Profiles
 
             profile.Enabled = enabled;
             await db.SaveChangesAsync(cancellationToken);
+
+            // Simple, self-describing event — the message lives in the name, no detail lines.
+            await operationLogFactory.CreateAsync(
+                $"Profile {profile.Name} was {(enabled ? "enabled" : "disabled")}",
+                profileId: profile.Id,
+                cancellationToken: cancellationToken);
         }
 
         public async Task UpdateAsync(
@@ -258,11 +278,12 @@ namespace BackupService.Profiles
             await db.SaveChangesAsync(cancellationToken);
 
             await LogProfileUpdatedAsync(
-                oldName, name, oldDescription, description, oldSchedule, scheduleCron,
+                id, oldName, name, oldDescription, description, oldSchedule, scheduleCron,
                 oldEnabled, enabled, oldPairs, keptIds, folderPairs, cancellationToken);
         }
 
         private async Task LogProfileUpdatedAsync(
+            int profileId,
             string oldName,
             string newName,
             string? oldDescription,
@@ -339,7 +360,7 @@ namespace BackupService.Profiles
                 }
             }
 
-            var log = await operationLogFactory.CreateAsync($"Profile updated: {oldName}", cancellationToken: cancellationToken);
+            var log = await operationLogFactory.CreateAsync($"Profile updated: {oldName}", profileId: profileId, cancellationToken: cancellationToken);
 
             if (changes.Count == 0)
             {

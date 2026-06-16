@@ -22,6 +22,13 @@ else
                       Items="LevelOptions"
                       DisplayText="LevelLabel" />
         </div>
+        <div class="filter-profile">
+            <Dropdown TValue="int?"
+                      Value="_profileId"
+                      ValueChanged="OnProfileChanged"
+                      Items="_profileOptions"
+                      DisplayText="ProfileLabel" />
+        </div>
     </div>
 
     @if (_logs.TotalCount == 0)
@@ -35,8 +42,9 @@ else
             <tr>
                 <th class="expand-col"></th>
                 <th class="level-col">Level</th>
+                <th class="time-col">Timestamp</th>
+                <th class="profile-col">Profile</th>
                 <th>Name</th>
-                <th>Timestamp</th>
             </tr>
         </thead>
         <tbody>
@@ -45,23 +53,35 @@ else
                 var expanded = _expanded.Contains(log.Id);
                 <tr>
                     <td class="expand-col">
-                        <button type="button" class="icon-btn expand-btn"
-                                title="@(expanded ? "Collapse" : "Expand")"
-                                aria-label="@(expanded ? "Collapse" : "Expand")"
-                                @onclick="() => ToggleAsync(log.Id)">
-                            @(expanded ? "−" : "+")
-                        </button>
+                        @if (log.DetailCount > 0)
+                        {
+                            <button type="button" class="icon-btn expand-btn @(expanded ? "expanded" : null)"
+                                    title="@(expanded ? "Collapse" : "Expand")"
+                                    aria-label="@(expanded ? "Collapse" : "Expand")"
+                                    @onclick="() => ToggleAsync(log.Id)">
+                            </button>
+                        }
                     </td>
                     <td class="level-col">
                         <span class="log-level log-level-@log.Level.ToString().ToLowerInvariant()">@log.Level.GetDescription()</span>
                     </td>
+                    <td class="time-col">@log.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="profile-col">
+                        @if (log.Profile is not null)
+                        {
+                            @log.Profile.Name
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
                     <td>@log.Name</td>
-                    <td>@log.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
                 </tr>
                 @if (expanded)
                 {
                     <tr class="log-detail-row">
-                        <td colspan="4">
+                        <td colspan="5">
                             @if (_details.TryGetValue(log.Id, out var details))
                             {
                                 @if (details.Count == 0)

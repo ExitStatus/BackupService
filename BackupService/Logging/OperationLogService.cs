@@ -16,6 +16,7 @@ namespace BackupService.Logging
             string? filter = null,
             bool includeMessages = false,
             OperationLogLevel? level = null,
+            int? profileId = null,
             CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1)
@@ -29,11 +30,16 @@ namespace BackupService.Logging
 
             await using var db = contextFactory.CreateDbContext();
 
-            var query = db.OperationLogs.AsNoTracking();
+            var query = db.OperationLogs.AsNoTracking().Include(log => log.Profile).AsQueryable();
 
             if (level is not null)
             {
                 query = query.Where(log => log.Level == level.Value);
+            }
+
+            if (profileId is not null)
+            {
+                query = query.Where(log => log.ProfileId == profileId.Value);
             }
 
             if (!string.IsNullOrWhiteSpace(filter))
@@ -57,6 +63,20 @@ namespace BackupService.Logging
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
+
+            // Populate the (non-persisted) detail count for this page so the grid can hide the
+            // expand control on detail-less logs — one grouped query for the page's ids.
+            var ids = items.Select(item => item.Id).ToList();
+            var counts = await db.OperationLogDetails
+                .Where(detail => ids.Contains(detail.OperationLogId))
+                .GroupBy(detail => detail.OperationLogId)
+                .Select(group => new { group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, cancellationToken);
+
+            foreach (var item in items)
+            {
+                item.DetailCount = counts.GetValueOrDefault(item.Id);
+            }
 
             return new PagedResult<OperationLog>(items, totalCount, pageNumber, pageSize);
         }

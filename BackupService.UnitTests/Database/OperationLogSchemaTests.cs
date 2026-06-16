@@ -105,5 +105,37 @@ namespace BackupService.UnitTests.Database
                 (await context.OperationLogDetails.CountAsync()).Should().Be(0);
             }
         }
+
+        [Test]
+        public async Task DeletingProfile_CascadeDeletesItsOperationLogs_ButKeepsUnrelatedOnes()
+        {
+            int profileId;
+            await using (var context = new BackupDbContext(_options))
+            {
+                var profile = new Profile { Name = "Photos", DateCreated = DateTimeOffset.UtcNow };
+                context.Profiles.Add(profile);
+                await context.SaveChangesAsync();
+                profileId = profile.Id;
+
+                context.OperationLogs.AddRange(
+                    new OperationLog { Name = "Profile created: Photos", TimestampUtc = DateTimeOffset.UtcNow, ProfileId = profileId },
+                    new OperationLog { Name = "Profile deleted: Music", TimestampUtc = DateTimeOffset.UtcNow, ProfileId = null });
+                await context.SaveChangesAsync();
+            }
+
+            await using (var context = new BackupDbContext(_options))
+            {
+                context.Profiles.Remove(await context.Profiles.SingleAsync(p => p.Id == profileId));
+                await context.SaveChangesAsync();
+            }
+
+            await using (var context = new BackupDbContext(_options))
+            {
+                var remaining = await context.OperationLogs.ToListAsync();
+                remaining.Should().ContainSingle();
+                remaining[0].Name.Should().Be("Profile deleted: Music");
+                remaining[0].ProfileId.Should().BeNull();
+            }
+        }
     }
 }
