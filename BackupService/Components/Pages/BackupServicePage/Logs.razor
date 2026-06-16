@@ -1,0 +1,111 @@
+<div class="content-header">
+    <h1>Logs</h1>
+</div>
+
+@if (_logs is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <div class="filter-bar">
+        <input type="text" class="filter-input" placeholder="Filter by name…"
+               value="@_filter" @oninput="OnFilterChanged" />
+        <label class="filter-check">
+            <input type="checkbox" checked="@_includeMessages" @onchange="OnIncludeMessagesChanged" />
+            <span>Include Messages</span>
+        </label>
+        <div class="filter-level">
+            <Dropdown TValue="OperationLogLevel?"
+                      Value="_level"
+                      ValueChanged="OnLevelChanged"
+                      Items="LevelOptions"
+                      DisplayText="LevelLabel" />
+        </div>
+    </div>
+
+    @if (_logs.TotalCount == 0)
+    {
+        <p>@(_hasActiveFilter ? "No logs match the filter." : "No log entries yet.")</p>
+    }
+    else
+    {
+    <table class="table">
+        <thead>
+            <tr>
+                <th class="expand-col"></th>
+                <th class="level-col">Level</th>
+                <th>Name</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var log in _logs.Items)
+            {
+                var expanded = _expanded.Contains(log.Id);
+                <tr>
+                    <td class="expand-col">
+                        <button type="button" class="icon-btn expand-btn"
+                                title="@(expanded ? "Collapse" : "Expand")"
+                                aria-label="@(expanded ? "Collapse" : "Expand")"
+                                @onclick="() => ToggleAsync(log.Id)">
+                            @(expanded ? "−" : "+")
+                        </button>
+                    </td>
+                    <td class="level-col">
+                        <span class="log-level log-level-@log.Level.ToString().ToLowerInvariant()">@log.Level.GetDescription()</span>
+                    </td>
+                    <td>@log.Name</td>
+                    <td>@log.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                </tr>
+                @if (expanded)
+                {
+                    <tr class="log-detail-row">
+                        <td colspan="4">
+                            @if (_details.TryGetValue(log.Id, out var details))
+                            {
+                                @if (details.Count == 0)
+                                {
+                                    <p class="log-detail-empty">No detail lines.</p>
+                                }
+                                else
+                                {
+                                    <table class="table log-detail-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="seq-col">#</th>
+                                                <th class="time-col">Timestamp</th>
+                                                <th>Message</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var detail in details)
+                                            {
+                                                <tr>
+                                                    <td class="seq-col">@detail.Sequence</td>
+                                                    <td class="time-col">@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                                    <td class="log-message">@detail.Message</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            }
+                            else
+                            {
+                                <p class="log-detail-empty">Loading…</p>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+
+    <div class="pager">
+        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_logs.PageNumber <= 1)">Previous</button>
+        <span>Page @_logs.PageNumber of @_logs.TotalPages (@_logs.TotalCount total)</span>
+        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_logs.PageNumber >= _logs.TotalPages)">Next</button>
+    </div>
+    }
+}

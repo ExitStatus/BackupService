@@ -40,20 +40,19 @@ namespace BackupService.UnitTests.Database
                 {
                     Name = "Nightly backup",
                     TimestampUtc = now,
+                    Level = OperationLogLevel.Warning,
                     Details =
                     {
                         new OperationLogDetail
                         {
                             Message = "Started",
                             TimestampUtc = now,
-                            Level = OperationLogLevel.Info,
                             Sequence = 1,
                         },
                         new OperationLogDetail
                         {
                             Message = "Disk nearly full",
                             TimestampUtc = now,
-                            Level = OperationLogLevel.Warning,
                             Sequence = 2,
                         },
                     },
@@ -67,13 +66,12 @@ namespace BackupService.UnitTests.Database
 
                 log.Name.Should().Be("Nightly backup");
                 log.TimestampUtc.Should().BeCloseTo(now, TimeSpan.FromSeconds(1));
+                log.Level.Should().Be(OperationLogLevel.Warning);
 
                 log.Details.Should().HaveCount(2);
                 var ordered = log.Details.OrderBy(d => d.Sequence).ToList();
                 ordered[0].Message.Should().Be("Started");
-                ordered[0].Level.Should().Be(OperationLogLevel.Info);
                 ordered[1].Message.Should().Be("Disk nearly full");
-                ordered[1].Level.Should().Be(OperationLogLevel.Warning);
             }
         }
 
@@ -88,8 +86,8 @@ namespace BackupService.UnitTests.Database
                     TimestampUtc = DateTimeOffset.UtcNow,
                     Details =
                     {
-                        new OperationLogDetail { Message = "a", Level = OperationLogLevel.Debug, Sequence = 1 },
-                        new OperationLogDetail { Message = "b", Level = OperationLogLevel.Error, Sequence = 2 },
+                        new OperationLogDetail { Message = "a", Sequence = 1 },
+                        new OperationLogDetail { Message = "b", Sequence = 2 },
                     },
                 });
                 await context.SaveChangesAsync();

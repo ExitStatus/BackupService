@@ -57,9 +57,9 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             CancellationToken cancellationToken)
         {
-            var log = await operationLogFactory.CreateAsync($"Profile created: {name}", cancellationToken);
+            var log = await operationLogFactory.CreateAsync($"Profile created: {name}", cancellationToken: cancellationToken);
 
-            await log.InfoAsync(
+            await log.AppendAsync(
                 $"Name: {name}",
                 $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}",
@@ -68,7 +68,7 @@ namespace BackupService.Profiles
 
             foreach (var pair in folderPairs)
             {
-                await log.InfoAsync(
+                await log.AppendAsync(
                     $"Folder pair: {pair.Name}",
                     $"Source: {pair.SourceFolder}",
                     $"Target: {pair.TargetFolder}",
@@ -171,8 +171,8 @@ namespace BackupService.Profiles
             db.Profiles.Remove(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            var log = await operationLogFactory.CreateAsync($"Profile deleted: {name}", cancellationToken);
-            await log.InfoAsync(
+            var log = await operationLogFactory.CreateAsync($"Profile deleted: {name}", cancellationToken: cancellationToken);
+            await log.AppendAsync(
                 $"Name: {name}",
                 $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}");
@@ -339,15 +339,15 @@ namespace BackupService.Profiles
                 }
             }
 
-            var log = await operationLogFactory.CreateAsync($"Profile updated: {oldName}", cancellationToken);
+            var log = await operationLogFactory.CreateAsync($"Profile updated: {oldName}", cancellationToken: cancellationToken);
 
             if (changes.Count == 0)
             {
-                await log.InfoAsync("No changes detected.");
+                await log.AppendAsync("No changes detected.");
                 return;
             }
 
-            await log.InfoAsync(changes.ToArray());
+            await log.AppendAsync(changes.ToArray());
         }
 
         private static string DisplayText(string? value) =>

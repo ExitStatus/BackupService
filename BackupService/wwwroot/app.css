@@ -490,6 +490,42 @@ label.check {
     margin-bottom: 1rem;
 }
 
+/* Logs filter bar: free-text name filter + Include Messages toggle. */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.filter-bar .filter-input {
+    width: auto;
+    flex: 1 1 auto;
+    max-width: 28rem;
+    margin-top: 0;
+}
+
+.filter-bar .filter-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.filter-bar .filter-check input[type="checkbox"] {
+    margin: 0;
+}
+
+.filter-bar .filter-level {
+    width: 12rem;
+}
+
+.filter-bar .filter-level .dropdown {
+    margin-top: 0;
+}
+
 /* Folder browser — Windows Explorer-style picker (themed dark). */
 .modal.folder-browser {
     max-width: 900px;
@@ -827,6 +863,79 @@ label.check {
     gap: 0.4rem;
     justify-content: center;
 }
+
+/* Logs: expand/collapse column + button (text +/− rather than an icon). */
+.table .expand-col {
+    width: 1%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.expand-btn {
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    line-height: 1;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Expanded detail row: an inset sub-grid of the log's detail lines. */
+.log-detail-row > td {
+    padding: 0.6rem 0.9rem;
+    background: var(--surface-2);
+}
+
+.log-detail-table {
+    margin: 0;
+}
+
+.log-detail-table thead th {
+    background: var(--surface);
+}
+
+.log-detail-table .seq-col {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.log-detail-table .time-col {
+    width: 1%;
+    white-space: nowrap;
+}
+
+/* Level column on the log header table: only as wide as the pill. */
+.table .level-col {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.log-message {
+    width: 100%;
+    white-space: pre-wrap;
+}
+
+.log-detail-empty {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+/* Level pill. */
+.log-level {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.log-level-info { background: var(--notify-success); }
+.log-level-warning { background: var(--notify-warning); }
+.log-level-error { background: var(--danger); color: #1a1a1a; }
+.log-level-debug { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
 
 /* Sliding on/off toggle (knob left = false, right = true). */
 .toggle {

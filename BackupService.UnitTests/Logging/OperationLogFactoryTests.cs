@@ -39,57 +39,65 @@ namespace BackupService.UnitTests.Logging
         public void TearDown() => _connection.Dispose();
 
         [Test]
-        public async Task CreateAsync_InsertsOperationLogAndRecordsItsId()
+        public async Task CreateAsync_InsertsOperationLogWithLevelAndRecordsItsId()
         {
-            var logger = await _factory.CreateAsync("Nightly backup");
+            var logger = await _factory.CreateAsync("Nightly backup", OperationLogLevel.Warning);
 
             await using var context = new BackupDbContext(_options);
             var log = await context.OperationLogs.SingleAsync();
 
             log.Name.Should().Be("Nightly backup");
+            log.Level.Should().Be(OperationLogLevel.Warning);
             log.TimestampUtc.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
             logger.OperationLogId.Should().Be(log.Id);
         }
 
         [Test]
-        public async Task LogMethods_WriteDetailsWithIncrementingSequenceAndLevel()
+        public async Task CreateAsync_DefaultsLevelToInfo()
+        {
+            await _factory.CreateAsync("Op");
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.SingleAsync();
+
+            log.Level.Should().Be(OperationLogLevel.Info);
+        }
+
+        [Test]
+        public async Task AppendAsync_WritesDetailsWithIncrementingSequence()
         {
             var logger = await _factory.CreateAsync("Op");
 
-            await logger.InfoAsync("started");
-            await logger.WarningAsync("careful");
-            await logger.DebugAsync("details");
+            await logger.AppendAsync("started");
+            await logger.AppendAsync("more");
             await logger.ErrorAsync("boom");
 
             await using var context = new BackupDbContext(_options);
             var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
 
-            details.Select(d => d.Sequence).Should().Equal(1, 2, 3, 4);
-            details.Select(d => d.Level).Should().Equal(
-                OperationLogLevel.Info, OperationLogLevel.Warning, OperationLogLevel.Debug, OperationLogLevel.Error);
-            details.Select(d => d.Message).Should().Equal("started", "careful", "details", "boom");
+            details.Select(d => d.Sequence).Should().Equal(1, 2, 3);
+            details.Select(d => d.Message).Should().Equal("started", "more", "boom");
             details.Should().OnlyContain(d => d.OperationLogId == logger.OperationLogId);
         }
 
         [Test]
-        public async Task InfoAsync_WithMultipleMessages_WritesOneRowPerMessage()
+        public async Task AppendAsync_WithMultipleMessages_WritesOneRowPerMessage()
         {
             var logger = await _factory.CreateAsync("Op");
 
-            await logger.InfoAsync("line 1", "line 2", "line 3");
+            await logger.AppendAsync("line 1", "line 2", "line 3");
 
             await using var context = new BackupDbContext(_options);
             var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
 
             details.Select(d => d.Message).Should().Equal("line 1", "line 2", "line 3");
             details.Select(d => d.Sequence).Should().Equal(1, 2, 3);
-            details.Should().OnlyContain(d => d.Level == OperationLogLevel.Info);
         }
 
         [Test]
         public async Task ErrorAsync_WithException_AppendsStackTraceToMessage()
         {
-            var logger = await _factory.CreateAsync("Op");
+            var logger = await _factory.CreateAsync("Op", OperationLogLevel.Error);
 
             Exception caught;
             try
@@ -104,9 +112,10 @@ namespace BackupService.UnitTests.Logging
             await logger.ErrorAsync("failed", caught);
 
             await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.SingleAsync();
             var detail = await context.OperationLogDetails.SingleAsync();
 
-            detail.Level.Should().Be(OperationLogLevel.Error);
+            log.Level.Should().Be(OperationLogLevel.Error);
             detail.Message.Should().StartWith("failed");
             detail.Message.Should().Contain("InvalidOperationException");
             detail.Message.Should().Contain("kaboom");

@@ -1,4 +1,5 @@
 using BackupService.Database;
+using BackupService.Enumerations;
 
 namespace BackupService.Logging
 {
@@ -8,12 +9,14 @@ namespace BackupService.Logging
     /// </summary>
     public sealed class OperationLogFactory(IDatabaseContextFactory contextFactory) : IOperationLogFactory
     {
-        public async Task<IOperationLogger> CreateAsync(string name, CancellationToken cancellationToken = default)
+        public async Task<IOperationLogger> CreateAsync(
+            string name, OperationLogLevel level = OperationLogLevel.Info, CancellationToken cancellationToken = default)
         {
             var log = new OperationLog
             {
                 Name = name,
                 TimestampUtc = DateTimeOffset.UtcNow,
+                Level = level,
             };
 
             await using (var db = contextFactory.CreateDbContext())
