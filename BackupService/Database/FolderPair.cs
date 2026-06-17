@@ -26,6 +26,8 @@ namespace BackupService.Database
 
         public bool AllowDeletions { get; set; }
 
+        public bool IncludeSubFolders { get; set; }
+
         public OverwriteBehaviour OverwriteBehaviour { get; set; }
 
         public FolderPairStatus Status { get; set; }

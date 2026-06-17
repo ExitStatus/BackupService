@@ -190,7 +190,7 @@ namespace BackupService.Scheduling
             {
                 try
                 {
-                    await runner.RunAsync(profileId, _stoppingToken);
+                    await runner.RunAsync(profileId, manual: false, _stoppingToken);
                 }
                 catch (Exception ex)
                 {

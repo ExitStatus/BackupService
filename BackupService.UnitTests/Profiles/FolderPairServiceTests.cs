@@ -11,8 +11,8 @@ namespace BackupService.UnitTests.Profiles
         private readonly FolderPairService _service = new();
 
         private static FolderPairInput Input(int id, string name, string source = @"C:\S", string target = @"D:\T",
-            bool allowDeletions = false, OverwriteBehaviour overwrite = OverwriteBehaviour.DoNotOverwriteNewer)
-            => new(id, name, source, target, allowDeletions, overwrite);
+            bool allowDeletions = false, bool includeSubFolders = false, OverwriteBehaviour overwrite = OverwriteBehaviour.DoNotOverwriteNewer)
+            => new(id, name, source, target, allowDeletions, includeSubFolders, overwrite);
 
         [Test]
         public void Add_AppendsNewPairsWithDefaultStatuses()
@@ -66,12 +66,13 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public void DescribeForCreateLog_ProducesDetailLinesPerPair()
         {
-            var lines = _service.DescribeForCreateLog([Input(0, "A", @"C:\A", @"D:\A", allowDeletions: true)]);
+            var lines = _service.DescribeForCreateLog([Input(0, "A", @"C:\A", @"D:\A", allowDeletions: true, includeSubFolders: true)]);
 
             lines.Should().Contain("Folder pair: A");
             lines.Should().Contain(@"Source: C:\A");
             lines.Should().Contain(@"Target: D:\A");
             lines.Should().Contain("Allow deletions: Yes");
+            lines.Should().Contain("Include sub-folders: Yes");
             lines.Should().Contain(m => m.StartsWith("Overwrite:"));
         }
 

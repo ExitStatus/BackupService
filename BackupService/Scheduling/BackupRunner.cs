@@ -33,7 +33,7 @@ namespace BackupService.Scheduling
             _handlers = handlers.ToDictionary(h => h.Type);
         }
 
-        public async Task RunAsync(int profileId, CancellationToken cancellationToken = default)
+        public async Task RunAsync(int profileId, bool manual = false, CancellationToken cancellationToken = default)
         {
             Profile? profile;
             await using (var db = _contextFactory.CreateDbContext())
@@ -58,8 +58,11 @@ namespace BackupService.Scheduling
 
             if (!_handlers.TryGetValue(profile.Type, out var handler))
             {
+                var failureName = manual
+                    ? $"[Manual] Backup failed: {profile.Name}"
+                    : $"Scheduled backup failed: {profile.Name}";
                 var errorLog = await _operationLogFactory.CreateAsync(
-                    $"Scheduled backup failed: {profile.Name}",
+                    failureName,
                     OperationLogLevel.Error,
                     profile.Id,
                     cancellationToken);
@@ -80,7 +83,7 @@ namespace BackupService.Scheduling
             var finalStatus = ProfileStatus.Idle;
             try
             {
-                await handler.HandleAsync(profile, cancellationToken);
+                await handler.HandleAsync(profile, manual, cancellationToken);
             }
             catch (Exception ex)
             {

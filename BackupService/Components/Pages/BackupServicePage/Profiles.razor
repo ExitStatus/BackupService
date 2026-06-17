@@ -42,6 +42,11 @@ else
                     <td>@DescribeStatus(StatusService.Get(profile.Id))</td>
                     <td class="action-col">
                         <div class="row-actions">
+                            <button type="button" class="icon-btn" title="@RunTitle(profile.Id)"
+                                    aria-label="Run profile now" disabled="@IsRunning(profile.Id)"
+                                    @onclick="() => RunNow(profile)">
+                                <img src="Icons/play.png" width="24" height="24" alt="Run now" />
+                            </button>
                             <button type="button" class="icon-btn" title="@EditTitle(profile.Id)"
                                     aria-label="Edit profile" disabled="@IsRunning(profile.Id)"
                                     @onclick="() => OpenEdit(profile.Id)">

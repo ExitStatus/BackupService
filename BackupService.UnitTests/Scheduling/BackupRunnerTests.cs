@@ -76,6 +76,19 @@ namespace BackupService.UnitTests.Scheduling
             handler.Calls.Should().Be(1);
             handler.Captured.Should().NotBeNull();
             handler.Captured!.FolderPairs.Select(p => p.Name).Should().BeEquivalentTo("Docs", "Pics");
+            handler.LastManual.Should().BeFalse(); // scheduled run by default
+        }
+
+        [Test]
+        public async Task RunAsync_PassesManualFlagToHandler()
+        {
+            var id = SeedProfile();
+            var handler = new CapturingHandler();
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+
+            await runner.RunAsync(id, manual: true);
+
+            handler.LastManual.Should().BeTrue();
         }
 
         [Test]
@@ -175,10 +188,13 @@ namespace BackupService.UnitTests.Scheduling
 
             public Func<Profile, Task>? OnHandle { get; init; }
 
-            public async Task HandleAsync(Profile profile, CancellationToken cancellationToken)
+            public bool LastManual { get; private set; }
+
+            public async Task HandleAsync(Profile profile, bool manual, CancellationToken cancellationToken)
             {
                 Calls++;
                 Captured = profile;
+                LastManual = manual;
                 if (OnHandle is not null)
                 {
                     await OnHandle(profile);

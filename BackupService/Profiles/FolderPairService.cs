@@ -24,7 +24,7 @@ namespace BackupService.Profiles
             // Snapshot the original pairs before mutating so we can describe what changed.
             var oldPairs = profile.FolderPairs.ToDictionary(
                 p => p.Id,
-                p => new FolderPairSnapshot(p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.OverwriteBehaviour));
+                p => new FolderPairSnapshot(p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour));
 
             // Remove pairs the user deleted (not present by id in the new set).
             var keptIds = inputs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
@@ -50,6 +50,7 @@ namespace BackupService.Profiles
                     existing.SourceFolder = input.SourceFolder;
                     existing.TargetFolder = input.TargetFolder;
                     existing.AllowDeletions = input.AllowDeletions;
+                    existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.OverwriteBehaviour = input.OverwriteBehaviour;
                 }
             }
@@ -66,6 +67,7 @@ namespace BackupService.Profiles
                 lines.Add($"Source: {pair.SourceFolder}");
                 lines.Add($"Target: {pair.TargetFolder}");
                 lines.Add($"Allow deletions: {YesNo(pair.AllowDeletions)}");
+                lines.Add($"Include sub-folders: {YesNo(pair.IncludeSubFolders)}");
                 lines.Add($"Overwrite: {pair.OverwriteBehaviour.GetDescription()}");
             }
             return lines;
@@ -112,6 +114,10 @@ namespace BackupService.Profiles
                 {
                     changes.Add($"Folder pair '{input.Name}' allow deletions changed from '{YesNo(old.AllowDeletions)}' to '{YesNo(input.AllowDeletions)}'");
                 }
+                if (old.IncludeSubFolders != input.IncludeSubFolders)
+                {
+                    changes.Add($"Folder pair '{input.Name}' include sub-folders changed from '{YesNo(old.IncludeSubFolders)}' to '{YesNo(input.IncludeSubFolders)}'");
+                }
                 if (old.OverwriteBehaviour != input.OverwriteBehaviour)
                 {
                     changes.Add($"Folder pair '{input.Name}' overwrite changed from '{old.OverwriteBehaviour.GetDescription()}' to '{input.OverwriteBehaviour.GetDescription()}'");
@@ -127,6 +133,7 @@ namespace BackupService.Profiles
             SourceFolder = input.SourceFolder,
             TargetFolder = input.TargetFolder,
             AllowDeletions = input.AllowDeletions,
+            IncludeSubFolders = input.IncludeSubFolders,
             OverwriteBehaviour = input.OverwriteBehaviour,
             Status = FolderPairStatus.Idle,
             LastRunStatus = FolderPairLastRunStatus.None,
@@ -139,6 +146,7 @@ namespace BackupService.Profiles
             string SourceFolder,
             string TargetFolder,
             bool AllowDeletions,
+            bool IncludeSubFolders,
             OverwriteBehaviour OverwriteBehaviour);
     }
 }

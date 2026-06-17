@@ -2,6 +2,7 @@ using BackupService.Components.Controls;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Profiles;
+using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.BackupServicePage
@@ -15,6 +16,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         [Inject]
         private IProfileStatusService StatusService { get; set; } = default!;
+
+        [Inject]
+        private IBackupRunner BackupRunner { get; set; } = default!;
 
         private bool _showDialog;
         private int? _editId;
@@ -101,6 +105,8 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private bool IsRunning(int id) => StatusService.Get(id) == ProfileStatus.Running;
 
+        private string RunTitle(int id) => IsRunning(id) ? "A backup is already running" : "Run now";
+
         private string EditTitle(int id) => IsRunning(id) ? "Cannot edit while a backup is running" : "Edit profile";
 
         private string DeleteTitle(int id) => IsRunning(id) ? "Cannot delete while a backup is running" : "Delete profile";
@@ -147,6 +153,15 @@ namespace BackupService.Components.Pages.BackupServicePage
             await ProfileService.SetEnabledAsync(profile.Id, enabled);
             profile.Enabled = enabled; // update the in-list entity without a full reload
             _notification.Show(enabled ? "Profile enabled" : "Profile disabled", NotificationLevel.Success);
+        }
+
+        private void RunNow(Profile profile)
+        {
+            // Run on a background task (like the scheduler) so a long backup doesn't block the UI;
+            // the status-change events refresh the grid as it progresses. RunAsync records its own
+            // failures (Error status + operation log) and doesn't throw, so fire-and-forget is safe.
+            _ = Task.Run(() => BackupRunner.RunAsync(profile.Id, manual: true));
+            _notification.Show($"Running '{profile.Name}' now", NotificationLevel.Success);
         }
 
         private void OpenDelete(Profile profile)

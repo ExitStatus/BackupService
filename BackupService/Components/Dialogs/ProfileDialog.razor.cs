@@ -77,6 +77,7 @@ namespace BackupService.Components.Dialogs
                     SourceFolder = pair.SourceFolder,
                     TargetFolder = pair.TargetFolder,
                     AllowDeletions = pair.AllowDeletions,
+                    IncludeSubFolders = pair.IncludeSubFolders,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
                 });
             }
@@ -103,7 +104,7 @@ namespace BackupService.Components.Dialogs
                 var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
                 var folderPairs = _folderPairs
-                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.OverwriteBehaviour))
+                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour))
                     .ToList();
 
                 if (ProfileId is { } id)

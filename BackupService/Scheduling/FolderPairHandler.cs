@@ -21,11 +21,13 @@ namespace BackupService.Scheduling
     {
         public ProfileType Type => ProfileType.FolderPair;
 
-        public async Task HandleAsync(Profile profile, CancellationToken cancellationToken)
+        public async Task HandleAsync(Profile profile, bool manual, CancellationToken cancellationToken)
         {
             var stopwatch = Stopwatch.StartNew();
             var succeeded = false;
-            var handlerName = $"{Type.GetDescription()} Handler"; // e.g. "Folder Pairs Handler"
+            // "Run now" runs are prefixed [Manual] in the log to distinguish them from scheduled ones.
+            var prefix = manual ? "[Manual] " : string.Empty;
+            var handlerName = $"{prefix}{Type.GetDescription()} Handler"; // e.g. "[Manual] Folder Pairs Handler"
 
             var log = await operationLogFactory.CreateAsync(
                 $"{handlerName} called with {profile.FolderPairs.Count} folder pair(s).",

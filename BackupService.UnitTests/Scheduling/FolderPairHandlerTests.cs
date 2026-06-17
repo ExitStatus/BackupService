@@ -69,7 +69,7 @@ namespace BackupService.UnitTests.Scheduling
 
             var handler = new FolderPairHandler(new OperationLogFactory(_dbFactory), _statusService, NullLogger<FolderPairHandler>.Instance);
 
-            await handler.HandleAsync(loaded, CancellationToken.None);
+            await handler.HandleAsync(loaded, manual: false, CancellationToken.None);
 
             await using var verify = new BackupDbContext(_options);
 
@@ -84,6 +84,40 @@ namespace BackupService.UnitTests.Scheduling
             details.Should().ContainSingle(d => d.Message == @"P: C:\a -> D:\b");
 
             _statusService.Get(profileId).Should().Be(ProfileStatus.Idle);
+        }
+
+        [Test]
+        public async Task HandleAsync_WhenManual_PrefixesLogWithManualTag()
+        {
+            int profileId;
+            using (var db = new BackupDbContext(_options))
+            {
+                var profile = new Profile
+                {
+                    Name = "Docs",
+                    Type = ProfileType.FolderPair,
+                    DateCreated = DateTimeOffset.UtcNow,
+                    FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
+                };
+                db.Profiles.Add(profile);
+                db.SaveChanges();
+                profileId = profile.Id;
+            }
+
+            Profile loaded;
+            await using (var db = new BackupDbContext(_options))
+            {
+                loaded = await db.Profiles.Include(p => p.FolderPairs).SingleAsync();
+            }
+
+            var handler = new FolderPairHandler(new OperationLogFactory(_dbFactory), _statusService, NullLogger<FolderPairHandler>.Instance);
+
+            await handler.HandleAsync(loaded, manual: true, CancellationToken.None);
+
+            await using var verify = new BackupDbContext(_options);
+            var log = await verify.OperationLogs.SingleAsync();
+            log.Name.Should().StartWith("[Manual] Folder Pairs Handler ran successfully in");
+            log.ProfileId.Should().Be(profileId);
         }
 
         [Test]
@@ -107,7 +141,7 @@ namespace BackupService.UnitTests.Scheduling
             };
             var handler = new FolderPairHandler(factoryMock.Object, _statusService, NullLogger<FolderPairHandler>.Instance);
 
-            var act = () => handler.HandleAsync(profile, CancellationToken.None);
+            var act = () => handler.HandleAsync(profile, manual: false, CancellationToken.None);
 
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
             _statusService.Get(5).Should().Be(ProfileStatus.Error);
