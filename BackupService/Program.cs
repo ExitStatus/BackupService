@@ -55,6 +55,7 @@ namespace BackupService
             builder.Services.AddSingleton<IAdminCredentialService, AdminCredentialService>();
             builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
             builder.Services.AddSingleton<FileSystem.IFolderBrowser, FileSystem.FolderBrowser>();
+            builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
             builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
             builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
@@ -64,6 +65,7 @@ namespace BackupService
             // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
             // The scheduler is a single instance shared across its three roles (singleton,
             // IBackupScheduler re-sync API, and the hosted background service).
+            builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
             builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
             builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();

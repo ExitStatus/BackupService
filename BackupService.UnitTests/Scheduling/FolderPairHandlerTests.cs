@@ -43,92 +43,93 @@ namespace BackupService.UnitTests.Scheduling
         [TearDown]
         public void TearDown() => _connection.Dispose();
 
-        [Test]
-        public async Task HandleAsync_WritesSingleLogWithSuccessSummaryAndDetails()
+        private async Task<Profile> SeedAndLoadProfileAsync()
         {
-            int profileId;
             using (var db = new BackupDbContext(_options))
             {
-                var profile = new Profile
+                db.Profiles.Add(new Profile
                 {
                     Name = "Docs",
                     Type = ProfileType.FolderPair,
                     DateCreated = DateTimeOffset.UtcNow,
                     FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
-                };
-                db.Profiles.Add(profile);
+                });
                 db.SaveChanges();
-                profileId = profile.Id;
             }
 
-            Profile loaded;
-            await using (var db = new BackupDbContext(_options))
-            {
-                loaded = await db.Profiles.Include(p => p.FolderPairs).SingleAsync();
-            }
+            await using var load = new BackupDbContext(_options);
+            return await load.Profiles.Include(p => p.FolderPairs).SingleAsync();
+        }
 
-            var handler = new FolderPairHandler(new OperationLogFactory(_dbFactory), _statusService, NullLogger<FolderPairHandler>.Instance);
+        private FolderPairHandler Handler(IFolderPairSynchronizer synchronizer) =>
+            new(new OperationLogFactory(_dbFactory), synchronizer, _dbFactory, _statusService, NullLogger<FolderPairHandler>.Instance);
 
-            await handler.HandleAsync(loaded, manual: false, CancellationToken.None);
+        [Test]
+        public async Task HandleAsync_RunsEachPair_WritesSummaryAndPersistsSuccess()
+        {
+            var profile = await SeedAndLoadProfileAsync();
+            var synchronizer = new FakeSynchronizer(new BackupResult { Copied = 2 });
+
+            await Handler(synchronizer).HandleAsync(profile, manual: false, CancellationToken.None);
+
+            synchronizer.SyncedPairNames.Should().Equal("P");
 
             await using var verify = new BackupDbContext(_options);
 
-            // Exactly one log event per run, with the summary message + Info level.
+            // Exactly one log, summarised with counts at Info level.
             var log = await verify.OperationLogs.SingleAsync();
             log.Name.Should().StartWith("Folder Pairs Handler ran successfully in");
-            log.ProfileId.Should().Be(profileId);
+            log.Name.Should().Contain("2 copied");
             log.Level.Should().Be(OperationLogLevel.Info);
+            log.ProfileId.Should().Be(profile.Id);
 
-            // The folder-pair details were written under that same log.
+            // The pair header line was written under that same log.
             var details = await verify.OperationLogDetails.Where(d => d.OperationLogId == log.Id).ToListAsync();
-            details.Should().ContainSingle(d => d.Message == @"P: C:\a -> D:\b");
+            details.Should().ContainSingle(d => d.Message == @"Folder pair 'P': C:\a -> D:\b");
 
-            _statusService.Get(profileId).Should().Be(ProfileStatus.Idle);
+            // Per-pair status persisted.
+            var pair = await verify.FolderPairs.SingleAsync();
+            pair.Status.Should().Be(FolderPairStatus.Idle);
+            pair.LastRunStatus.Should().Be(FolderPairLastRunStatus.Success);
         }
 
         [Test]
         public async Task HandleAsync_WhenManual_PrefixesLogWithManualTag()
         {
-            int profileId;
-            using (var db = new BackupDbContext(_options))
-            {
-                var profile = new Profile
-                {
-                    Name = "Docs",
-                    Type = ProfileType.FolderPair,
-                    DateCreated = DateTimeOffset.UtcNow,
-                    FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
-                };
-                db.Profiles.Add(profile);
-                db.SaveChanges();
-                profileId = profile.Id;
-            }
+            var profile = await SeedAndLoadProfileAsync();
 
-            Profile loaded;
-            await using (var db = new BackupDbContext(_options))
-            {
-                loaded = await db.Profiles.Include(p => p.FolderPairs).SingleAsync();
-            }
-
-            var handler = new FolderPairHandler(new OperationLogFactory(_dbFactory), _statusService, NullLogger<FolderPairHandler>.Instance);
-
-            await handler.HandleAsync(loaded, manual: true, CancellationToken.None);
+            await Handler(new FakeSynchronizer(new BackupResult())).HandleAsync(profile, manual: true, CancellationToken.None);
 
             await using var verify = new BackupDbContext(_options);
             var log = await verify.OperationLogs.SingleAsync();
             log.Name.Should().StartWith("[Manual] Folder Pairs Handler ran successfully in");
-            log.ProfileId.Should().Be(profileId);
         }
 
         [Test]
-        public async Task HandleAsync_OnException_SetsErrorSummaryAndStatusAndRethrows()
+        public async Task HandleAsync_WhenSyncReportsErrors_SummaryAndPairStatusReflectFailure()
+        {
+            var profile = await SeedAndLoadProfileAsync();
+
+            await Handler(new FakeSynchronizer(new BackupResult { Copied = 1, Errors = 2 }))
+                .HandleAsync(profile, manual: false, CancellationToken.None);
+
+            await using var verify = new BackupDbContext(_options);
+            var log = await verify.OperationLogs.SingleAsync();
+            log.Name.Should().StartWith("Folder Pairs Handler completed with 2 error(s) in");
+            log.Level.Should().Be(OperationLogLevel.Error);
+
+            (await verify.FolderPairs.SingleAsync()).LastRunStatus.Should().Be(FolderPairLastRunStatus.Fail);
+        }
+
+        [Test]
+        public async Task HandleAsync_OnFatalException_SetsErrorSummaryAndStatusAndRethrows()
         {
             // Make a detail write throw so the handler's try-body fails after the log is created.
             var loggerMock = new Mock<IOperationLogger>();
             loggerMock.Setup(l => l.AppendAsync(It.IsAny<string[]>())).ThrowsAsync(new InvalidOperationException("boom"));
 
-            var factoryMock = new Mock<IOperationLogFactory>();
-            factoryMock
+            var logFactoryMock = new Mock<IOperationLogFactory>();
+            logFactoryMock
                 .Setup(f => f.CreateAsync(It.IsAny<string>(), It.IsAny<OperationLogLevel>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(loggerMock.Object);
 
@@ -139,19 +140,30 @@ namespace BackupService.UnitTests.Scheduling
                 Type = ProfileType.FolderPair,
                 FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
             };
-            var handler = new FolderPairHandler(factoryMock.Object, _statusService, NullLogger<FolderPairHandler>.Instance);
+            var handler = new FolderPairHandler(
+                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _dbFactory, _statusService, NullLogger<FolderPairHandler>.Instance);
 
             var act = () => handler.HandleAsync(profile, manual: false, CancellationToken.None);
 
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
             _statusService.Get(5).Should().Be(ProfileStatus.Error);
 
-            // The same single log's header is rewritten to the failure summary at Error level.
             loggerMock.Verify(
                 l => l.SetSummaryAsync(
                     It.Is<string>(s => s.StartsWith("Folder Pairs Handler failed in")),
                     OperationLogLevel.Error),
                 Times.Once);
+        }
+
+        private sealed class FakeSynchronizer(BackupResult result) : IFolderPairSynchronizer
+        {
+            public List<string> SyncedPairNames { get; } = [];
+
+            public Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken)
+            {
+                SyncedPairNames.Add(pair.Name);
+                return Task.FromResult(result);
+            }
         }
     }
 }
