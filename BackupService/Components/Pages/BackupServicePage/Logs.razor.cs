@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Pages.BackupServicePage
 {
-    public partial class Logs : ComponentBase
+    public partial class Logs : ComponentBase, IDisposable
     {
         private const int PageSize = 10;
 
@@ -15,11 +15,19 @@ namespace BackupService.Components.Pages.BackupServicePage
         // ~20 of these before scrolling). Used as the Virtualize ItemSize for the detail output.
         private const float LineHeight = 20f;
 
+        private bool _refreshing;
+        private bool _subscribed;
+        private bool _disposed;
+
         [Inject]
         private IOperationLogService OperationLogService { get; set; } = default!;
 
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
+
+        // Pushes a refresh whenever log data changes (debounced); replaces interval polling.
+        [Inject]
+        private ILogWatcher LogWatcher { get; set; } = default!;
 
         private int _page = 1;
         private PagedResult<OperationLog>? _logs;
@@ -101,6 +109,70 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync(_page);
         }
 
+        // Subscribe once the component is live (OnAfterRender doesn't run during prerender, so we only
+        // attach in the interactive circuit). The watcher debounces, so we just refresh on each push.
+        protected override void OnAfterRender(bool firstRender)
+        {
+            if (firstRender)
+            {
+                LogWatcher.Changed += OnLogsChanged;
+                _subscribed = true;
+            }
+        }
+
+        private void OnLogsChanged()
+        {
+            // Raised on a background thread — marshal onto the renderer and refresh. Swallow failures so
+            // a transient error (or a torn-down circuit) can't escape onto the thread pool.
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    await RefreshAsync();
+                }
+                catch
+                {
+                    // Best-effort refresh; the next notification will try again.
+                }
+            });
+        }
+
+        /// <summary>
+        /// Re-reads the current page (and any expanded logs' details) in place, without collapsing the
+        /// user's expanded rows or resetting their filters/page. Driven by the log watcher's push.
+        /// </summary>
+        private async Task RefreshAsync()
+        {
+            if (_disposed || _refreshing)
+            {
+                return;
+            }
+
+            _refreshing = true;
+            try
+            {
+                _logs = await OperationLogService.GetPageAsync(_page, PageSize, _filter, _includeMessages, _level, _profileId);
+                _page = _logs.PageNumber;
+
+                // Drop expansion state for logs that have scrolled off this page (e.g. pushed down by
+                // newer entries); refresh the details of those still shown so a running log stays live.
+                var visibleIds = _logs.Items.Select(l => l.Id).ToHashSet();
+                _expanded.RemoveWhere(id => !visibleIds.Contains(id));
+
+                foreach (var id in _expanded)
+                {
+                    var details = await OperationLogService.GetDetailsAsync(id);
+                    _details[id] = details as List<OperationLogDetail> ?? details.ToList();
+                }
+
+                StateHasChanged();
+            }
+            finally
+            {
+                _refreshing = false;
+            }
+        }
+
         private async Task LoadAsync(int page)
         {
             _logs = await OperationLogService.GetPageAsync(page, PageSize, _filter, _includeMessages, _level, _profileId);
@@ -172,6 +244,17 @@ namespace BackupService.Components.Pages.BackupServicePage
                     var details = await OperationLogService.GetDetailsAsync(logId);
                     _details[logId] = details as List<OperationLogDetail> ?? details.ToList();
                 }
+            }
+        }
+
+        // Tearing down the component (e.g. selecting another sidebar panel) unsubscribes, so the watcher
+        // no longer pushes refreshes to this instance.
+        public void Dispose()
+        {
+            _disposed = true;
+            if (_subscribed)
+            {
+                LogWatcher.Changed -= OnLogsChanged;
             }
         }
     }

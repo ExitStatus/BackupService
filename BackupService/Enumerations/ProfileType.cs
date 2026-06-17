@@ -6,5 +6,8 @@ namespace BackupService.Enumerations
     {
         [Description("Folder Pairs")]
         FolderPair = 0,
+
+        [Description("Instant Sync")]
+        InstantSync = 1,
     }
 }

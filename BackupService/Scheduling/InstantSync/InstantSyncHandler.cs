@@ -1,0 +1,120 @@
+using System.Diagnostics;
+using BackupService.Database;
+using BackupService.Enumerations;
+using BackupService.Extensions;
+using BackupService.Logging;
+using BackupService.Profiles;
+
+namespace BackupService.Scheduling
+{
+    /// <summary>
+    /// Handles a manual "Run now" of an <see cref="ProfileType.InstantSync"/> profile: a one-off full
+    /// source→target reconcile of every item. Live syncing is driven separately by
+    /// <see cref="InstantSyncWatcherService"/>; this is the on-demand catch-up path. Each item is
+    /// reconciled by reusing the existing <see cref="IFolderPairSynchronizer"/> over a transient
+    /// <see cref="FolderPair"/> (instant sync is source-authoritative, so it uses
+    /// <see cref="OverwriteBehaviour.AlwaysOverwrite"/>). Owns the single operation log for the run.
+    /// </summary>
+    public sealed class InstantSyncHandler(
+        IOperationLogFactory operationLogFactory,
+        IFolderPairSynchronizer synchronizer,
+        IProfileStatusService statusService,
+        ILogger<InstantSyncHandler> logger) : IProfileTypeHandler
+    {
+        public ProfileType Type => ProfileType.InstantSync;
+
+        public async Task HandleAsync(Profile profile, bool manual, CancellationToken cancellationToken)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            // "Run now" runs are prefixed [Manual] in the log to distinguish them from scheduled ones.
+            var prefix = manual ? "[Manual] " : string.Empty;
+            var handlerName = $"{prefix}{Type.GetDescription()} Handler"; // e.g. "[Manual] Instant Sync Handler"
+            var total = new BackupResult();
+            var fatal = false;
+
+            var log = await operationLogFactory.CreateAsync(
+                $"{handlerName} called with {profile.InstantSyncItems.Count} instant sync item(s).",
+                profileId: profile.Id,
+                cancellationToken: cancellationToken);
+
+            try
+            {
+                if (profile.InstantSyncItems.Count == 0)
+                {
+                    await log.AppendAsync("No instant sync items configured.");
+                }
+                else
+                {
+                    foreach (var item in profile.InstantSyncItems)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await RunItemAsync(item, log, total, cancellationToken);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Catastrophic failure (e.g. cancellation, or something outside an item's own try).
+                fatal = true;
+                statusService.Set(profile.Id, ProfileStatus.Error);
+                logger.LogError(ex, "InstantSyncHandler failed for profile {ProfileId} ({ProfileName}).", profile.Id, profile.Name);
+                throw;
+            }
+            finally
+            {
+                stopwatch.Stop();
+                var duration = FormatDuration(stopwatch.Elapsed);
+
+                if (fatal)
+                {
+                    await log.SetSummaryAsync($"{handlerName} failed in {duration}", OperationLogLevel.Error);
+                }
+                else
+                {
+                    var counts = $"{total.Copied} copied, {total.Updated} updated, {total.Deleted} deleted";
+                    await log.SetSummaryAsync(
+                        total.Errors == 0
+                            ? $"{handlerName} ran successfully in {duration} — {counts}"
+                            : $"{handlerName} completed with {total.Errors} error(s) in {duration} — {counts}",
+                        total.Errors == 0 ? OperationLogLevel.Info : OperationLogLevel.Error);
+                }
+            }
+        }
+
+        private async Task RunItemAsync(InstantSyncItem item, IOperationLogger log, BackupResult total, CancellationToken cancellationToken)
+        {
+            await log.AppendAsync($"Instant sync '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
+
+            // Reuse the folder-pair sync engine for the full reconcile. Source-authoritative → always overwrite.
+            var pair = new FolderPair
+            {
+                Name = item.Name,
+                SourceFolder = item.SourceFolder,
+                TargetFolder = item.TargetFolder,
+                AllowDeletions = item.AllowDeletions,
+                IncludeSubFolders = item.IncludeSubFolders,
+                OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
+            };
+
+            try
+            {
+                total.Add(await synchronizer.SyncAsync(pair, log, cancellationToken));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Unexpected failure for this item — record it and carry on with the others.
+                total.Errors++;
+                await log.ErrorAsync($"Instant sync '{item.Name}' failed", ex);
+            }
+        }
+
+        private static string FormatDuration(TimeSpan elapsed) =>
+            elapsed.TotalSeconds >= 1
+                ? $"{elapsed.TotalSeconds:0.##}s"
+                : $"{elapsed.TotalMilliseconds:0}ms";
+    }
+}

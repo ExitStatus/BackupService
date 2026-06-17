@@ -34,7 +34,14 @@ namespace BackupService.UnitTests.Profiles
 
             var factory = new Mock<IDatabaseContextFactory>();
             factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
-            _service = new ProfileService(factory.Object, new OperationLogFactory(factory.Object), new FolderPairService(), Mock.Of<IBackupScheduler>(), new ProfileStatusService());
+            _service = new ProfileService(
+                factory.Object,
+                new OperationLogFactory(factory.Object),
+                new FolderPairService(),
+                new InstantSyncItemService(),
+                Mock.Of<IBackupScheduler>(),
+                Mock.Of<IInstantSyncManager>(),
+                new ProfileStatusService());
         }
 
         [TearDown]
@@ -304,6 +311,62 @@ namespace BackupService.UnitTests.Profiles
             var act = async () => await _service.SetEnabledAsync(999, false);
 
             await act.Should().NotThrowAsync();
+        }
+
+        [Test]
+        public async Task CreateAsync_PersistsInstantSyncProfileWithItems_AndNotifiesManager()
+        {
+            var manager = new Mock<IInstantSyncManager>();
+            var factory = new Mock<IDatabaseContextFactory>();
+            factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
+            var service = new ProfileService(
+                factory.Object,
+                new OperationLogFactory(factory.Object),
+                new FolderPairService(),
+                new InstantSyncItemService(),
+                Mock.Of<IBackupScheduler>(),
+                manager.Object,
+                new ProfileStatusService());
+
+            await service.CreateAsync(
+                "Live", "watch", ProfileType.InstantSync, scheduleCron: null, enabled: true,
+                folderPairs: [],
+                instantSyncItems: [new InstantSyncInput(0, "Item", @"C:\Src", @"D:\Dst", DebounceMilliseconds: 2000, IncludeSubFolders: true, AllowDeletions: true)]);
+
+            await using var context = new BackupDbContext(_options);
+            var profile = await context.Profiles.Include(p => p.InstantSyncItems).SingleAsync();
+
+            profile.Type.Should().Be(ProfileType.InstantSync);
+            profile.Schedule.Should().BeNull();
+            var item = profile.InstantSyncItems.Should().ContainSingle().Subject;
+            item.SourceFolder.Should().Be(@"C:\Src");
+            item.TargetFolder.Should().Be(@"D:\Dst");
+            item.DebounceMilliseconds.Should().Be(2000);
+            item.IncludeSubFolders.Should().BeTrue();
+            item.AllowDeletions.Should().BeTrue();
+
+            manager.Verify(m => m.SyncAsync(profile.Id, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Test]
+        public async Task UpdateAsync_SyncsInstantSyncItems()
+        {
+            await _service.CreateAsync(
+                "Live", null, ProfileType.InstantSync, scheduleCron: null, enabled: true,
+                folderPairs: [],
+                instantSyncItems: [new InstantSyncInput(0, "Item", @"C:\Src", @"D:\Dst", DebounceMilliseconds: 1000, IncludeSubFolders: false, AllowDeletions: false)]);
+            var id = await GetOnlyProfileIdAsync();
+
+            await _service.UpdateAsync(
+                id, "Live", null, scheduleCron: null, enabled: true,
+                folderPairs: [],
+                instantSyncItems: [new InstantSyncInput(0, "Item2", @"C:\Src2", @"D:\Dst2", DebounceMilliseconds: 3000, IncludeSubFolders: true, AllowDeletions: true)]);
+
+            await using var context = new BackupDbContext(_options);
+            var profile = await context.Profiles.Include(p => p.InstantSyncItems).SingleAsync();
+            var item = profile.InstantSyncItems.Should().ContainSingle().Subject;
+            item.Name.Should().Be("Item2");
+            item.DebounceMilliseconds.Should().Be(3000);
         }
 
         private async Task<int> GetOnlyProfileIdAsync()

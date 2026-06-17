@@ -1,0 +1,51 @@
+<div class="field-label">Instant sync items</div>
+
+@if (Items.Count == 0)
+{
+    <p class="folder-pairs-empty">No instant sync items yet.</p>
+}
+else
+{
+    <table class="table folder-pairs-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var index = i;
+                var item = Items[index];
+                <tr>
+                    <td>@item.Name</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Edit instant sync item"
+                                    aria-label="Edit instant sync item" @onclick="() => Edit(index)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete instant sync item"
+                                    aria-label="Delete instant sync item" @onclick="() => Delete(index)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<button type="button" class="btn-secondary" @onclick="AddNew">Add instant sync item</button>
+
+@if (_error)
+{
+    <span class="validation-message">Add at least one instant sync item.</span>
+}
+
+@if (_editing is not null)
+{
+    <InstantSyncEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+}

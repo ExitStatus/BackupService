@@ -40,6 +40,7 @@ namespace BackupService.Scheduling
             {
                 profile = await db.Profiles
                     .Include(p => p.FolderPairs)
+                    .Include(p => p.InstantSyncItems)
                     .FirstOrDefaultAsync(p => p.Id == profileId, cancellationToken);
             }
 

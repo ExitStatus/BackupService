@@ -2,10 +2,7 @@
     <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit profile" : "Create profile")">
         <h2>@DialogTitle</h2>
 
-        <p class="modal-intro">
-            A folder pair profile is a one way copy from the source folder the target folder
-            for a file oriented backup
-        </p>
+        <p class="modal-intro">@IntroText</p>
 
         <EditForm Model="Input" OnValidSubmit="SubmitAsync">
             <DataAnnotationsValidator />
@@ -37,8 +34,8 @@
             <label>
                 Schedule
                 <div class="input-row">
-                    <input type="text" readonly value="@ScheduleText" />
-                    <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
+                    <input type="text" readonly value="@ScheduleText" disabled="@IsInstantSync" />
+                    <button type="button" class="btn-secondary" @onclick="OpenSchedule" disabled="@IsInstantSync">Set schedule…</button>
                 </div>
             </label>
 
@@ -46,6 +43,9 @@
             {
                 case ProfileType.FolderPair:
                     <FolderPairControl @ref="_folderPairControl" Items="_folderPairs" />
+                    break;
+                case ProfileType.InstantSync:
+                    <InstantSyncControl @ref="_instantSyncControl" Items="_instantSyncItems" />
                     break;
             }
 

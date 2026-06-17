@@ -31,20 +31,31 @@ namespace BackupService.Components.Dialogs
 
         private InputModel Input { get; set; } = new();
         private readonly List<FolderPairModel> _folderPairs = [];
+        private readonly List<InstantSyncItemModel> _instantSyncItems = [];
         private FolderPairControl? _folderPairControl;
+        private InstantSyncControl? _instantSyncControl;
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
         private bool _showSchedule;
 
         private bool IsEdit => ProfileId.HasValue;
 
+        private bool IsInstantSync => Input.Type == ProfileType.InstantSync;
+
         private string DialogTitle => IsEdit
             ? $"Edit {Input.Type.GetDescription()} Profile"
             : "Create Profile";
 
-        private string ScheduleText => _schedule is not null
-            ? _schedule.ToHumanReadable()
-            : ScheduleDefinition.Describe(_existingScheduleCron);
+        private string IntroText => IsInstantSync
+            ? "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce."
+            : "A folder pair profile is a one way copy from the source folder to the target folder for a file oriented backup.";
+
+        // InstantSync profiles are watcher-driven, not scheduled.
+        private string ScheduleText => IsInstantSync
+            ? "Not used for Instant Sync"
+            : _schedule is not null
+                ? _schedule.ToHumanReadable()
+                : ScheduleDefinition.Describe(_existingScheduleCron);
 
         protected override async Task OnInitializedAsync()
         {
@@ -81,6 +92,20 @@ namespace BackupService.Components.Dialogs
                     OverwriteBehaviour = pair.OverwriteBehaviour,
                 });
             }
+
+            foreach (var item in profile.InstantSyncItems)
+            {
+                _instantSyncItems.Add(new InstantSyncItemModel
+                {
+                    Id = item.Id,
+                    Name = item.Name,
+                    SourceFolder = item.SourceFolder,
+                    TargetFolder = item.TargetFolder,
+                    DebounceMilliseconds = item.DebounceMilliseconds,
+                    IncludeSubFolders = item.IncludeSubFolders,
+                    AllowDeletions = item.AllowDeletions,
+                });
+            }
         }
 
         private void OpenSchedule() => _showSchedule = true;
@@ -93,31 +118,72 @@ namespace BackupService.Components.Dialogs
 
         private async Task SubmitAsync()
         {
-            if (Input.Type == ProfileType.FolderPair)
+            if (Input.Type == ProfileType.InstantSync)
             {
-                if (_folderPairControl is null || !_folderPairControl.Validate())
+                if (!await SubmitInstantSyncAsync())
                 {
                     return;
                 }
-
-                // Keep the existing schedule when the user hasn't built a new one.
-                var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
-
-                var folderPairs = _folderPairs
-                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour))
-                    .ToList();
-
-                if (ProfileId is { } id)
+            }
+            else
+            {
+                if (!await SubmitFolderPairAsync())
                 {
-                    await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs);
-                }
-                else
-                {
-                    await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs);
+                    return;
                 }
             }
 
             await OnSaved.InvokeAsync();
+        }
+
+        private async Task<bool> SubmitFolderPairAsync()
+        {
+            if (_folderPairControl is null || !_folderPairControl.Validate())
+            {
+                return false;
+            }
+
+            // Keep the existing schedule when the user hasn't built a new one.
+            var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
+
+            var folderPairs = _folderPairs
+                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour))
+                .ToList();
+
+            if (ProfileId is { } id)
+            {
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs);
+            }
+            else
+            {
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs);
+            }
+
+            return true;
+        }
+
+        private async Task<bool> SubmitInstantSyncAsync()
+        {
+            if (_instantSyncControl is null || !_instantSyncControl.Validate())
+            {
+                return false;
+            }
+
+            var items = _instantSyncItems
+                .Select(i => new InstantSyncInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions))
+                .ToList();
+
+            // InstantSync isn't scheduled — never carries a cron.
+            if (ProfileId is { } id)
+            {
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron: null, Input.Enabled, folderPairs: [], items);
+            }
+            else
+            {
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items);
+            }
+
+            return true;
         }
 
         public sealed class InputModel

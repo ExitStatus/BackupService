@@ -9,7 +9,9 @@ namespace BackupService.Profiles
     public interface IProfileService
     {
         /// <summary>
-        /// Creates a new profile of the given type with one or more folder pairs.
+        /// Creates a new profile of the given type with its type-specific items. Pass the
+        /// <paramref name="folderPairs"/> for a FolderPair profile or the
+        /// <paramref name="instantSyncItems"/> for an InstantSync profile; the other stays empty.
         /// </summary>
         Task CreateAsync(
             string name,
@@ -18,6 +20,7 @@ namespace BackupService.Profiles
             string? scheduleCron,
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
+            IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -52,8 +55,9 @@ namespace BackupService.Profiles
         Task SetEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Updates an existing profile and syncs its folder pairs (adds new ones, updates
-        /// matched ones by id, removes the rest). The profile type is fixed and not changed.
+        /// Updates an existing profile and syncs its type-specific items (adds new ones, updates
+        /// matched ones by id, removes the rest). The profile type is fixed and not changed, so only
+        /// the list matching the profile's type is used; the other should be empty.
         /// </summary>
         Task UpdateAsync(
             int id,
@@ -62,6 +66,7 @@ namespace BackupService.Profiles
             string? scheduleCron,
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
+            IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             CancellationToken cancellationToken = default);
     }
 }

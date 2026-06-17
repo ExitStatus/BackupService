@@ -58,7 +58,9 @@ namespace BackupService
             builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
             builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
+            builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
             builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
+            builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
             builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
 
@@ -66,17 +68,25 @@ namespace BackupService
             // The scheduler is a single instance shared across its three roles (singleton,
             // IBackupScheduler re-sync API, and the hosted background service).
             builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
+            builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
+            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
             builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
             builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
             builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
+
+            // The instant-sync watcher service is shared across its three roles (singleton,
+            // IInstantSyncManager re-sync API, and the hosted background service).
+            builder.Services.AddSingleton<Scheduling.InstantSyncWatcherService>();
+            builder.Services.AddSingleton<Scheduling.IInstantSyncManager>(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
 
             // Blazor Server (interactive server-side rendering).
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
-            // The scheduler runs as the background service.
+            // The scheduler and the instant-sync watcher both run as background services.
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
 
             var app = builder.Build();
 

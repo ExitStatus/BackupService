@@ -13,7 +13,7 @@ namespace BackupService.Logging
     /// only ever rises (severity is never lowered). <see cref="SetSummaryAsync"/> revises the header
     /// message in place (its level acts as a floor).
     /// </summary>
-    public sealed class OperationLogger(IDatabaseContextFactory contextFactory, int operationLogId, OperationLogLevel initialLevel)
+    public sealed class OperationLogger(IDatabaseContextFactory contextFactory, int operationLogId, OperationLogLevel initialLevel, ILogWatcher? logWatcher = null)
         : IOperationLogger
     {
         private readonly object _levelGate = new();
@@ -52,6 +52,8 @@ namespace BackupService.Logging
             log.Name = message;
             log.Level = CurrentHeaderLevel;
             await db.SaveChangesAsync();
+
+            logWatcher?.Notify();
         }
 
         private async Task WriteAsync(OperationLogLevel level, string[] messages)
@@ -86,6 +88,8 @@ namespace BackupService.Logging
             }
 
             await db.SaveChangesAsync();
+
+            logWatcher?.Notify();
         }
 
         private OperationLogLevel CurrentHeaderLevel => FromRank(Volatile.Read(ref _headerRank));

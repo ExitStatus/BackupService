@@ -17,6 +17,8 @@ namespace BackupService.Database
 
         public DbSet<FolderPair> FolderPairs => Set<FolderPair>();
 
+        public DbSet<InstantSyncItem> InstantSyncItems => Set<InstantSyncItem>();
+
         public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
 
         public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();

@@ -30,5 +30,7 @@ namespace BackupService.Database
         public DateTimeOffset? DateLastRun { get; set; }
 
         public ICollection<FolderPair> FolderPairs { get; set; } = new List<FolderPair>();
+
+        public ICollection<InstantSyncItem> InstantSyncItems { get; set; } = new List<InstantSyncItem>();
     }
 }
