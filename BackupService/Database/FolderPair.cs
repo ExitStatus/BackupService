@@ -5,7 +5,7 @@ namespace BackupService.Database
 {
     /// <summary>
     /// A source/target folder mapping within a <see cref="Profile"/>. The owning profile
-    /// carries the cron schedule; a folder pair may also be backed up by watching the source.
+    /// carries the cron schedule that drives the backup.
     /// </summary>
     public class FolderPair
     {
@@ -23,8 +23,6 @@ namespace BackupService.Database
 
         [MaxLength(1024)]
         public required string TargetFolder { get; set; }
-
-        public bool WatchFolder { get; set; }
 
         public bool AllowDeletions { get; set; }
 

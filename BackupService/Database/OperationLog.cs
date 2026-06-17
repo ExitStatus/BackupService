@@ -6,7 +6,8 @@ namespace BackupService.Database
     /// <summary>
     /// A logged operation (e.g. a backup run). Has one-to-many <see cref="OperationLogDetail"/>
     /// lines (cascade delete). The severity of the operation as a whole is the header-level
-    /// <see cref="Level"/>; detail lines carry only their message.
+    /// <see cref="Level"/>, derived as the most severe of its detail lines' levels (maintained as
+    /// lines are appended; see <c>OperationLogger</c>).
     /// </summary>
     public class OperationLog
     {
@@ -17,7 +18,11 @@ namespace BackupService.Database
 
         public DateTimeOffset TimestampUtc { get; set; }
 
-        /// <summary>Severity of the operation as a whole (set when the log is created).</summary>
+        /// <summary>
+        /// Severity of the operation as a whole — the most severe of its detail lines' levels
+        /// (Debug/Info → Info, any Warning → Warning, any Error → Error). Maintained by
+        /// <c>OperationLogger</c> as lines are appended.
+        /// </summary>
         public OperationLogLevel Level { get; set; }
 
         /// <summary>

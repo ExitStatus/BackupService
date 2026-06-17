@@ -112,6 +112,73 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task AppendAsync_StoresEachLinesLevel()
+        {
+            var logger = await _factory.CreateAsync("Op");
+
+            await logger.AppendAsync("info line");
+            await logger.AppendAsync(OperationLogLevel.Warning, "warn line");
+            await logger.ErrorAsync("error line");
+
+            await using var context = new BackupDbContext(_options);
+            var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
+
+            details.Select(d => d.Level).Should()
+                .Equal(OperationLogLevel.Info, OperationLogLevel.Warning, OperationLogLevel.Error);
+        }
+
+        [Test]
+        public async Task HeaderLevel_DerivesFromMostSevereDetailLine()
+        {
+            var logger = await _factory.CreateAsync("Op"); // Info
+
+            await logger.AppendAsync("plain");
+            await HeaderLevelShouldBe(OperationLogLevel.Info);
+
+            await logger.AppendAsync(OperationLogLevel.Warning, "careful");
+            await HeaderLevelShouldBe(OperationLogLevel.Warning);
+
+            await logger.ErrorAsync("boom");
+            await HeaderLevelShouldBe(OperationLogLevel.Error);
+
+            // Later, less-severe lines never lower the header.
+            await logger.AppendAsync("back to normal");
+            await HeaderLevelShouldBe(OperationLogLevel.Error);
+        }
+
+        [Test]
+        public async Task HeaderLevel_DebugAndInfoLinesStayInfo()
+        {
+            var logger = await _factory.CreateAsync("Op");
+
+            await logger.AppendAsync(OperationLogLevel.Debug, "trace");
+            await logger.AppendAsync("info");
+
+            await HeaderLevelShouldBe(OperationLogLevel.Info);
+        }
+
+        [Test]
+        public async Task SetSummaryAsync_LevelIsAFloorAndDoesNotLowerEscalatedLevel()
+        {
+            var logger = await _factory.CreateAsync("Op started");
+            await logger.AppendAsync(OperationLogLevel.Warning, "careful");
+
+            // A success summary at Info must not pull the header back below the Warning a line set.
+            await logger.SetSummaryAsync("Op finished", OperationLogLevel.Info);
+
+            await using var context = new BackupDbContext(_options);
+            var log = await context.OperationLogs.SingleAsync();
+            log.Name.Should().Be("Op finished");
+            log.Level.Should().Be(OperationLogLevel.Warning);
+        }
+
+        private async Task HeaderLevelShouldBe(OperationLogLevel expected)
+        {
+            await using var context = new BackupDbContext(_options);
+            (await context.OperationLogs.SingleAsync()).Level.Should().Be(expected);
+        }
+
+        [Test]
         public async Task ErrorAsync_WithException_AppendsStackTraceToMessage()
         {
             var logger = await _factory.CreateAsync("Op", OperationLogLevel.Error);

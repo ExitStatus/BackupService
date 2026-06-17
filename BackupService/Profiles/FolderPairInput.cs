@@ -11,7 +11,6 @@ namespace BackupService.Profiles
         string Name,
         string SourceFolder,
         string TargetFolder,
-        bool WatchFolder,
         bool AllowDeletions,
         OverwriteBehaviour OverwriteBehaviour);
 }

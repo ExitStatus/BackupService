@@ -1,9 +1,11 @@
+using BackupService.Enumerations;
+
 namespace BackupService.Database
 {
     /// <summary>
     /// A single detail line within an <see cref="OperationLog"/>. Ordered within its log by
-    /// <see cref="Sequence"/>. Severity lives on the parent <see cref="OperationLog.Level"/>,
-    /// not per line.
+    /// <see cref="Sequence"/>. Each line carries its own <see cref="Level"/>; the parent
+    /// <see cref="OperationLog.Level"/> is derived as the most severe of its lines' levels.
     /// </summary>
     public class OperationLogDetail
     {
@@ -15,6 +17,9 @@ namespace BackupService.Database
 
         /// <summary>Unbounded log message (TEXT / nvarchar(max)).</summary>
         public required string Message { get; set; }
+
+        /// <summary>Severity of this individual line.</summary>
+        public OperationLogLevel Level { get; set; }
 
         public DateTimeOffset TimestampUtc { get; set; }
 

@@ -507,11 +507,46 @@ label.check {
     margin-bottom: 1rem;
 }
 
-.filter-bar .filter-input {
-    width: auto;
+.filter-bar .filter-clearable {
     flex: 1 1 auto;
     max-width: 28rem;
+}
+
+/* A text filter input with a clear (×) button that appears when it has content. */
+.filter-clearable {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.filter-clearable .filter-input {
+    width: 100%;
     margin-top: 0;
+    padding-right: 1.8rem; /* room for the clear button */
+}
+
+.filter-clear {
+    position: absolute;
+    right: 0.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2rem;
+    height: 1.2rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.filter-clear:hover {
+    background: var(--surface-2);
+    color: var(--text);
 }
 
 .filter-bar .filter-check {
@@ -933,6 +968,27 @@ label.check {
     background: var(--surface-2);
 }
 
+/* Filter bar above the terminal output: free-text line filter + level dropdown. */
+.log-detail-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.log-detail-filter .filter-clearable {
+    flex: 1 1 auto;
+    max-width: 24rem;
+}
+
+.log-detail-filter .filter-level {
+    width: 11rem;
+}
+
+.log-detail-filter .filter-level .dropdown {
+    margin-top: 0;
+}
+
 /* Terminal output: monospace lines [timestamp] message, capped at ~20 lines then scrolls.
    Lines don't wrap (like a real terminal) — long messages scroll horizontally. */
 .log-terminal {
@@ -953,8 +1009,22 @@ label.check {
     color: var(--text);
 }
 
-.log-terminal-time {
+.log-terminal-time,
+.log-terminal-level {
     color: var(--text-muted);
+}
+
+/* Whole-line tinting by detail severity (Info/Debug keep the default text colour). */
+.log-terminal-warning,
+.log-terminal-warning .log-terminal-time,
+.log-terminal-warning .log-terminal-level {
+    color: var(--notify-warning);
+}
+
+.log-terminal-error,
+.log-terminal-error .log-terminal-time,
+.log-terminal-error .log-terminal-level {
+    color: var(--danger);
 }
 
 /* Level column on the log header table: only as wide as the pill. */

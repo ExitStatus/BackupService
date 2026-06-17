@@ -51,6 +51,47 @@ namespace BackupService.Components.Pages.BackupServicePage
         private readonly HashSet<int> _expanded = [];
         private readonly Dictionary<int, List<OperationLogDetail>> _details = [];
 
+        // Per-expanded-log filters for the detail (terminal) view: a free-text line filter and a
+        // level filter, both keyed by log id (each expanded log keeps its own).
+        private readonly Dictionary<int, string> _detailFilters = [];
+        private readonly Dictionary<int, OperationLogLevel?> _detailLevels = [];
+
+        private string DetailFilterText(int logId) => _detailFilters.GetValueOrDefault(logId, string.Empty);
+
+        private OperationLogLevel? DetailLevel(int logId) => _detailLevels.GetValueOrDefault(logId);
+
+        private void OnDetailFilterChanged(int logId, ChangeEventArgs e) =>
+            _detailFilters[logId] = e.Value?.ToString() ?? string.Empty;
+
+        private void ClearDetailFilter(int logId) => _detailFilters[logId] = string.Empty;
+
+        private void OnDetailLevelChanged(int logId, OperationLogLevel? level) =>
+            _detailLevels[logId] = level;
+
+        /// <summary>The cached lines for a log, narrowed by its text and level detail filters.</summary>
+        private List<OperationLogDetail> FilteredDetails(int logId)
+        {
+            if (!_details.TryGetValue(logId, out var all))
+            {
+                return [];
+            }
+
+            IEnumerable<OperationLogDetail> query = all;
+
+            var text = _detailFilters.GetValueOrDefault(logId);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                query = query.Where(d => d.Message.Contains(text.Trim(), StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (_detailLevels.GetValueOrDefault(logId) is { } level)
+            {
+                query = query.Where(d => d.Level == level);
+            }
+
+            return query.ToList();
+        }
+
         protected override async Task OnInitializedAsync()
         {
             var summaries = await ProfileService.GetSummariesAsync();
@@ -72,6 +113,12 @@ namespace BackupService.Components.Pages.BackupServicePage
         private async Task OnFilterChanged(ChangeEventArgs e)
         {
             _filter = e.Value?.ToString() ?? string.Empty;
+            await LoadAsync(1);
+        }
+
+        private async Task ClearFilter()
+        {
+            _filter = string.Empty;
             await LoadAsync(1);
         }
 

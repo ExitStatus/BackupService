@@ -47,7 +47,6 @@ namespace BackupService.UnitTests.Database
                             Name = "Docs pair",
                             SourceFolder = @"C:\Docs",
                             TargetFolder = @"D:\Backup\Docs",
-                            WatchFolder = true,
                         },
                     },
                 });
@@ -67,7 +66,6 @@ namespace BackupService.UnitTests.Database
                 pair.Name.Should().Be("Docs pair");
                 pair.SourceFolder.Should().Be(@"C:\Docs");
                 pair.TargetFolder.Should().Be(@"D:\Backup\Docs");
-                pair.WatchFolder.Should().BeTrue();
                 pair.Status.Should().Be(FolderPairStatus.Idle);
                 pair.LastRunStatus.Should().Be(FolderPairLastRunStatus.None);
             }

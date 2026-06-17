@@ -9,8 +9,15 @@
 else
 {
     <div class="filter-bar">
-        <input type="text" class="filter-input" placeholder="Filter by name…"
-               value="@_filter" @oninput="OnFilterChanged" />
+        <div class="filter-clearable">
+            <input type="text" class="filter-input" placeholder="Filter by name…"
+                   value="@_filter" @oninput="OnFilterChanged" />
+            @if (!string.IsNullOrEmpty(_filter))
+            {
+                <button type="button" class="filter-clear" title="Clear filter" aria-label="Clear filter"
+                        @onclick="ClearFilter">&times;</button>
+            }
+        </div>
         <label class="filter-check">
             <input type="checkbox" checked="@_includeMessages" @onchange="OnIncludeMessagesChanged" />
             <span>Include Messages</span>
@@ -90,11 +97,38 @@ else
                                 }
                                 else
                                 {
-                                    <div class="log-terminal" role="log" aria-label="Log output">
-                                        <Virtualize Items="details" Context="detail" ItemSize="LineHeight">
-                                            <div class="log-terminal-line"><span class="log-terminal-time">[@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
-                                        </Virtualize>
+                                    var filtered = FilteredDetails(log.Id);
+                                    <div class="log-detail-filter">
+                                        <div class="filter-clearable">
+                                            <input type="text" class="filter-input" placeholder="Filter lines…"
+                                                   value="@DetailFilterText(log.Id)"
+                                                   @oninput="e => OnDetailFilterChanged(log.Id, e)" />
+                                            @if (!string.IsNullOrEmpty(DetailFilterText(log.Id)))
+                                            {
+                                                <button type="button" class="filter-clear" title="Clear filter" aria-label="Clear filter"
+                                                        @onclick="() => ClearDetailFilter(log.Id)">&times;</button>
+                                            }
+                                        </div>
+                                        <div class="filter-level">
+                                            <Dropdown TValue="OperationLogLevel?"
+                                                      Value="DetailLevel(log.Id)"
+                                                      ValueChanged="level => OnDetailLevelChanged(log.Id, level)"
+                                                      Items="LevelOptions"
+                                                      DisplayText="LevelLabel" />
+                                        </div>
                                     </div>
+                                    @if (filtered.Count == 0)
+                                    {
+                                        <p class="log-detail-empty">No lines match the filter.</p>
+                                    }
+                                    else
+                                    {
+                                        <div class="log-terminal" role="log" aria-label="Log output">
+                                            <Virtualize Items="filtered" Context="detail" ItemSize="LineHeight">
+                                                <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
+                                            </Virtualize>
+                                        </div>
+                                    }
                                 }
                             }
                             else

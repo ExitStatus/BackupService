@@ -76,7 +76,6 @@ namespace BackupService.Components.Dialogs
                     Name = pair.Name,
                     SourceFolder = pair.SourceFolder,
                     TargetFolder = pair.TargetFolder,
-                    WatchFolder = pair.WatchFolder,
                     AllowDeletions = pair.AllowDeletions,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
                 });
@@ -104,7 +103,7 @@ namespace BackupService.Components.Dialogs
                 var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
                 var folderPairs = _folderPairs
-                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.WatchFolder, p.AllowDeletions, p.OverwriteBehaviour))
+                    .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.OverwriteBehaviour))
                     .ToList();
 
                 if (ProfileId is { } id)

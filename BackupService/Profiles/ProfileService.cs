@@ -14,6 +14,7 @@ namespace BackupService.Profiles
     public sealed class ProfileService(
         IDatabaseContextFactory contextFactory,
         IOperationLogFactory operationLogFactory,
+        IFolderPairService folderPairService,
         IBackupScheduler scheduler,
         IProfileStatusService statusService) : IProfileService
     {
@@ -38,10 +39,7 @@ namespace BackupService.Profiles
                 DateCreated = DateTimeOffset.UtcNow,
             };
 
-            foreach (var input in folderPairs)
-            {
-                profile.FolderPairs.Add(NewFolderPair(input));
-            }
+            folderPairService.Add(profile, folderPairs);
 
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
@@ -72,29 +70,12 @@ namespace BackupService.Profiles
                 $"Schedule: {ScheduleDefinition.Describe(scheduleCron)}",
                 $"Enabled: {YesNo(enabled)}");
 
-            foreach (var pair in folderPairs)
+            var pairLines = folderPairService.DescribeForCreateLog(folderPairs);
+            if (pairLines.Count > 0)
             {
-                await log.AppendAsync(
-                    $"Folder pair: {pair.Name}",
-                    $"Source: {pair.SourceFolder}",
-                    $"Target: {pair.TargetFolder}",
-                    $"Watch: {YesNo(pair.WatchFolder)}",
-                    $"Allow deletions: {YesNo(pair.AllowDeletions)}",
-                    $"Overwrite: {pair.OverwriteBehaviour.GetDescription()}");
+                await log.AppendAsync(pairLines.ToArray());
             }
         }
-
-        private static FolderPair NewFolderPair(FolderPairInput input) => new()
-        {
-            Name = input.Name,
-            SourceFolder = input.SourceFolder,
-            TargetFolder = input.TargetFolder,
-            WatchFolder = input.WatchFolder,
-            AllowDeletions = input.AllowDeletions,
-            OverwriteBehaviour = input.OverwriteBehaviour,
-            Status = FolderPairStatus.Idle,
-            LastRunStatus = FolderPairLastRunStatus.None,
-        };
 
         public async Task<PagedResult<Profile>> GetPageAsync(
             int pageNumber,
@@ -240,54 +221,26 @@ namespace BackupService.Profiles
                 return;
             }
 
-            // Snapshot the original values so we can log what changed after saving.
+            // Snapshot the original profile-level values so we can log what changed after saving.
             var oldName = profile.Name;
             var oldDescription = profile.Description;
             var oldSchedule = profile.Schedule;
             var oldEnabled = profile.Enabled;
-            var oldPairs = profile.FolderPairs.ToDictionary(
-                p => p.Id,
-                p => new FolderPairSnapshot(p.Name, p.SourceFolder, p.TargetFolder, p.WatchFolder, p.AllowDeletions, p.OverwriteBehaviour));
 
             profile.Name = name;
             profile.Description = description;
             profile.Schedule = scheduleCron;
             profile.Enabled = enabled;
 
-            // Remove pairs the user deleted (not present by id in the new set).
-            var keptIds = folderPairs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
-            foreach (var removed in profile.FolderPairs.Where(p => !keptIds.Contains(p.Id)).ToList())
-            {
-                profile.FolderPairs.Remove(removed);
-            }
-
-            // Update matched pairs and add new ones.
-            foreach (var input in folderPairs)
-            {
-                var existing = input.Id != 0
-                    ? profile.FolderPairs.FirstOrDefault(p => p.Id == input.Id)
-                    : null;
-
-                if (existing is null)
-                {
-                    profile.FolderPairs.Add(NewFolderPair(input));
-                }
-                else
-                {
-                    existing.Name = input.Name;
-                    existing.SourceFolder = input.SourceFolder;
-                    existing.TargetFolder = input.TargetFolder;
-                    existing.WatchFolder = input.WatchFolder;
-                    existing.AllowDeletions = input.AllowDeletions;
-                    existing.OverwriteBehaviour = input.OverwriteBehaviour;
-                }
-            }
+            // The folder-pair data (and the description of what changed within it) is owned by
+            // the folder-pair service.
+            var folderPairChanges = folderPairService.Sync(profile, folderPairs);
 
             await db.SaveChangesAsync(cancellationToken);
 
             await LogProfileUpdatedAsync(
                 id, oldName, name, oldDescription, description, oldSchedule, scheduleCron,
-                oldEnabled, enabled, oldPairs, keptIds, folderPairs, cancellationToken);
+                oldEnabled, enabled, folderPairChanges, cancellationToken);
 
             await scheduler.SyncAsync(id, cancellationToken);
         }
@@ -302,9 +255,7 @@ namespace BackupService.Profiles
             string? newSchedule,
             bool oldEnabled,
             bool newEnabled,
-            IReadOnlyDictionary<int, FolderPairSnapshot> oldPairs,
-            IReadOnlySet<int> keptIds,
-            IReadOnlyList<FolderPairInput> folderPairs,
+            IReadOnlyList<string> folderPairChanges,
             CancellationToken cancellationToken)
         {
             var changes = new List<string>();
@@ -326,49 +277,8 @@ namespace BackupService.Profiles
                 changes.Add($"Enabled changed from '{YesNo(oldEnabled)}' to '{YesNo(newEnabled)}'");
             }
 
-            // Removed folder pairs: present before, not kept by id now.
-            foreach (var (pairId, old) in oldPairs)
-            {
-                if (!keptIds.Contains(pairId))
-                {
-                    changes.Add($"Folder pair '{old.Name}' removed");
-                }
-            }
-
-            // Added or modified folder pairs.
-            foreach (var input in folderPairs)
-            {
-                if (input.Id == 0 || !oldPairs.TryGetValue(input.Id, out var old))
-                {
-                    changes.Add($"Folder pair '{input.Name}' added ({input.SourceFolder} -> {input.TargetFolder})");
-                    continue;
-                }
-
-                if (old.Name != input.Name)
-                {
-                    changes.Add($"Folder pair '{old.Name}' renamed to '{input.Name}'");
-                }
-                if (old.SourceFolder != input.SourceFolder)
-                {
-                    changes.Add($"Folder pair '{input.Name}' source changed from '{old.SourceFolder}' to '{input.SourceFolder}'");
-                }
-                if (old.TargetFolder != input.TargetFolder)
-                {
-                    changes.Add($"Folder pair '{input.Name}' target changed from '{old.TargetFolder}' to '{input.TargetFolder}'");
-                }
-                if (old.WatchFolder != input.WatchFolder)
-                {
-                    changes.Add($"Folder pair '{input.Name}' watch changed from '{YesNo(old.WatchFolder)}' to '{YesNo(input.WatchFolder)}'");
-                }
-                if (old.AllowDeletions != input.AllowDeletions)
-                {
-                    changes.Add($"Folder pair '{input.Name}' allow deletions changed from '{YesNo(old.AllowDeletions)}' to '{YesNo(input.AllowDeletions)}'");
-                }
-                if (old.OverwriteBehaviour != input.OverwriteBehaviour)
-                {
-                    changes.Add($"Folder pair '{input.Name}' overwrite changed from '{old.OverwriteBehaviour.GetDescription()}' to '{input.OverwriteBehaviour.GetDescription()}'");
-                }
-            }
+            // Folder-pair changes are described by the folder-pair service.
+            changes.AddRange(folderPairChanges);
 
             var log = await operationLogFactory.CreateAsync($"Profile updated: {oldName}", profileId: profileId, cancellationToken: cancellationToken);
 
@@ -385,13 +295,5 @@ namespace BackupService.Profiles
             string.IsNullOrWhiteSpace(value) ? "(none)" : value;
 
         private static string YesNo(bool value) => value ? "Yes" : "No";
-
-        private sealed record FolderPairSnapshot(
-            string Name,
-            string SourceFolder,
-            string TargetFolder,
-            bool WatchFolder,
-            bool AllowDeletions,
-            OverwriteBehaviour OverwriteBehaviour);
     }
 }

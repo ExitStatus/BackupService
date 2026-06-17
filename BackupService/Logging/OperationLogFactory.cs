@@ -30,7 +30,7 @@ namespace BackupService.Logging
             }
 
             // EF populates log.Id after SaveChanges.
-            return new OperationLogger(contextFactory, log.Id);
+            return new OperationLogger(contextFactory, log.Id, level);
         }
     }
 }

@@ -10,7 +10,6 @@ else
         <thead>
             <tr>
                 <th>Name</th>
-                <th>Watched</th>
                 <th class="action-col"></th>
             </tr>
         </thead>
@@ -21,7 +20,6 @@ else
                 var pair = Items[index];
                 <tr>
                     <td>@pair.Name</td>
-                    <td>@(pair.WatchFolder ? "Yes" : "No")</td>
                     <td class="action-col">
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Edit folder pair"

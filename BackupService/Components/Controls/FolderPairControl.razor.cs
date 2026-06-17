@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Components;
 namespace BackupService.Components.Controls
 {
     /// <summary>
-    /// Editor for a profile's list of folder pairs: shows each pair (source/target/watch) with
+    /// Editor for a profile's list of folder pairs: shows each pair (source/target) with
     /// edit and delete actions, plus an Add button that opens <see cref="FolderPairEditDialog"/>.
     /// Bound to the <see cref="List{T}"/> it mutates in place.
     /// </summary>
@@ -61,7 +61,6 @@ namespace BackupService.Components.Controls
             Name = source.Name,
             SourceFolder = source.SourceFolder,
             TargetFolder = source.TargetFolder,
-            WatchFolder = source.WatchFolder,
             AllowDeletions = source.AllowDeletions,
             OverwriteBehaviour = source.OverwriteBehaviour,
         };
@@ -78,8 +77,6 @@ namespace BackupService.Components.Controls
         public string SourceFolder { get; set; } = string.Empty;
 
         public string TargetFolder { get; set; } = string.Empty;
-
-        public bool WatchFolder { get; set; }
 
         public bool AllowDeletions { get; set; }
 
