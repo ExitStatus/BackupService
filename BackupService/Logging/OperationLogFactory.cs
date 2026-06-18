@@ -7,7 +7,10 @@ namespace BackupService.Logging
     /// Default <see cref="IOperationLogFactory"/>. Persists via the DbContext factory (a
     /// short-lived context per call, per the project's factory convention).
     /// </summary>
-    public sealed class OperationLogFactory(IDatabaseContextFactory contextFactory, ILogWatcher? logWatcher = null) : IOperationLogFactory
+    public sealed class OperationLogFactory(
+        IDatabaseContextFactory contextFactory,
+        ILogWatcher? logWatcher = null,
+        ILogRetentionService? logRetentionService = null) : IOperationLogFactory
     {
         public async Task<IOperationLogger> CreateAsync(
             string name,
@@ -31,6 +34,10 @@ namespace BackupService.Logging
 
             // A new log header is a change worth surfacing to the Logs panel.
             logWatcher?.Notify();
+
+            // Apply the retention policy after a log operation (at most once per day; fire-and-forget,
+            // the service logs its own failures).
+            _ = logRetentionService?.PurgeIfDueAsync();
 
             // EF populates log.Id after SaveChanges.
             return new OperationLogger(contextFactory, log.Id, level, logWatcher);

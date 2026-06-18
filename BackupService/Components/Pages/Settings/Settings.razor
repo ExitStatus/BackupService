@@ -1,6 +1,7 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using BackupService.Components.Pages.Authentication
+@using BackupService.Components.Pages.Logging
 
 <PageTitle>Settings</PageTitle>
 
@@ -12,6 +13,10 @@
         {
             case "authentication":
                 <AuthenticationPanel />
+                break;
+
+            case "logging":
+                <LoggingPanel />
                 break;
 
             default:

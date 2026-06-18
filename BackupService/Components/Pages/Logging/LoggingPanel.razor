@@ -1,0 +1,36 @@
+<h1>Logging</h1>
+
+<div class="card">
+    <p>
+        Log history older than the retention period is automatically purged. The check runs after a log
+        is written, at most once per day.
+    </p>
+
+    @if (_model is null)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <label>
+            Authentication log retention (days)
+            <input type="number" min="1" @bind="_model.AuthenticationLogRetentionDays" />
+        </label>
+
+        <label>
+            Operation log retention (days)
+            <input type="number" min="1" @bind="_model.OperationLogRetentionDays" />
+        </label>
+
+        @if (_error is not null)
+        {
+            <span class="validation-message">@_error</span>
+        }
+
+        <div class="modal-actions">
+            <button type="button" @onclick="SaveAsync">Save</button>
+        </div>
+    }
+</div>
+
+<Notification @ref="_notification" />

@@ -18,6 +18,7 @@ namespace BackupService.Components.Pages.Settings
         private static readonly IReadOnlyList<NavItem> Items =
         [
             new NavItem("authentication", "Authentication", "Icons/key.png"),
+            new NavItem("logging", "Logging", "Icons/log-options.png"),
         ];
 
         protected override async Task OnInitializedAsync()

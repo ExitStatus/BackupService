@@ -1,5 +1,6 @@
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Logging;
 using Microsoft.EntityFrameworkCore;
 
 namespace BackupService.Authentication
@@ -8,7 +9,9 @@ namespace BackupService.Authentication
     /// Default <see cref="IAuthenticationHistoryService"/>. Persists audit rows via the
     /// DbContext factory (a short-lived context per call), newest-first on read.
     /// </summary>
-    public sealed class AuthenticationHistoryService(IDatabaseContextFactory contextFactory)
+    public sealed class AuthenticationHistoryService(
+        IDatabaseContextFactory contextFactory,
+        ILogRetentionService? logRetentionService = null)
         : IAuthenticationHistoryService
     {
         public async Task RecordAsync(AuthenticationEventType eventType, CancellationToken cancellationToken = default)
@@ -22,6 +25,9 @@ namespace BackupService.Authentication
             });
 
             await db.SaveChangesAsync(cancellationToken);
+
+            // Apply the retention policy after a log operation (at most once per day; fire-and-forget).
+            _ = logRetentionService?.PurgeIfDueAsync();
         }
 
         public async Task<PagedResult<AuthenticationHistory>> GetPageAsync(

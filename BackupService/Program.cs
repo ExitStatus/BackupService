@@ -60,7 +60,9 @@ namespace BackupService
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
             builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
             builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
+            builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
+            builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
             builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
 

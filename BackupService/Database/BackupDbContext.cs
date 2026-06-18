@@ -23,6 +23,8 @@ namespace BackupService.Database
 
         public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();
 
+        public DbSet<LogRetentionSettings> LogRetentionSettings => Set<LogRetentionSettings>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
