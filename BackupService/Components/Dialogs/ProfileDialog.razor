@@ -47,6 +47,9 @@
                 case ProfileType.InstantSync:
                     <InstantSyncControl @ref="_instantSyncControl" Items="_instantSyncItems" />
                     break;
+                case ProfileType.ArchiveSync:
+                    <ArchiveSyncControl @ref="_archiveSyncControl" Items="_archiveSyncItems" />
+                    break;
             }
 
             <ValidationSummary />

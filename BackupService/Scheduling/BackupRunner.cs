@@ -41,6 +41,7 @@ namespace BackupService.Scheduling
                 profile = await db.Profiles
                     .Include(p => p.FolderPairs)
                     .Include(p => p.InstantSyncItems)
+                    .Include(p => p.ArchiveSyncItems)
                     .FirstOrDefaultAsync(p => p.Id == profileId, cancellationToken);
             }
 

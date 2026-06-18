@@ -1003,7 +1003,7 @@ label.check {
 }
 
 .log-terminal-line {
-    height: 20px;
+    min-height: 20px; /* a single line is 20px (matches Virtualize ItemSize); a CRLF-joined message grows */
     line-height: 20px;
     white-space: pre;
     color: var(--text);

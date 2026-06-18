@@ -37,5 +37,18 @@ namespace BackupService.FileSystem
 
         /// <summary>True if both files have identical content (compared by length, then bytes).</summary>
         bool FilesContentEqual(string a, string b);
+
+        /// <summary>
+        /// Returns a unique path under a local temp area for <paramref name="fileName"/> (creating its
+        /// containing directory). Used to build an archive locally before copying it to the target.
+        /// </summary>
+        string GetTempFilePath(string fileName);
+
+        /// <summary>
+        /// Creates a ZIP of <paramref name="sourceDirectory"/> at <paramref name="destinationZip"/>;
+        /// when <paramref name="includeSubfolders"/> is false only the top-level files are included.
+        /// Returns the relative entry names added to the archive (for verbose logging).
+        /// </summary>
+        IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders);
     }
 }

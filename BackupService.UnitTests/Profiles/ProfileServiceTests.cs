@@ -39,6 +39,7 @@ namespace BackupService.UnitTests.Profiles
                 new OperationLogFactory(factory.Object),
                 new FolderPairService(),
                 new InstantSyncItemService(),
+                new ArchiveSyncItemService(),
                 Mock.Of<IBackupScheduler>(),
                 Mock.Of<IInstantSyncManager>(),
                 new ProfileStatusService());
@@ -324,6 +325,7 @@ namespace BackupService.UnitTests.Profiles
                 new OperationLogFactory(factory.Object),
                 new FolderPairService(),
                 new InstantSyncItemService(),
+                new ArchiveSyncItemService(),
                 Mock.Of<IBackupScheduler>(),
                 manager.Object,
                 new ProfileStatusService());
@@ -367,6 +369,55 @@ namespace BackupService.UnitTests.Profiles
             var item = profile.InstantSyncItems.Should().ContainSingle().Subject;
             item.Name.Should().Be("Item2");
             item.DebounceMilliseconds.Should().Be(3000);
+        }
+
+        [Test]
+        public async Task CreateAsync_PersistsArchiveSyncProfileWithItems()
+        {
+            await _service.CreateAsync(
+                "Nightly", "zip docs", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
+                folderPairs: [],
+                instantSyncItems: null,
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
+
+            await using var context = new BackupDbContext(_options);
+            var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();
+
+            profile.Type.Should().Be(ProfileType.ArchiveSync);
+            profile.Schedule.Should().Be("0 2 * * *");
+            var item = profile.ArchiveSyncItems.Should().ContainSingle().Subject;
+            item.SourceFolder.Should().Be(@"C:\Src");
+            item.TargetFolder.Should().Be(@"D:\Archives");
+            item.FileName.Should().Be("DocsBackup");
+            item.IncludeSubFolders.Should().BeTrue();
+            item.RetentionMode.Should().Be(ArchiveRetentionMode.GrandfatherFatherSon);
+            item.RetentionCount.Should().Be(3);
+            item.MaxLevels.Should().Be(3);
+            item.RunCount.Should().Be(0);
+        }
+
+        [Test]
+        public async Task UpdateAsync_SyncsArchiveSyncItems()
+        {
+            await _service.CreateAsync(
+                "Nightly", null, ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
+                folderPairs: [],
+                instantSyncItems: null,
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
+            var id = await GetOnlyProfileIdAsync();
+
+            await _service.UpdateAsync(
+                id, "Nightly", null, "0 3 * * *", enabled: true,
+                folderPairs: [],
+                instantSyncItems: null,
+                archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);
+
+            await using var context = new BackupDbContext(_options);
+            var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();
+            var item = profile.ArchiveSyncItems.Should().ContainSingle().Subject;
+            item.Name.Should().Be("Pics");
+            item.FileName.Should().Be("PicsBackup");
+            item.RetentionCount.Should().Be(10);
         }
 
         private async Task<int> GetOnlyProfileIdAsync()

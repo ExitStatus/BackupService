@@ -59,6 +59,7 @@ namespace BackupService
             builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
             builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
+            builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
             builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
@@ -71,8 +72,10 @@ namespace BackupService
             // IBackupScheduler re-sync API, and the hosted background service).
             builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
             builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
+            builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
+            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
             builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
             builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
             builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());

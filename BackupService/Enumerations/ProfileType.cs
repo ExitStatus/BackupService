@@ -9,5 +9,8 @@ namespace BackupService.Enumerations
 
         [Description("Instant Sync")]
         InstantSync = 1,
+
+        [Description("Archive Sync")]
+        ArchiveSync = 2,
     }
 }

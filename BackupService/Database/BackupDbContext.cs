@@ -19,6 +19,8 @@ namespace BackupService.Database
 
         public DbSet<InstantSyncItem> InstantSyncItems => Set<InstantSyncItem>();
 
+        public DbSet<ArchiveSyncItem> ArchiveSyncItems => Set<ArchiveSyncItem>();
+
         public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
 
         public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();

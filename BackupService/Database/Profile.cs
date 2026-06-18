@@ -32,5 +32,7 @@ namespace BackupService.Database
         public ICollection<FolderPair> FolderPairs { get; set; } = new List<FolderPair>();
 
         public ICollection<InstantSyncItem> InstantSyncItems { get; set; } = new List<InstantSyncItem>();
+
+        public ICollection<ArchiveSyncItem> ArchiveSyncItems { get; set; } = new List<ArchiveSyncItem>();
     }
 }

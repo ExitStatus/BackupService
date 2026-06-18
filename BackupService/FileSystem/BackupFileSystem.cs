@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 
 namespace BackupService.FileSystem
 {
@@ -33,6 +34,31 @@ namespace BackupService.FileSystem
             File.Move(source, destination, overwrite);
 
         public void DeleteFile(string path) => File.Delete(path);
+
+        public string GetTempFilePath(string fileName)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "BackupService", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, fileName);
+        }
+
+        public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders)
+        {
+            // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
+            // gets the list of files added — both for the top-level-only case and for verbose logging.
+            var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var entries = new List<string>();
+
+            using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
+            foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
+            {
+                var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/'); // zip-standard separators
+                zip.CreateEntryFromFile(file, entryName, CompressionLevel.Optimal);
+                entries.Add(entryName);
+            }
+
+            return entries;
+        }
 
         public bool FilesContentEqual(string a, string b)
         {

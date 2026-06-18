@@ -276,6 +276,11 @@ namespace BackupService.UnitTests.Scheduling
             public bool FilesContentEqual(string a, string b) =>
                 _files.TryGetValue(a, out var ea) && _files.TryGetValue(b, out var eb) && ea.Content == eb.Content;
 
+            public string GetTempFilePath(string fileName) => throw new NotSupportedException();
+
+            public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders) =>
+                throw new NotSupportedException();
+
             private static bool IsUnder(string path, string directory)
             {
                 var prefix = directory.EndsWith(Path.DirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;

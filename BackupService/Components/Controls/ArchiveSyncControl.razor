@@ -1,0 +1,51 @@
+<div class="field-label">Archives</div>
+
+@if (Items.Count == 0)
+{
+    <p class="folder-pairs-empty">No archives yet.</p>
+}
+else
+{
+    <table class="table folder-pairs-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var index = i;
+                var item = Items[index];
+                <tr>
+                    <td>@item.Name</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Edit archive"
+                                    aria-label="Edit archive" @onclick="() => Edit(index)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete archive"
+                                    aria-label="Delete archive" @onclick="() => Delete(index)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<button type="button" class="btn-secondary" @onclick="AddNew">Add archive</button>
+
+@if (_error)
+{
+    <span class="validation-message">Add at least one archive.</span>
+}
+
+@if (_editing is not null)
+{
+    <ArchiveSyncEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+}

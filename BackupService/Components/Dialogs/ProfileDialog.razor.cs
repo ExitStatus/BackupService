@@ -32,8 +32,10 @@ namespace BackupService.Components.Dialogs
         private InputModel Input { get; set; } = new();
         private readonly List<FolderPairModel> _folderPairs = [];
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
+        private readonly List<ArchiveSyncItemModel> _archiveSyncItems = [];
         private FolderPairControl? _folderPairControl;
         private InstantSyncControl? _instantSyncControl;
+        private ArchiveSyncControl? _archiveSyncControl;
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
         private bool _showSchedule;
@@ -46,9 +48,12 @@ namespace BackupService.Components.Dialogs
             ? $"Edit {Input.Type.GetDescription()} Profile"
             : "Create Profile";
 
-        private string IntroText => IsInstantSync
-            ? "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce."
-            : "A folder pair profile is a one way copy from the source folder to the target folder for a file oriented backup.";
+        private string IntroText => Input.Type switch
+        {
+            ProfileType.InstantSync => "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce.",
+            ProfileType.ArchiveSync => "An archive sync profile creates a timestamped ZIP of each source folder on a schedule and keeps a retained history in the target folder.",
+            _ => "A folder pair profile is a one way copy from the source folder to the target folder for a file oriented backup.",
+        };
 
         // InstantSync profiles are watcher-driven, not scheduled.
         private string ScheduleText => IsInstantSync
@@ -106,6 +111,22 @@ namespace BackupService.Components.Dialogs
                     AllowDeletions = item.AllowDeletions,
                 });
             }
+
+            foreach (var item in profile.ArchiveSyncItems)
+            {
+                _archiveSyncItems.Add(new ArchiveSyncItemModel
+                {
+                    Id = item.Id,
+                    Name = item.Name,
+                    SourceFolder = item.SourceFolder,
+                    TargetFolder = item.TargetFolder,
+                    FileName = item.FileName,
+                    IncludeSubFolders = item.IncludeSubFolders,
+                    RetentionMode = item.RetentionMode,
+                    RetentionCount = item.RetentionCount,
+                    MaxLevels = item.MaxLevels,
+                });
+            }
         }
 
         private void OpenSchedule() => _showSchedule = true;
@@ -118,19 +139,16 @@ namespace BackupService.Components.Dialogs
 
         private async Task SubmitAsync()
         {
-            if (Input.Type == ProfileType.InstantSync)
+            var saved = Input.Type switch
             {
-                if (!await SubmitInstantSyncAsync())
-                {
-                    return;
-                }
-            }
-            else
+                ProfileType.InstantSync => await SubmitInstantSyncAsync(),
+                ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
+                _ => await SubmitFolderPairAsync(),
+            };
+
+            if (!saved)
             {
-                if (!await SubmitFolderPairAsync())
-                {
-                    return;
-                }
+                return;
             }
 
             await OnSaved.InvokeAsync();
@@ -181,6 +199,32 @@ namespace BackupService.Components.Dialogs
             else
             {
                 await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items);
+            }
+
+            return true;
+        }
+
+        private async Task<bool> SubmitArchiveSyncAsync()
+        {
+            if (_archiveSyncControl is null || !_archiveSyncControl.Validate())
+            {
+                return false;
+            }
+
+            // ArchiveSync is scheduled (like FolderPair): keep the existing schedule when unchanged.
+            var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
+
+            var items = _archiveSyncItems
+                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.RetentionMode, a.RetentionCount, a.MaxLevels))
+                .ToList();
+
+            if (ProfileId is { } id)
+            {
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items);
+            }
+            else
+            {
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items);
             }
 
             return true;

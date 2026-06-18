@@ -16,6 +16,7 @@ namespace BackupService.Profiles
         IOperationLogFactory operationLogFactory,
         IFolderPairService folderPairService,
         IInstantSyncItemService instantSyncItemService,
+        IArchiveSyncItemService archiveSyncItemService,
         IBackupScheduler scheduler,
         IInstantSyncManager instantSyncManager,
         IProfileStatusService statusService) : IProfileService
@@ -28,9 +29,11 @@ namespace BackupService.Profiles
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
+            IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
+            var archiveItems = archiveSyncItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
@@ -44,20 +47,24 @@ namespace BackupService.Profiles
                 DateCreated = DateTimeOffset.UtcNow,
             };
 
-            // Only the data for the profile's own type is applied; the other list stays empty.
-            if (type == ProfileType.InstantSync)
+            // Only the data for the profile's own type is applied; the other lists stay empty.
+            switch (type)
             {
-                instantSyncItemService.Add(profile, instantItems);
-            }
-            else
-            {
-                folderPairService.Add(profile, folderPairs);
+                case ProfileType.InstantSync:
+                    instantSyncItemService.Add(profile, instantItems);
+                    break;
+                case ProfileType.ArchiveSync:
+                    archiveSyncItemService.Add(profile, archiveItems);
+                    break;
+                default:
+                    folderPairService.Add(profile, folderPairs);
+                    break;
             }
 
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, folderPairs, instantItems, cancellationToken);
+            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, folderPairs, instantItems, archiveItems, cancellationToken);
 
             // Track the new profile's status (starts Idle), then register it with both drivers — the
             // scheduler (cron-driven types) and the instant-sync manager (watcher-driven types). Each
@@ -76,6 +83,7 @@ namespace BackupService.Profiles
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput> instantSyncItems,
+            IReadOnlyList<ArchiveSyncInput> archiveSyncItems,
             CancellationToken cancellationToken)
         {
             var log = await operationLogFactory.CreateAsync($"Profile created: {name}", profileId: profileId, cancellationToken: cancellationToken);
@@ -87,9 +95,12 @@ namespace BackupService.Profiles
                 $"Schedule: {ScheduleDefinition.Describe(scheduleCron)}",
                 $"Enabled: {YesNo(enabled)}");
 
-            var itemLines = type == ProfileType.InstantSync
-                ? instantSyncItemService.DescribeForCreateLog(instantSyncItems)
-                : folderPairService.DescribeForCreateLog(folderPairs);
+            var itemLines = type switch
+            {
+                ProfileType.InstantSync => instantSyncItemService.DescribeForCreateLog(instantSyncItems),
+                ProfileType.ArchiveSync => archiveSyncItemService.DescribeForCreateLog(archiveSyncItems),
+                _ => folderPairService.DescribeForCreateLog(folderPairs),
+            };
             if (itemLines.Count > 0)
             {
                 await log.AppendAsync(itemLines.ToArray());
@@ -154,6 +165,7 @@ namespace BackupService.Profiles
                 .AsNoTracking()
                 .Include(p => p.FolderPairs)
                 .Include(p => p.InstantSyncItems)
+                .Include(p => p.ArchiveSyncItems)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         }
 
@@ -233,15 +245,18 @@ namespace BackupService.Profiles
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
+            IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
+            var archiveItems = archiveSyncItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
             var profile = await db.Profiles
                 .Include(p => p.FolderPairs)
                 .Include(p => p.InstantSyncItems)
+                .Include(p => p.ArchiveSyncItems)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
             if (profile is null)
@@ -262,9 +277,12 @@ namespace BackupService.Profiles
 
             // The type-specific item data (and the description of what changed within it) is owned by
             // the matching data service; the profile type is fixed, so only that one runs.
-            var itemChanges = profile.Type == ProfileType.InstantSync
-                ? instantSyncItemService.Sync(profile, instantItems)
-                : folderPairService.Sync(profile, folderPairs);
+            var itemChanges = profile.Type switch
+            {
+                ProfileType.InstantSync => instantSyncItemService.Sync(profile, instantItems),
+                ProfileType.ArchiveSync => archiveSyncItemService.Sync(profile, archiveItems),
+                _ => folderPairService.Sync(profile, folderPairs),
+            };
 
             await db.SaveChangesAsync(cancellationToken);
 
