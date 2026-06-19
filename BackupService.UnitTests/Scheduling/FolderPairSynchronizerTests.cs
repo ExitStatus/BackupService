@@ -252,6 +252,86 @@ namespace BackupService.UnitTests.Scheduling
             _log.Errors.Should().Contain(m => m.Contains("Failed to access source folder"));
         }
 
+        // ---- Include/exclude filters ----
+
+        private static FolderPairFilter Filter(FilterDirection direction, FilterKind kind, string pattern) =>
+            new() { Direction = direction, Kind = kind, Pattern = pattern };
+
+        [Test]
+        public async Task Includes_OnlyMatchingFilesAreCopied()
+        {
+            _fs.AddFile(@"C:\src\keep.txt", T1, "a");
+            _fs.AddFile(@"C:\src\skip.dat", T1, "b");
+            var pair = Pair();
+            pair.Filters.Add(Filter(FilterDirection.Include, FilterKind.File, "*.txt"));
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\keep.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\skip.dat").Should().BeFalse();
+            result.Copied.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ExcludeFile_MatchingFileIsNotCopied()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\src\build.tmp", T1, "b");
+            var pair = Pair();
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.File, "*.tmp"));
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\build.tmp").Should().BeFalse();
+            result.Copied.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ExcludeFolder_SubtreeIsNotRecursed()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\src\bin\obj.txt", T1, "b");
+            var pair = Pair(includeSubFolders: true);
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.Folder, "bin"));
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\bin\obj.txt").Should().BeFalse(); // excluded folder not recursed
+            result.Copied.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ExcludeFolder_ExistingTargetSubtreeIsNotDeleted()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\bin\old.txt", T1, "x"); // target-only folder matching an exclude
+            var pair = Pair(allowDeletions: true, includeSubFolders: true);
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.Folder, "bin"));
+
+            await Run(pair);
+
+            _fs.FileExists(@"C:\dst\bin\old.txt").Should().BeTrue(); // excluded subtree left untouched
+        }
+
+        [Test]
+        public async Task Deletions_RemoveInScopeOrphans_ButLeaveExcludedTargetFiles()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\a.txt", T1, "a");       // in sync
+            _fs.AddFile(@"C:\dst\orphan.txt", T1, "o");  // in-scope orphan → deleted
+            _fs.AddFile(@"C:\dst\keep.tmp", T1, "k");    // out of scope (excluded) → kept
+            var pair = Pair(allowDeletions: true);
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.File, "*.tmp"));
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\orphan.txt").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\keep.tmp").Should().BeTrue();
+            result.Deleted.Should().Be(1);
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -428,7 +508,7 @@ namespace BackupService.UnitTests.Scheduling
 
             public string GetTempFilePath(string fileName) => throw new NotSupportedException();
 
-            public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders) =>
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null) =>
                 throw new NotSupportedException();
 
             private static bool IsUnder(string path, string directory)

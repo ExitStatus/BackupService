@@ -67,6 +67,8 @@ namespace BackupService.Components.Controls
             RetentionMode = source.RetentionMode,
             RetentionCount = source.RetentionCount,
             MaxLevels = source.MaxLevels,
+            Includes = FilterEntryModelExtensions.Clone(source.Includes),
+            Excludes = FilterEntryModelExtensions.Clone(source.Excludes),
         };
     }
 
@@ -93,5 +95,11 @@ namespace BackupService.Components.Controls
 
         /// <summary>GFS level count; defaults to 3 (son/father/grandfather).</summary>
         public int MaxLevels { get; set; } = 3;
+
+        /// <summary>Include rules (empty = archive everything).</summary>
+        public List<FilterEntryModel> Includes { get; set; } = [];
+
+        /// <summary>Exclude rules (files and folders left out of the archive).</summary>
+        public List<FilterEntryModel> Excludes { get; set; } = [];
     }
 }

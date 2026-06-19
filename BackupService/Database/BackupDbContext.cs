@@ -21,6 +21,10 @@ namespace BackupService.Database
 
         public DbSet<ArchiveSyncItem> ArchiveSyncItems => Set<ArchiveSyncItem>();
 
+        public DbSet<FolderPairFilter> FolderPairFilters => Set<FolderPairFilter>();
+
+        public DbSet<ArchiveSyncFilter> ArchiveSyncFilters => Set<ArchiveSyncFilter>();
+
         public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
 
         public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();

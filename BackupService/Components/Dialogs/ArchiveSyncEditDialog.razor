@@ -1,86 +1,101 @@
 <div class="modal-overlay">
-    <div class="modal folder-pair-edit" role="dialog" aria-modal="true" aria-label="Archive">
+    <div class="modal tabbed" role="dialog" aria-modal="true" aria-label="Archive">
         <h2>Archive</h2>
 
-        <label>
-            Name
-            <input type="text" @bind="Model.Name" />
-            @if (_nameError)
+        <TabBar Items="_tabs" @bind-SelectedKey="_activeTab" />
+
+        <div class="modal-tab-content">
+            @if (_activeTab == "detail")
             {
-                <span class="validation-message">The Name field is required.</span>
-            }
-        </label>
+                <label>
+                    Name
+                    <input type="text" @bind="Model.Name" />
+                    @if (_nameError)
+                    {
+                        <span class="validation-message">The Name field is required.</span>
+                    }
+                </label>
 
-        <label>
-            Source folder
-            <div class="input-row">
-                <input type="text" @bind="Model.SourceFolder" />
-                <button type="button" class="btn-secondary" @onclick="BrowseSource">Browse</button>
-            </div>
-            @if (_sourceError)
-            {
-                <span class="validation-message">The Source folder field is required.</span>
-            }
-        </label>
+                <label>
+                    Source folder
+                    <div class="input-row">
+                        <input type="text" @bind="Model.SourceFolder" />
+                        <button type="button" class="btn-secondary" @onclick="BrowseSource">Browse</button>
+                    </div>
+                    @if (_sourceError)
+                    {
+                        <span class="validation-message">The Source folder field is required.</span>
+                    }
+                </label>
 
-        <label>
-            Target folder
-            <div class="input-row">
-                <input type="text" @bind="Model.TargetFolder" />
-                <button type="button" class="btn-secondary" @onclick="BrowseTarget">Browse</button>
-            </div>
-            @if (_targetError)
-            {
-                <span class="validation-message">The Target folder field is required.</span>
-            }
-        </label>
+                <label>
+                    Target folder
+                    <div class="input-row">
+                        <input type="text" @bind="Model.TargetFolder" />
+                        <button type="button" class="btn-secondary" @onclick="BrowseTarget">Browse</button>
+                    </div>
+                    @if (_targetError)
+                    {
+                        <span class="validation-message">The Target folder field is required.</span>
+                    }
+                </label>
 
-        <label>
-            Archive file name
-            <input type="text" @bind="Model.FileName" />
-            @if (_fileNameError)
-            {
-                <span class="validation-message">The Archive file name field is required.</span>
-            }
-        </label>
-        <p class="help-text">
-            A timestamp is appended to make each archive unique, e.g. <code>@($"{FileNamePreview}_2026-06-18_120000.zip")</code>.
-        </p>
+                <label>
+                    Archive file name
+                    <input type="text" @bind="Model.FileName" />
+                    @if (_fileNameError)
+                    {
+                        <span class="validation-message">The Archive file name field is required.</span>
+                    }
+                </label>
+                <p class="help-text">
+                    A timestamp is appended to make each archive unique, e.g. <code>@($"{FileNamePreview}_2026-06-18_120000.zip")</code>.
+                </p>
 
-        <label class="check">
-            <input type="checkbox" @bind="Model.IncludeSubFolders" />
-            Include Sub-Folders
-        </label>
+                <label class="check">
+                    <input type="checkbox" @bind="Model.IncludeSubFolders" />
+                    Include Sub-Folders
+                </label>
 
-        <label>
-            Retention
-            <Dropdown TValue="ArchiveRetentionMode"
-                      @bind-Value="Model.RetentionMode"
-                      Items="Enum.GetValues<ArchiveRetentionMode>()"
-                      DisplayText="m => m.GetDescription()" />
-        </label>
-        <p class="help-text">@Model.RetentionMode.GetHelpText()</p>
+                <label>
+                    Retention
+                    <Dropdown TValue="ArchiveRetentionMode"
+                              @bind-Value="Model.RetentionMode"
+                              Items="Enum.GetValues<ArchiveRetentionMode>()"
+                              DisplayText="m => m.GetDescription()" />
+                </label>
+                <p class="help-text">@Model.RetentionMode.GetHelpText()</p>
 
-        <label>
-            @RetentionCountLabel
-            <input type="number" min="1" step="1" @bind="Model.RetentionCount" />
-            @if (_countError)
-            {
-                <span class="validation-message">Must be at least 1.</span>
-            }
-        </label>
+                <label>
+                    @RetentionCountLabel
+                    <input type="number" min="1" step="1" @bind="Model.RetentionCount" />
+                    @if (_countError)
+                    {
+                        <span class="validation-message">Must be at least 1.</span>
+                    }
+                </label>
 
-        @if (IsGfs)
-        {
-            <label>
-                Maximum levels
-                <input type="number" min="1" step="1" @bind="Model.MaxLevels" />
-                @if (_levelsError)
+                @if (IsGfs)
                 {
-                    <span class="validation-message">Must be at least 1.</span>
+                    <label>
+                        Maximum levels
+                        <input type="number" min="1" step="1" @bind="Model.MaxLevels" />
+                        @if (_levelsError)
+                        {
+                            <span class="validation-message">Must be at least 1.</span>
+                        }
+                    </label>
                 }
-            </label>
-        }
+            }
+            else if (_activeTab == "includes")
+            {
+                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" />
+            }
+            else
+            {
+                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" />
+            }
+        </div>
 
         <div class="modal-actions">
             <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>

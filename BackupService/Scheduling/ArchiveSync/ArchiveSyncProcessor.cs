@@ -45,13 +45,17 @@ namespace BackupService.Scheduling
             // GFS archives are born at level 1 (the "son"); Keep-last-N has no level token.
             var finalName = gfs ? $"{item.FileName}_L1_{stamp}.zip" : $"{item.FileName}_{stamp}.zip";
 
-            // 2. Build the ZIP in a local temp folder, verbose-logging each file added.
+            // 2. Build the ZIP in a local temp folder, verbose-logging each file added. Include/exclude
+            // rules filter which source files go into the archive (empty includes = all files).
+            var filter = new BackupFilter(item.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
             string tempZip;
-            IReadOnlyList<string> entries;
+            ZipBuildResult build;
             try
             {
                 tempZip = fileSystem.GetTempFilePath(finalName);
-                entries = fileSystem.CreateZipFromDirectory(item.SourceFolder, tempZip, item.IncludeSubFolders);
+                build = fileSystem.CreateZipFromDirectory(
+                    item.SourceFolder, tempZip, item.IncludeSubFolders,
+                    filter.IsEmpty ? null : filter.IsRelativePathInScope);
             }
             catch (Exception ex)
             {
@@ -60,13 +64,23 @@ namespace BackupService.Scheduling
                 return result;
             }
 
-            if (entries.Count > 0)
+            if (build.Added.Count > 0)
             {
                 // Verbose, but as a SINGLE Debug detail row (the file list won't change mid-zip), with one
                 // file per CRLF-separated line — rather than thousands of rows. Counts as Info for the header.
-                var lines = new List<string>(entries.Count + 1) { $"Archived {entries.Count} file(s):" };
-                lines.AddRange(entries);
+                var lines = new List<string>(build.Added.Count + 1) { $"Archived {build.Added.Count} file(s):" };
+                lines.AddRange(build.Added);
                 await log.AppendAsync(OperationLogLevel.Debug, string.Join("\r\n", lines));
+            }
+
+            // Files that couldn't be read (locked/in use) are skipped, not fatal — log each as a Warning
+            // and count it so the run summary reports "completed with N error(s)" while still archiving the
+            // rest.
+            foreach (var skip in build.Skipped)
+            {
+                result.Errors++;
+                await log.AppendAsync(OperationLogLevel.Warning,
+                    $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
             }
 
             // 3. Crash-safe copy into the target folder.

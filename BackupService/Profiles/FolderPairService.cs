@@ -24,7 +24,7 @@ namespace BackupService.Profiles
             // Snapshot the original pairs before mutating so we can describe what changed.
             var oldPairs = profile.FolderPairs.ToDictionary(
                 p => p.Id,
-                p => new FolderPairSnapshot(p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour));
+                p => new FolderPairSnapshot(p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, FilterSignature(p.Filters)));
 
             // Remove pairs the user deleted (not present by id in the new set).
             var keptIds = inputs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
@@ -52,6 +52,7 @@ namespace BackupService.Profiles
                     existing.AllowDeletions = input.AllowDeletions;
                     existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.OverwriteBehaviour = input.OverwriteBehaviour;
+                    SyncFilters(existing.Filters, input.Filters);
                 }
             }
 
@@ -69,6 +70,7 @@ namespace BackupService.Profiles
                 lines.Add($"Allow deletions: {YesNo(pair.AllowDeletions)}");
                 lines.Add($"Include sub-folders: {YesNo(pair.IncludeSubFolders)}");
                 lines.Add($"Overwrite: {pair.OverwriteBehaviour.GetDescription()}");
+                lines.AddRange(DescribeFilters(pair.Filters));
             }
             return lines;
         }
@@ -122,6 +124,10 @@ namespace BackupService.Profiles
                 {
                     changes.Add($"Folder pair '{input.Name}' overwrite changed from '{old.OverwriteBehaviour.GetDescription()}' to '{input.OverwriteBehaviour.GetDescription()}'");
                 }
+                if (!old.Filters.SetEquals(FilterSignature(input.Filters)))
+                {
+                    changes.Add($"Folder pair '{input.Name}' filters changed ({FilterSummary(input.Filters)})");
+                }
             }
 
             return changes;
@@ -137,7 +143,71 @@ namespace BackupService.Profiles
             OverwriteBehaviour = input.OverwriteBehaviour,
             Status = FolderPairStatus.Idle,
             LastRunStatus = FolderPairLastRunStatus.None,
+            Filters = NewFilters(input.Filters),
         };
+
+        private static List<FolderPairFilter> NewFilters(IReadOnlyList<FilterInput>? inputs) =>
+            (inputs ?? []).Select(f => new FolderPairFilter
+            {
+                Direction = f.Direction,
+                Kind = f.Kind,
+                Pattern = f.Pattern,
+            }).ToList();
+
+        // Reconcile a tracked pair's filter rows against the input: update matched by id, add id-0, drop the rest.
+        private static void SyncFilters(ICollection<FolderPairFilter> existing, IReadOnlyList<FilterInput>? inputs)
+        {
+            inputs ??= [];
+            var keptIds = inputs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
+            foreach (var removed in existing.Where(f => !keptIds.Contains(f.Id)).ToList())
+            {
+                existing.Remove(removed);
+            }
+
+            foreach (var input in inputs)
+            {
+                var match = input.Id != 0 ? existing.FirstOrDefault(f => f.Id == input.Id) : null;
+                if (match is null)
+                {
+                    existing.Add(new FolderPairFilter { Direction = input.Direction, Kind = input.Kind, Pattern = input.Pattern });
+                }
+                else
+                {
+                    match.Direction = input.Direction;
+                    match.Kind = input.Kind;
+                    match.Pattern = input.Pattern;
+                }
+            }
+        }
+
+        private static IReadOnlyList<string> DescribeFilters(IEnumerable<FolderPairFilter> filters) =>
+            filters.Select(FilterLine).ToList();
+
+        private static IReadOnlyList<string> DescribeFilters(IReadOnlyList<FilterInput>? inputs) =>
+            (inputs ?? []).Select(FilterLine).ToList();
+
+        private static string FilterLine(FolderPairFilter f) => FilterLine(f.Direction, f.Kind, f.Pattern);
+
+        private static string FilterLine(FilterInput f) => FilterLine(f.Direction, f.Kind, f.Pattern);
+
+        private static string FilterLine(FilterDirection direction, FilterKind kind, string pattern) =>
+            direction == FilterDirection.Include
+                ? $"Include: {pattern}"
+                : $"Exclude {kind.GetDescription().ToLowerInvariant()}: {pattern}";
+
+        private static string FilterSummary(IReadOnlyList<FilterInput>? inputs)
+        {
+            inputs ??= [];
+            var includes = inputs.Count(f => f.Direction == FilterDirection.Include);
+            var excludes = inputs.Count - includes;
+            return $"{includes} include(s), {excludes} exclude(s)";
+        }
+
+        private static HashSet<string> FilterSignature(IEnumerable<FolderPairFilter> filters) =>
+            filters.Select(f => $"{f.Direction}:{f.Kind}:{f.Pattern}").ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        private static HashSet<string> FilterSignature(IReadOnlyList<FilterInput>? inputs) =>
+            (inputs ?? []).Select(f => $"{f.Direction}:{f.Kind}:{f.Pattern}").ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         private static string YesNo(bool value) => value ? "Yes" : "No";
 
@@ -147,6 +217,7 @@ namespace BackupService.Profiles
             string TargetFolder,
             bool AllowDeletions,
             bool IncludeSubFolders,
-            OverwriteBehaviour OverwriteBehaviour);
+            OverwriteBehaviour OverwriteBehaviour,
+            HashSet<string> Filters);
     }
 }

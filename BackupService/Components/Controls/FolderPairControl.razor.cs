@@ -64,6 +64,8 @@ namespace BackupService.Components.Controls
             AllowDeletions = source.AllowDeletions,
             IncludeSubFolders = source.IncludeSubFolders,
             OverwriteBehaviour = source.OverwriteBehaviour,
+            Includes = FilterEntryModelExtensions.Clone(source.Includes),
+            Excludes = FilterEntryModelExtensions.Clone(source.Excludes),
         };
     }
 
@@ -84,5 +86,11 @@ namespace BackupService.Components.Controls
         public bool IncludeSubFolders { get; set; }
 
         public OverwriteBehaviour OverwriteBehaviour { get; set; }
+
+        /// <summary>Include rules (empty = back up everything).</summary>
+        public List<FilterEntryModel> Includes { get; set; } = [];
+
+        /// <summary>Exclude rules (files and folders left out of the backup).</summary>
+        public List<FilterEntryModel> Excludes { get; set; } = [];
     }
 }

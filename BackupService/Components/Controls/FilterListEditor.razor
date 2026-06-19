@@ -1,0 +1,51 @@
+@namespace BackupService.Components.Controls
+
+<div class="filter-editor">
+    <p class="help-text">@HelpText</p>
+
+    <div class="filter-add">
+        <div class="filter-type">
+            @foreach (var opt in TypeOptions)
+            {
+                <label class="check">
+                    <input type="radio" name="@_radioName" checked="@(_selectedType == opt.Key)"
+                           @onchange="() => _selectedType = opt.Key" />
+                    @opt.Label
+                </label>
+            }
+        </div>
+        <div class="input-row">
+            <input type="text" placeholder="@Placeholder" @bind="_pattern" @bind:event="oninput" @onkeydown="OnKeyDown" />
+            <button type="button" class="btn-secondary" @onclick="Add">Add</button>
+        </div>
+        @if (_error is not null)
+        {
+            <span class="validation-message">@_error</span>
+        }
+    </div>
+
+    @if (Entries.Count == 0)
+    {
+        <p class="filter-empty">@EmptyText</p>
+    }
+    else
+    {
+        <table class="table filter-table">
+            <tbody>
+                @foreach (var entry in Entries)
+                {
+                    var e = entry;
+                    <tr>
+                        <td class="filter-kind"><span class="filter-tag">@TypeLabel(e)</span></td>
+                        <td class="filter-pattern">@e.Pattern</td>
+                        <td class="action-col">
+                            <button type="button" class="icon-btn" title="Remove" aria-label="Remove" @onclick="() => Remove(e)">
+                                <img src="Icons/remove.png" width="20" height="20" alt="Remove" />
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>

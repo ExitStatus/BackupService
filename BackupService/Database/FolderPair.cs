@@ -33,5 +33,8 @@ namespace BackupService.Database
         public FolderPairStatus Status { get; set; }
 
         public FolderPairLastRunStatus LastRunStatus { get; set; }
+
+        /// <summary>Include/exclude rules that filter which source files are synced.</summary>
+        public ICollection<FolderPairFilter> Filters { get; set; } = new List<FolderPairFilter>();
     }
 }

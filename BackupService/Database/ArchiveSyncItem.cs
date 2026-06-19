@@ -43,5 +43,8 @@ namespace BackupService.Database
 
         /// <summary>Monotonic count of archives created so far; drives the GFS promotion cadence.</summary>
         public int RunCount { get; set; }
+
+        /// <summary>Include/exclude rules that filter which source files are archived.</summary>
+        public ICollection<ArchiveSyncFilter> Filters { get; set; } = new List<ArchiveSyncFilter>();
     }
 }

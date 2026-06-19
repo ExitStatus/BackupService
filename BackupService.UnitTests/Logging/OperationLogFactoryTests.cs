@@ -179,7 +179,7 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
-        public async Task ErrorAsync_WithException_AppendsStackTraceToMessage()
+        public async Task ErrorAsync_WithException_AppendsMessageOnly_NoStackTrace()
         {
             var logger = await _factory.CreateAsync("Op", OperationLogLevel.Error);
 
@@ -200,10 +200,9 @@ namespace BackupService.UnitTests.Logging
             var detail = await context.OperationLogDetails.SingleAsync();
 
             log.Level.Should().Be(OperationLogLevel.Error);
-            detail.Message.Should().StartWith("failed");
-            detail.Message.Should().Contain("InvalidOperationException");
-            detail.Message.Should().Contain("kaboom");
-            detail.Message.Should().Contain("at "); // a stack-trace frame
+            detail.Message.Should().Be("failed: kaboom"); // exception message only
+            detail.Message.Should().NotContain("InvalidOperationException"); // no type/stack-trace detail
+            detail.Message.Should().NotContain("at "); // no stack-trace frame
         }
     }
 }

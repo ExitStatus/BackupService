@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using BackupService.Components.Controls;
+using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.Profiles;
@@ -95,6 +96,8 @@ namespace BackupService.Components.Dialogs
                     AllowDeletions = pair.AllowDeletions,
                     IncludeSubFolders = pair.IncludeSubFolders,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
+                    Includes = FilterModels(pair.Filters, FilterDirection.Include),
+                    Excludes = FilterModels(pair.Filters, FilterDirection.Exclude),
                 });
             }
 
@@ -125,6 +128,8 @@ namespace BackupService.Components.Dialogs
                     RetentionMode = item.RetentionMode,
                     RetentionCount = item.RetentionCount,
                     MaxLevels = item.MaxLevels,
+                    Includes = FilterModels(item.Filters, FilterDirection.Include),
+                    Excludes = FilterModels(item.Filters, FilterDirection.Exclude),
                 });
             }
         }
@@ -165,7 +170,7 @@ namespace BackupService.Components.Dialogs
             var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
             var folderPairs = _folderPairs
-                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour))
+                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes)))
                 .ToList();
 
             if (ProfileId is { } id)
@@ -215,7 +220,7 @@ namespace BackupService.Components.Dialogs
             var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
             var items = _archiveSyncItems
-                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.RetentionMode, a.RetentionCount, a.MaxLevels))
+                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes)))
                 .ToList();
 
             if (ProfileId is { } id)
@@ -229,6 +234,23 @@ namespace BackupService.Components.Dialogs
 
             return true;
         }
+
+        // Split a parent's filter rows into the per-tab UI lists.
+        private static List<FilterEntryModel> FilterModels(IEnumerable<FolderPairFilter> filters, FilterDirection direction) =>
+            filters.Where(f => f.Direction == direction)
+                .Select(f => new FilterEntryModel { Id = f.Id, Kind = f.Kind, Pattern = f.Pattern })
+                .ToList();
+
+        private static List<FilterEntryModel> FilterModels(IEnumerable<ArchiveSyncFilter> filters, FilterDirection direction) =>
+            filters.Where(f => f.Direction == direction)
+                .Select(f => new FilterEntryModel { Id = f.Id, Kind = f.Kind, Pattern = f.Pattern })
+                .ToList();
+
+        // Recombine the per-tab UI lists into the flat filter-input list for the service layer.
+        private static List<FilterInput> BuildFilters(IEnumerable<FilterEntryModel> includes, IEnumerable<FilterEntryModel> excludes) =>
+            includes.Select(e => new FilterInput(e.Id, FilterDirection.Include, e.Kind, e.Pattern))
+                .Concat(excludes.Select(e => new FilterInput(e.Id, FilterDirection.Exclude, e.Kind, e.Pattern)))
+                .ToList();
 
         public sealed class InputModel
         {

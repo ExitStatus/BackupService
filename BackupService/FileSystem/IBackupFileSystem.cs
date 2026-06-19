@@ -47,8 +47,12 @@ namespace BackupService.FileSystem
         /// <summary>
         /// Creates a ZIP of <paramref name="sourceDirectory"/> at <paramref name="destinationZip"/>;
         /// when <paramref name="includeSubfolders"/> is false only the top-level files are included.
-        /// Returns the relative entry names added to the archive (for verbose logging).
+        /// <paramref name="includeEntry"/> (relative entry path → keep?) optionally filters which files
+        /// are archived — a file for which it returns false is simply omitted (not added, not skipped).
+        /// Building is otherwise best-effort: a file that can't be read (e.g. locked by another process)
+        /// is skipped rather than aborting the archive. Returns the relative entry names added (for
+        /// verbose logging) plus the files skipped and why, so the caller can log/count them.
         /// </summary>
-        IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders);
+        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null);
     }
 }

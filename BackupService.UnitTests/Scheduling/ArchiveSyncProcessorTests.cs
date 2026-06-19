@@ -91,6 +91,29 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task SkippedFiles_AreLoggedAsWarnings_AndCountAsErrors_ArchiveStillCreated()
+        {
+            _fs.AddFile(@"C:\src\readable.txt", RunTime, "ok");
+            _fs.SkippedFiles =
+            [
+                new ZipSkippedFile("locked.vsidx", "being used by another process"),
+                new ZipSkippedFile("sub/also-locked.dat", "being used by another process"),
+            ];
+
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            // The archive is still produced from the readable files.
+            result.Copied.Should().Be(1);
+            _fs.FileExists(KeepName(RunTime)).Should().BeTrue();
+
+            // Each skipped file is a Warning detail line and counts toward the error total.
+            result.Errors.Should().Be(2);
+            _log.Warnings.Should().HaveCount(2);
+            _log.Warnings.Should().Contain(m => m.Contains("Skipped file 'locked.vsidx'") && m.Contains("being used by another process"));
+            _log.Warnings.Should().Contain(m => m.Contains("sub/also-locked.dat"));
+        }
+
+        [Test]
         public async Task SourceMissing_ReportsError_NoArchive()
         {
             var item = KeepLastN(5);
@@ -169,6 +192,28 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(GfsName(1, RunTime)).Should().BeTrue();
         }
 
+        [Test]
+        public async Task IncludeExcludeFilters_RestrictWhichFilesAreArchived()
+        {
+            _fs.AddFile(@"C:\src\keep.txt", RunTime, "a");
+            _fs.AddFile(@"C:\src\notes.txt", RunTime, "b");
+            _fs.AddFile(@"C:\src\secret.txt", RunTime, "c");
+            _fs.AddFile(@"C:\src\image.png", RunTime, "d");
+            var item = KeepLastN(5);
+            item.Filters.Add(new ArchiveSyncFilter { Direction = FilterDirection.Include, Kind = FilterKind.File, Pattern = "*.txt" });
+            item.Filters.Add(new ArchiveSyncFilter { Direction = FilterDirection.Exclude, Kind = FilterKind.File, Pattern = "secret.txt" });
+
+            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            // Only *.txt minus secret.txt — image.png excluded by the include filter, secret.txt by the exclude.
+            var detail = _log.DebugMessages.Should().ContainSingle().Subject;
+            detail.Should().Contain("Archived 2 file(s):");
+            detail.Should().Contain("keep.txt");
+            detail.Should().Contain("notes.txt");
+            detail.Should().NotContain("secret.txt");
+            detail.Should().NotContain("image.png");
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -184,6 +229,9 @@ namespace BackupService.UnitTests.Scheduling
 
             public IReadOnlyList<string> DebugMessages =>
                 _entries.Where(e => e.Level == OperationLogLevel.Debug).Select(e => e.Message).ToList();
+
+            public IReadOnlyList<string> Warnings =>
+                _entries.Where(e => e.Level == OperationLogLevel.Warning).Select(e => e.Message).ToList();
 
             public Task AppendAsync(params string[] messages)
             {
@@ -318,18 +366,23 @@ namespace BackupService.UnitTests.Scheduling
                 return Path.Combine(dir, fileName);
             }
 
-            public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders)
+            // Files the next CreateZipFromDirectory call reports as skipped (locked/unreadable).
+            public IReadOnlyList<ZipSkippedFile> SkippedFiles { get; set; } = [];
+
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null)
             {
                 // Stand in for a real zip — record a file at the destination so the copy can read it,
-                // and return the relative entry names of the source files (top-level or recursive).
+                // and return the relative entry names of the source files (top-level or recursive),
+                // honouring the include/exclude predicate so filtering is exercised.
                 var entries = _files.Keys
                     .Where(f => includeSubfolders
                         ? IsUnder(f, sourceDirectory)
                         : string.Equals(Path.GetDirectoryName(f), sourceDirectory, StringComparison.OrdinalIgnoreCase))
                     .Select(f => Path.GetRelativePath(sourceDirectory, f).Replace('\\', '/'))
+                    .Where(e => includeEntry is null || includeEntry(e))
                     .ToList();
                 AddFile(destinationZip, DateTime.UtcNow, "zip");
-                return entries;
+                return new ZipBuildResult(entries, SkippedFiles);
             }
 
             private static bool IsUnder(string path, string directory)

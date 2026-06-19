@@ -16,12 +16,14 @@ namespace BackupService.Scheduling
         public async Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken)
         {
             var result = new BackupResult();
-            await SyncDirectoryAsync(pair.SourceFolder, pair.TargetFolder, pair, log, result, cancellationToken);
+            // Include/exclude rules filter which files are synced (empty includes = all files).
+            var filter = new BackupFilter(pair.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
+            await SyncDirectoryAsync(pair.SourceFolder, pair.TargetFolder, [], pair, filter, log, result, cancellationToken);
             return result;
         }
 
         private async Task SyncDirectoryAsync(
-            string sourceDir, string targetDir, FolderPair pair, IOperationLogger log, BackupResult result, CancellationToken ct)
+            string sourceDir, string targetDir, IReadOnlyList<string> ancestors, FolderPair pair, BackupFilter filter, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -69,8 +71,13 @@ namespace BackupService.Scheduling
 
             var targetNames = new HashSet<string>(targetFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
 
-            // 4. Copy/update each source file.
-            foreach (var sourcePath in sourceFiles)
+            // Only files in scope per the include/exclude rules are synced (empty includes = all files).
+            var inScopeSourceFiles = sourceFiles
+                .Where(p => filter.IsFileInScope(Path.GetFileName(p)!, ancestors))
+                .ToList();
+
+            // 4. Copy/update each in-scope source file.
+            foreach (var sourcePath in inScopeSourceFiles)
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -119,26 +126,30 @@ namespace BackupService.Scheduling
                 }
             }
 
-            // 5. Delete orphan target files (mirror).
+            // 5. Delete orphan target files (mirror). Only mirror in-scope files: a target file that is
+            // out of scope (e.g. matches an exclude rule, or isn't in the include list) is left untouched.
             if (pair.AllowDeletions)
             {
-                var sourceNames = new HashSet<string>(sourceFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
+                var sourceNames = new HashSet<string>(inScopeSourceFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
                 foreach (var targetPath in targetFiles)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (!sourceNames.Contains(Path.GetFileName(targetPath)!))
+                    var targetName = Path.GetFileName(targetPath)!;
+                    if (sourceNames.Contains(targetName) || !filter.IsFileInScope(targetName, ancestors))
                     {
-                        try
-                        {
-                            fileSystem.DeleteFile(targetPath);
-                            result.Deleted++;
-                            await log.AppendAsync($"Deleted '{targetPath}' (not in source)");
-                        }
-                        catch (Exception ex)
-                        {
-                            result.Errors++;
-                            await log.ErrorAsync($"Failed to delete '{targetPath}'", ex);
-                        }
+                        continue;
+                    }
+
+                    try
+                    {
+                        fileSystem.DeleteFile(targetPath);
+                        result.Deleted++;
+                        await log.AppendAsync($"Deleted '{targetPath}' (not in source)");
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Errors++;
+                        await log.ErrorAsync($"Failed to delete '{targetPath}'", ex);
                     }
                 }
             }
@@ -162,7 +173,12 @@ namespace BackupService.Scheduling
                 foreach (var sourceSub in sourceDirs)
                 {
                     var name = Path.GetFileName(sourceSub)!;
-                    await SyncDirectoryAsync(sourceSub, Path.Combine(targetDir, name), pair, log, result, ct);
+                    // An excluded folder's whole subtree is left out of the backup.
+                    if (filter.ExcludesFolder(name))
+                    {
+                        continue;
+                    }
+                    await SyncDirectoryAsync(sourceSub, Path.Combine(targetDir, name), [.. ancestors, name], pair, filter, log, result, ct);
                 }
 
                 if (pair.AllowDeletions)
@@ -171,7 +187,9 @@ namespace BackupService.Scheduling
                     foreach (var targetSub in targetDirs)
                     {
                         ct.ThrowIfCancellationRequested();
-                        if (!sourceSubNames.Contains(Path.GetFileName(targetSub)!))
+                        var targetSubName = Path.GetFileName(targetSub)!;
+                        // Don't delete an excluded target subtree (it's out of scope, not an orphan).
+                        if (!sourceSubNames.Contains(targetSubName) && !filter.ExcludesFolder(targetSubName))
                         {
                             await DeleteOrphanDirectoryAsync(targetSub, log, result, ct);
                         }

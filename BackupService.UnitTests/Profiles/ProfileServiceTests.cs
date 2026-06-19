@@ -90,6 +90,61 @@ namespace BackupService.UnitTests.Profiles
         }
 
         [Test]
+        public async Task CreateAsync_PersistsFolderPairFilters()
+        {
+            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+                [new FolderPairInput(0, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
+                    OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
+                    Filters:
+                    [
+                        new FilterInput(0, FilterDirection.Include, FilterKind.File, "*.txt"),
+                        new FilterInput(0, FilterDirection.Exclude, FilterKind.Folder, "bin"),
+                    ])]);
+
+            await using var context = new BackupDbContext(_options);
+            var pair = await context.FolderPairs.Include(p => p.Filters).SingleAsync();
+
+            pair.Filters.Should().HaveCount(2);
+            pair.Filters.Should().ContainSingle(f => f.Direction == FilterDirection.Include && f.Kind == FilterKind.File && f.Pattern == "*.txt");
+            pair.Filters.Should().ContainSingle(f => f.Direction == FilterDirection.Exclude && f.Kind == FilterKind.Folder && f.Pattern == "bin");
+        }
+
+        [Test]
+        public async Task UpdateAsync_ReconcilesFolderPairFilters()
+        {
+            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+                [new FolderPairInput(0, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
+                    OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
+                    Filters:
+                    [
+                        new FilterInput(0, FilterDirection.Include, FilterKind.File, "*.txt"),
+                        new FilterInput(0, FilterDirection.Exclude, FilterKind.File, "*.tmp"),
+                    ])]);
+
+            var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
+            var pair = original!.FolderPairs.Single();
+            var keepId = pair.Filters.Single(f => f.Pattern == "*.txt").Id;
+
+            // Keep the *.txt rule (update its pattern), drop *.tmp, add a new exclude folder.
+            await _service.UpdateAsync(original.Id, "Docs", null, null, enabled: true,
+                [new FolderPairInput(pair.Id, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
+                    OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
+                    Filters:
+                    [
+                        new FilterInput(keepId, FilterDirection.Include, FilterKind.File, "*.md"),
+                        new FilterInput(0, FilterDirection.Exclude, FilterKind.Folder, "obj"),
+                    ])]);
+
+            await using var context = new BackupDbContext(_options);
+            var saved = await context.FolderPairs.Include(p => p.Filters).SingleAsync();
+
+            saved.Filters.Should().HaveCount(2);
+            saved.Filters.Should().ContainSingle(f => f.Id == keepId && f.Pattern == "*.md"); // updated in place
+            saved.Filters.Should().ContainSingle(f => f.Direction == FilterDirection.Exclude && f.Pattern == "obj");
+            saved.Filters.Should().NotContain(f => f.Pattern == "*.tmp"); // removed
+        }
+
+        [Test]
         public async Task CreateAsync_WritesOperationLogWithProfileDetails()
         {
             await _service.CreateAsync("Docs", "my docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,

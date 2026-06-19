@@ -163,9 +163,9 @@ namespace BackupService.Profiles
 
             return await db.Profiles
                 .AsNoTracking()
-                .Include(p => p.FolderPairs)
+                .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
                 .Include(p => p.InstantSyncItems)
-                .Include(p => p.ArchiveSyncItems)
+                .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         }
 
@@ -254,9 +254,9 @@ namespace BackupService.Profiles
             await using var db = contextFactory.CreateDbContext();
 
             var profile = await db.Profiles
-                .Include(p => p.FolderPairs)
+                .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
                 .Include(p => p.InstantSyncItems)
-                .Include(p => p.ArchiveSyncItems)
+                .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
             if (profile is null)

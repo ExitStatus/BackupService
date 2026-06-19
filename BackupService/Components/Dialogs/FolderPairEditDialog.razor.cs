@@ -19,6 +19,14 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public EventCallback OnCancel { get; set; }
 
+        private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
+        [
+            new("detail", "Detail"),
+            new("includes", "File Includes"),
+            new("excludes", "Excludes"),
+        ];
+
+        private string _activeTab = "detail";
         private string? _browseFor; // "source" or "target"
         private bool _nameError;
         private bool _sourceError;
@@ -53,6 +61,7 @@ namespace BackupService.Components.Dialogs
 
             if (_nameError || _sourceError || _targetError)
             {
+                _activeTab = "detail"; // the required fields live on the Detail tab — show it
                 return;
             }
 

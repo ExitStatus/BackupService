@@ -278,7 +278,7 @@ namespace BackupService.UnitTests.Scheduling
 
             public string GetTempFilePath(string fileName) => throw new NotSupportedException();
 
-            public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders) =>
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null) =>
                 throw new NotSupportedException();
 
             private static bool IsUnder(string path, string directory)

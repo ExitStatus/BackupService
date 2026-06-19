@@ -13,5 +13,6 @@ namespace BackupService.Profiles
         string TargetFolder,
         bool AllowDeletions,
         bool IncludeSubFolders,
-        OverwriteBehaviour OverwriteBehaviour);
+        OverwriteBehaviour OverwriteBehaviour,
+        IReadOnlyList<FilterInput>? Filters = null);
 }

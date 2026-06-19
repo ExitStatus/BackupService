@@ -1,0 +1,14 @@
+@namespace BackupService.Components.Controls
+
+<div class="modal-tabs" role="tablist">
+    @foreach (var item in Items)
+    {
+        <button type="button"
+                role="tab"
+                class="tab-item @(item.Key == SelectedKey ? "active" : null)"
+                aria-selected="@(item.Key == SelectedKey)"
+                @onclick="() => SelectAsync(item.Key)">
+            @item.Label
+        </button>
+    }
+</div>

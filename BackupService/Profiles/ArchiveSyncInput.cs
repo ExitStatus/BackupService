@@ -15,5 +15,6 @@ namespace BackupService.Profiles
         bool IncludeSubFolders,
         ArchiveRetentionMode RetentionMode,
         int RetentionCount,
-        int MaxLevels);
+        int MaxLevels,
+        IReadOnlyList<FilterInput>? Filters = null);
 }

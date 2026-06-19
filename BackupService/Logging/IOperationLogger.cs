@@ -35,8 +35,8 @@ namespace BackupService.Logging
 
         /// <summary>
         /// Appends a single <see cref="OperationLogLevel.Error"/> detail line (which raises the
-        /// header to Error). When <paramref name="exception"/> is supplied, its full detail
-        /// (including the stack trace) is appended to the message.
+        /// header to Error). When <paramref name="exception"/> is supplied, its message (only — not
+        /// the stack trace) is appended to the message.
         /// </summary>
         Task ErrorAsync(string message, Exception? exception = null);
     }

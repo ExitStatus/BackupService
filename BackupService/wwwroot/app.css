@@ -425,6 +425,83 @@ textarea:focus {
 .modal.create-profile { max-width: 810px; }
 .modal.schedule-dialog { max-width: 460px; }
 .modal.folder-pair-edit { max-width: 540px; }
+.modal.tabbed { max-width: 600px; }
+
+/* Tab strip for the tabbed edit dialogs (horizontal section switcher). */
+.modal-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0 0 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-item {
+    padding: 0.55rem 1rem;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+.tab-item:hover {
+    color: var(--text);
+}
+
+.tab-item.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+}
+
+/* The tab content keeps a steady height so switching tabs doesn't jump the dialog. */
+.modal-tab-content {
+    min-height: 18rem;
+}
+
+/* Include/Exclude list editor (FilterListEditor). */
+.filter-add {
+    margin-bottom: 1rem;
+}
+
+.filter-type {
+    display: flex;
+    gap: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.filter-table {
+    margin: 0.35rem 0 0;
+    width: 100%;
+}
+
+.filter-table td {
+    padding: 0.35rem 0.5rem;
+    vertical-align: middle;
+}
+
+.filter-kind { width: 6rem; }
+
+.filter-pattern {
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    word-break: break-all;
+}
+
+.filter-tag {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.filter-empty {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
 
 /* Folder pairs list inside the profile dialog. */
 .folder-pairs-table {

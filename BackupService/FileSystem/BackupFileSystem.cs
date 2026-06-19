@@ -27,8 +27,20 @@ namespace BackupService.FileSystem
 
         public void SetLastWriteTimeUtc(string path, DateTime value) => File.SetLastWriteTimeUtc(path, value);
 
-        public void CopyFile(string source, string destination, bool overwrite) =>
-            File.Copy(source, destination, overwrite);
+        public void CopyFile(string source, string destination, bool overwrite)
+        {
+            // Open the source with a permissive share mode so a file another process holds open for
+            // writing (logs, indexes, etc.) can still be read — File.Copy uses only FileShare.Read and
+            // fails on those. A naive stream copy doesn't carry the source's last-write-time across, so
+            // re-stamp it afterwards: the sync engine compares LastWriteTimeUtc to decide copy/skip, and
+            // a "now" timestamp would make every later run treat the destination as newer.
+            using (var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var dst = new FileStream(destination, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                src.CopyTo(dst);
+            }
+            File.SetLastWriteTimeUtc(destination, File.GetLastWriteTimeUtc(source));
+        }
 
         public void MoveFile(string source, string destination, bool overwrite) =>
             File.Move(source, destination, overwrite);
@@ -42,22 +54,42 @@ namespace BackupService.FileSystem
             return Path.Combine(directory, fileName);
         }
 
-        public IReadOnlyList<string> CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders)
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
-            // gets the list of files added — both for the top-level-only case and for verbose logging.
+            // gets the list of files added — both for the top-level-only case and for verbose logging —
+            // and so one unreadable file is skipped rather than aborting the whole archive.
             var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            var entries = new List<string>();
+            var added = new List<string>();
+            var skipped = new List<ZipSkippedFile>();
 
             using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
             foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
             {
                 var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/'); // zip-standard separators
-                zip.CreateEntryFromFile(file, entryName, CompressionLevel.Optimal);
-                entries.Add(entryName);
+                if (includeEntry is not null && !includeEntry(entryName))
+                {
+                    continue; // filtered out by include/exclude rules — omitted, not an error
+                }
+                try
+                {
+                    // Permissive share mode reads files other processes hold open for writing (the
+                    // FileShare.Read that CreateEntryFromFile uses would fail on those). The open is the
+                    // dominant failure point; a file readable here is added in full.
+                    using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    var entry = zip.CreateEntry(entryName, CompressionLevel.Optimal);
+                    entry.LastWriteTime = File.GetLastWriteTime(file); // mirror CreateEntryFromFile
+                    using var entryStream = entry.Open();
+                    src.CopyTo(entryStream);
+                    added.Add(entryName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    skipped.Add(new ZipSkippedFile(entryName, ex.Message));
+                }
             }
 
-            return entries;
+            return new ZipBuildResult(added, skipped);
         }
 
         public bool FilesContentEqual(string a, string b)

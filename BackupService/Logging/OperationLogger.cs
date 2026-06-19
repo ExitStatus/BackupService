@@ -30,7 +30,8 @@ namespace BackupService.Logging
         {
             if (exception is not null)
             {
-                message = $"{message}{Environment.NewLine}{exception}";
+                // Append the exception's message only — no stack trace (kept out of the operation log).
+                message = $"{message}: {exception.Message}";
             }
 
             return WriteAsync(OperationLogLevel.Error, [message]);

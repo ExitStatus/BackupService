@@ -25,7 +25,7 @@ namespace BackupService.Profiles
             // Snapshot the original items before mutating so we can describe what changed.
             var oldItems = profile.ArchiveSyncItems.ToDictionary(
                 i => i.Id,
-                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.RetentionMode, i.RetentionCount, i.MaxLevels));
+                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.RetentionMode, i.RetentionCount, i.MaxLevels, FilterSignature(i.Filters)));
 
             // Remove items the user deleted (not present by id in the new set).
             var keptIds = inputs.Where(i => i.Id != 0).Select(i => i.Id).ToHashSet();
@@ -55,6 +55,7 @@ namespace BackupService.Profiles
                     existing.RetentionMode = input.RetentionMode;
                     existing.RetentionCount = input.RetentionCount;
                     existing.MaxLevels = input.MaxLevels;
+                    SyncFilters(existing.Filters, input.Filters);
                 }
             }
 
@@ -72,6 +73,7 @@ namespace BackupService.Profiles
                 lines.Add($"File name: {item.FileName}");
                 lines.Add($"Include sub-folders: {YesNo(item.IncludeSubFolders)}");
                 lines.Add($"Retention: {RetentionText(item)}");
+                lines.AddRange((item.Filters ?? []).Select(FilterLine));
             }
             return lines;
         }
@@ -125,6 +127,10 @@ namespace BackupService.Profiles
                 {
                     changes.Add($"Archive '{input.Name}' retention changed from '{RetentionText(old)}' to '{RetentionText(input)}'");
                 }
+                if (!old.Filters.SetEquals(FilterSignature(input.Filters)))
+                {
+                    changes.Add($"Archive '{input.Name}' filters changed ({FilterSummary(input.Filters)})");
+                }
             }
 
             return changes;
@@ -140,7 +146,61 @@ namespace BackupService.Profiles
             RetentionMode = input.RetentionMode,
             RetentionCount = input.RetentionCount,
             MaxLevels = input.MaxLevels,
+            Filters = NewFilters(input.Filters),
         };
+
+        private static List<ArchiveSyncFilter> NewFilters(IReadOnlyList<FilterInput>? inputs) =>
+            (inputs ?? []).Select(f => new ArchiveSyncFilter
+            {
+                Direction = f.Direction,
+                Kind = f.Kind,
+                Pattern = f.Pattern,
+            }).ToList();
+
+        // Reconcile a tracked item's filter rows against the input: update matched by id, add id-0, drop the rest.
+        private static void SyncFilters(ICollection<ArchiveSyncFilter> existing, IReadOnlyList<FilterInput>? inputs)
+        {
+            inputs ??= [];
+            var keptIds = inputs.Where(f => f.Id != 0).Select(f => f.Id).ToHashSet();
+            foreach (var removed in existing.Where(f => !keptIds.Contains(f.Id)).ToList())
+            {
+                existing.Remove(removed);
+            }
+
+            foreach (var input in inputs)
+            {
+                var match = input.Id != 0 ? existing.FirstOrDefault(f => f.Id == input.Id) : null;
+                if (match is null)
+                {
+                    existing.Add(new ArchiveSyncFilter { Direction = input.Direction, Kind = input.Kind, Pattern = input.Pattern });
+                }
+                else
+                {
+                    match.Direction = input.Direction;
+                    match.Kind = input.Kind;
+                    match.Pattern = input.Pattern;
+                }
+            }
+        }
+
+        private static string FilterLine(FilterInput f) =>
+            f.Direction == FilterDirection.Include
+                ? $"Include: {f.Pattern}"
+                : $"Exclude {f.Kind.GetDescription().ToLowerInvariant()}: {f.Pattern}";
+
+        private static string FilterSummary(IReadOnlyList<FilterInput>? inputs)
+        {
+            inputs ??= [];
+            var includes = inputs.Count(f => f.Direction == FilterDirection.Include);
+            var excludes = inputs.Count - includes;
+            return $"{includes} include(s), {excludes} exclude(s)";
+        }
+
+        private static HashSet<string> FilterSignature(IEnumerable<ArchiveSyncFilter> filters) =>
+            filters.Select(f => $"{f.Direction}:{f.Kind}:{f.Pattern}").ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        private static HashSet<string> FilterSignature(IReadOnlyList<FilterInput>? inputs) =>
+            (inputs ?? []).Select(f => $"{f.Direction}:{f.Kind}:{f.Pattern}").ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         private static string RetentionText(ArchiveSyncInput input) =>
             input.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon
@@ -162,6 +222,7 @@ namespace BackupService.Profiles
             bool IncludeSubFolders,
             ArchiveRetentionMode RetentionMode,
             int RetentionCount,
-            int MaxLevels);
+            int MaxLevels,
+            HashSet<string> Filters);
     }
 }
