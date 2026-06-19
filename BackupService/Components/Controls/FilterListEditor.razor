@@ -24,28 +24,49 @@
         }
     </div>
 
-    @if (Entries.Count == 0)
-    {
-        <p class="filter-empty">@EmptyText</p>
+    @{
+        var pageEntries = PageItems().ToList();
     }
-    else
+    <table class="table filter-table">
+        <thead>
+            <tr>
+                <th class="filter-kind">Type</th>
+                <th>Pattern</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var entry in pageEntries)
+            {
+                var e = entry;
+                <tr>
+                    <td class="filter-kind"><span class="filter-tag">@TypeLabel(e)</span></td>
+                    <td class="filter-pattern">@e.Pattern</td>
+                    <td class="action-col">
+                        <button type="button" class="icon-btn" title="Remove" aria-label="Remove" @onclick="() => Remove(e)">
+                            <img src="Icons/remove.png" width="20" height="20" alt="Remove" />
+                        </button>
+                    </td>
+                </tr>
+            }
+            @* Always pad to a full page of rows so the table (and dialog) is a fixed height. *@
+            @for (var f = pageEntries.Count; f < PageSize; f++)
+            {
+                <tr class="filter-filler-row">
+                    <td class="filter-kind"></td>
+                    <td class="filter-pattern"></td>
+                    <td class="action-col"></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (TotalPages > 1)
     {
-        <table class="table filter-table">
-            <tbody>
-                @foreach (var entry in Entries)
-                {
-                    var e = entry;
-                    <tr>
-                        <td class="filter-kind"><span class="filter-tag">@TypeLabel(e)</span></td>
-                        <td class="filter-pattern">@e.Pattern</td>
-                        <td class="action-col">
-                            <button type="button" class="icon-btn" title="Remove" aria-label="Remove" @onclick="() => Remove(e)">
-                                <img src="Icons/remove.png" width="20" height="20" alt="Remove" />
-                            </button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <div class="pager">
+            <button type="button" class="btn-secondary" @onclick="PreviousPage" disabled="@(_page <= 1)">Previous</button>
+            <span>Page @_page of @TotalPages (@Entries.Count total)</span>
+            <button type="button" class="btn-secondary" @onclick="NextPage" disabled="@(_page >= TotalPages)">Next</button>
+        </div>
     }
 </div>

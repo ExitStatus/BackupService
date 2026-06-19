@@ -14,10 +14,8 @@ else
             </tr>
         </thead>
         <tbody>
-            @for (var i = 0; i < Items.Count; i++)
+            @foreach (var (index, item) in PageItems())
             {
-                var index = i;
-                var item = Items[index];
                 <tr>
                     <td>@item.Name</td>
                     <td class="action-col">
@@ -36,6 +34,15 @@ else
             }
         </tbody>
     </table>
+
+    @if (TotalPages > 1)
+    {
+        <div class="pager">
+            <button type="button" class="btn-secondary" @onclick="PreviousPage" disabled="@(_page <= 1)">Previous</button>
+            <span>Page @_page of @TotalPages (@Items.Count total)</span>
+            <button type="button" class="btn-secondary" @onclick="NextPage" disabled="@(_page >= TotalPages)">Next</button>
+        </div>
+    }
 }
 
 <button type="button" class="btn-secondary" @onclick="AddNew">Add instant sync item</button>

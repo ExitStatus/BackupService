@@ -11,12 +11,46 @@ namespace BackupService.Components.Controls
     /// </summary>
     public partial class FolderPairControl : ComponentBase
     {
+        private const int PageSize = 8;
+
         [Parameter]
         public List<FolderPairModel> Items { get; set; } = default!;
 
         private FolderPairModel? _editing;
         private int _editIndex = -1; // -1 when adding a new pair
         private bool _error;
+        private int _page = 1;
+
+        private int TotalPages => Math.Max(1, (int)Math.Ceiling(Items.Count / (double)PageSize));
+
+        /// <summary>The folder pairs (with their absolute index) shown on the current page.</summary>
+        private IEnumerable<(int Index, FolderPairModel Pair)> PageItems()
+        {
+            ClampPage();
+            var start = (_page - 1) * PageSize;
+            for (var i = start; i < Math.Min(start + PageSize, Items.Count); i++)
+            {
+                yield return (i, Items[i]);
+            }
+        }
+
+        private void ClampPage() => _page = Math.Clamp(_page, 1, TotalPages);
+
+        private void PreviousPage()
+        {
+            if (_page > 1)
+            {
+                _page--;
+            }
+        }
+
+        private void NextPage()
+        {
+            if (_page < TotalPages)
+            {
+                _page++;
+            }
+        }
 
         private void AddNew()
         {
@@ -30,7 +64,11 @@ namespace BackupService.Components.Controls
             _editing = Clone(Items[index]);
         }
 
-        private void Delete(int index) => Items.RemoveAt(index);
+        private void Delete(int index)
+        {
+            Items.RemoveAt(index);
+            ClampPage();
+        }
 
         private void OnEditSaved(FolderPairModel model)
         {
@@ -41,6 +79,7 @@ namespace BackupService.Components.Controls
             else
             {
                 Items.Add(model);
+                _page = TotalPages; // jump to the page holding the new pair
             }
 
             _editing = null;

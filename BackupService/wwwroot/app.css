@@ -470,14 +470,48 @@ textarea:focus {
     margin-bottom: 0.5rem;
 }
 
+/* Keep each radio's label on one line (e.g. "Specific file", "Wildcard pattern"). */
+.filter-type label.check {
+    white-space: nowrap;
+}
+
 .filter-table {
     margin: 0.35rem 0 0;
     width: 100%;
 }
 
-.filter-table td {
+/* `table.` outranks the later `.table { overflow:hidden }` rule so the outer border renders. */
+table.filter-table {
+    overflow: visible;
+    border-radius: 0;
+}
+
+.filter-table thead th {
+    font-weight: 700;
+}
+
+/* A full ruled grid: a clearly visible line around the table and between every row and column. */
+table.filter-table th,
+table.filter-table td {
     padding: 0.35rem 0.5rem;
     vertical-align: middle;
+    border: 1px solid #465061;
+}
+
+table.filter-table tbody tr:last-child td {
+    border-bottom: 1px solid #465061;
+}
+
+/* Uniform row height so blank filler rows (used to keep the table a constant height)
+   match the real rows. The row height must clear the remove-icon button, so keep the
+   icon small enough that an action row's natural height stays under it. */
+.filter-table .icon-btn img {
+    width: 18px;
+    height: 18px;
+}
+
+.filter-table tbody tr {
+    height: 2.5rem;
 }
 
 .filter-kind { width: 6rem; }
@@ -506,6 +540,31 @@ textarea:focus {
 /* Folder pairs list inside the profile dialog. */
 .folder-pairs-table {
     margin: 0.35rem 0 0.75rem;
+}
+
+/* border-collapse + overflow:hidden (from .table) clips the outer cell borders.
+   `table.` outranks the later `.table { overflow:hidden }` rule (equal class specificity,
+   but .table is defined later) so the full ruled grid border renders on all four sides. */
+table.folder-pairs-table {
+    overflow: visible;
+    border-radius: 0;
+}
+
+/* Bold header row. */
+.folder-pairs-table thead th {
+    font-weight: 700;
+}
+
+/* A full ruled grid: a clearly visible line around the table and between every row
+   and column. Uses `table.` for higher specificity than the base .table rules, which
+   otherwise strip the last row's bottom border and use a near-invisible line colour. */
+table.folder-pairs-table th,
+table.folder-pairs-table td {
+    border: 1px solid #465061;
+}
+
+table.folder-pairs-table tbody tr:last-child td {
+    border-bottom: 1px solid #465061;
 }
 
 .folder-pairs-empty {
@@ -1197,6 +1256,7 @@ label.check {
     align-items: center;
     gap: 1rem;
     margin-top: 0.9rem;
+    margin-bottom: 0.9rem;
     color: var(--text-muted);
     font-size: 0.9rem;
 }

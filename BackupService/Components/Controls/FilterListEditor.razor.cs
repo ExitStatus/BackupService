@@ -24,12 +24,46 @@ namespace BackupService.Components.Controls
         [Parameter]
         public FilterDirection Direction { get; set; }
 
+        private const int PageSize = 8;
+
         private string _pattern = string.Empty;
         private string _selectedType = "file";
         private string? _error;
+        private int _page = 1;
         private readonly string _radioName = Guid.NewGuid().ToString("N");
 
         private bool IsInclude => Direction == FilterDirection.Include;
+
+        private int TotalPages => Math.Max(1, (int)Math.Ceiling(Entries.Count / (double)PageSize));
+
+        /// <summary>The entries shown on the current page.</summary>
+        private IEnumerable<FilterEntryModel> PageItems()
+        {
+            ClampPage();
+            var start = (_page - 1) * PageSize;
+            for (var i = start; i < Math.Min(start + PageSize, Entries.Count); i++)
+            {
+                yield return Entries[i];
+            }
+        }
+
+        private void ClampPage() => _page = Math.Clamp(_page, 1, TotalPages);
+
+        private void PreviousPage()
+        {
+            if (_page > 1)
+            {
+                _page--;
+            }
+        }
+
+        private void NextPage()
+        {
+            if (_page < TotalPages)
+            {
+                _page++;
+            }
+        }
 
         private IReadOnlyList<(string Key, string Label)> TypeOptions => IsInclude
             ? [("file", "Specific file"), ("wildcard", "Wildcard pattern")]
@@ -45,10 +79,6 @@ namespace BackupService.Components.Controls
             "folder" => "bin",
             _ => "report.docx",
         };
-
-        private string EmptyText => IsInclude
-            ? "No includes — all files are backed up."
-            : "No excludes.";
 
         private void Add()
         {
@@ -72,12 +102,14 @@ namespace BackupService.Components.Controls
             Entries.Add(new FilterEntryModel { Kind = kind, Pattern = pattern });
             _pattern = string.Empty;
             _error = null;
+            _page = TotalPages; // jump to the page holding the new entry
         }
 
         private void Remove(FilterEntryModel entry)
         {
             Entries.Remove(entry);
             _error = null;
+            ClampPage();
         }
 
         private void OnKeyDown(KeyboardEventArgs e)
