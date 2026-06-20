@@ -37,6 +37,12 @@ namespace BackupService.Database
 
         public int Errors { get; set; }
 
+        /// <summary>Non-fatal issues (e.g. files skipped because they were locked by another process).</summary>
+        public int Warnings { get; set; }
+
+        /// <summary>Total bytes of data written to the target during the run (copies/updates/archives).</summary>
+        public long BytesCopied { get; set; }
+
         /// <summary>True for a manual "Run now" run; false for a scheduled run.</summary>
         public bool Manual { get; set; }
 

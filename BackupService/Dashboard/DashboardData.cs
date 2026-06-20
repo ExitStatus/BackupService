@@ -15,26 +15,34 @@ namespace BackupService.Dashboard
         int RunsInPeriod,
         double SuccessRatePercent,
         int TotalSuccess,
+        int TotalCompletedWithWarnings,
         int TotalCompletedWithErrors,
         int TotalFailed,
         long FilesSyncedInPeriod,
+        int ArchivesCreatedInPeriod,
+        long BytesCopiedInPeriod,
         DateTimeOffset? LastRunUtc,
         IReadOnlyList<DailyOutcome> OutcomesByDay,
+        IReadOnlyList<DailyBytes> BytesByDay,
         IReadOnlyList<ProfileDuration> DurationByProfile,
         IReadOnlyList<RecentRun> RecentRuns)
     {
         public static DashboardData Empty(int periodDays) =>
-            new(periodDays, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, [], [], []);
+            new(periodDays, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, [], [], [], []);
     }
 
     /// <summary>One day's run-outcome tally (for the stacked-column "runs over time" chart).</summary>
-    public sealed record DailyOutcome(DateOnly Date, int Success, int CompletedWithErrors, int Failed);
+    public sealed record DailyOutcome(DateOnly Date, int Success, int Warnings, int CompletedWithErrors, int Failed);
+
+    /// <summary>One day's total bytes copied (for the data-volume bar chart).</summary>
+    public sealed record DailyBytes(DateOnly Date, long Bytes);
 
     /// <summary>
-    /// A profile's average run time split into a success-weighted and a failure-weighted portion
-    /// (so a stacked horizontal bar shows the run time with a red portion sized by the failure rate).
+    /// A profile's average run time split into success-, warning- and failure-weighted portions
+    /// (so a stacked horizontal bar shows the run time with an amber warning portion and a red failure
+    /// portion, each sized by the corresponding rate).
     /// </summary>
-    public sealed record ProfileDuration(string ProfileName, double AvgSeconds, double SuccessSeconds, double FailureSeconds, int Runs);
+    public sealed record ProfileDuration(string ProfileName, double AvgSeconds, double SuccessSeconds, double WarningSeconds, double FailureSeconds, int Runs);
 
     /// <summary>A row in the recent-runs table.</summary>
     public sealed record RecentRun(
@@ -48,6 +56,7 @@ namespace BackupService.Dashboard
         int Updated,
         int Deleted,
         int Errors,
+        int Warnings,
         bool Manual,
         int? OperationLogId);
 }

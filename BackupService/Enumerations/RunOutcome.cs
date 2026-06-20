@@ -9,7 +9,7 @@ namespace BackupService.Enumerations
     /// </summary>
     public enum RunOutcome
     {
-        /// <summary>The run completed with no errors.</summary>
+        /// <summary>The run completed with no errors or warnings.</summary>
         [Description("Success")]
         Success = 0,
 
@@ -20,5 +20,12 @@ namespace BackupService.Enumerations
         /// <summary>The run failed catastrophically (aborted before/within the per-item loop).</summary>
         [Description("Failed")]
         Failed = 2,
+
+        /// <summary>
+        /// The run completed with no hard errors, but one or more files were skipped as a non-fatal
+        /// warning (e.g. locked / in use by another process).
+        /// </summary>
+        [Description("Completed with warnings")]
+        CompletedWithWarnings = 3,
     }
 }

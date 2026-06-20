@@ -60,6 +60,22 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task BytesCopied_SumsCopiedAndUpdatedFileSizes_SkippedFilesContributeNothing()
+        {
+            _fs.AddFile(@"C:\src\new.txt", T1, "hello");  // 5 bytes — new copy
+            _fs.AddFile(@"C:\src\upd.txt", T2, "world!"); // 6 bytes — update (destination older)
+            _fs.AddFile(@"C:\dst\upd.txt", T1, "x");
+            _fs.AddFile(@"C:\src\same.txt", T1, "zzz");    // unchanged (equal timestamp) — not re-copied
+            _fs.AddFile(@"C:\dst\same.txt", T1, "zzz");
+
+            var result = await Run(Pair());
+
+            result.Copied.Should().Be(1);
+            result.Updated.Should().Be(1);
+            result.BytesCopied.Should().Be(11); // 5 + 6; the unchanged file adds nothing
+        }
+
+        [Test]
         public async Task SourceNewer_OverwritesDestination()
         {
             _fs.AddFile(@"C:\src\a.txt", T2, "new");
@@ -223,6 +239,25 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(@"C:\dst\bad.txt").Should().BeFalse();
             _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp")); // no temp left
             _log.Errors.Should().Contain(m => m.Contains("Failed to copy") && m.Contains("bad.txt"));
+        }
+
+        [Test]
+        public async Task LockedFile_IsLoggedAsWarning_NotError_AndRunContinues()
+        {
+            _fs.AddFile(@"C:\src\locked.txt", T1, "l");
+            _fs.AddFile(@"C:\src\good.txt", T1, "g");
+            _fs.CopyLockedFail = dest => dest.Contains("locked.txt"); // sharing violation on this file
+
+            var result = await Run(Pair());
+
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            result.Copied.Should().Be(1); // good.txt still copied
+            _fs.FileExists(@"C:\dst\good.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\locked.txt").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp")); // no temp left behind
+            _log.Messages.Should().Contain(m => m.Contains("Skipped") && m.Contains("locked.txt") && m.Contains("in use"));
+            _log.Errors.Should().NotContain(m => m.Contains("locked.txt"));
         }
 
         [Test]
@@ -409,6 +444,7 @@ namespace BackupService.UnitTests.Scheduling
 
             // Failure injection: given a path, return true to throw.
             public Func<string, bool>? CopyShouldFail { get; set; }   // arg: destination
+            public Func<string, bool>? CopyLockedFail { get; set; }   // arg: destination — throws a sharing violation
             public Func<string, bool>? MoveShouldFail { get; set; }   // arg: destination
             public Func<string, bool>? GetFilesShouldFail { get; set; } // arg: directory
 
@@ -479,6 +515,9 @@ namespace BackupService.UnitTests.Scheduling
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
 
+            public long GetFileSize(string path) =>
+                _files.TryGetValue(path, out var e) ? e.Content.Length : throw new FileNotFoundException(path);
+
             public void SetLastWriteTimeUtc(string path, DateTime value)
             {
                 if (!_files.TryGetValue(path, out var e))
@@ -490,6 +529,10 @@ namespace BackupService.UnitTests.Scheduling
 
             public void CopyFile(string source, string destination, bool overwrite)
             {
+                if (CopyLockedFail?.Invoke(destination) == true)
+                {
+                    throw new IOException($"Locked: {destination}", unchecked((int)0x80070020)); // ERROR_SHARING_VIOLATION
+                }
                 if (CopyShouldFail?.Invoke(destination) == true)
                 {
                     throw new IOException($"Copy failed: {destination}");

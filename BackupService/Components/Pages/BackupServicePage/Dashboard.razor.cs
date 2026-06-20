@@ -14,6 +14,12 @@ namespace BackupService.Components.Pages.BackupServicePage
         private const string SuccessColor = "#2e7d32";
         private const string WarningColor = "#c9821a";
         private const string DangerColor = "#ff6b6b";
+        private const string AccentColor = "#4f8cff";
+
+        // JS formatter that auto-scales a byte count to B/KB/MB/GB/TB (used for the data-volume y-axis
+        // and its tooltip). Blazor-ApexCharts emits a "function(...)" string as a real JS function.
+        private const string BytesFormatter =
+            "function (val) { if (val == null) return ''; var u = ['B','KB','MB','GB','TB','PB']; var i = 0; var n = Math.abs(val); while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + ' ' + u[i]; }";
 
         [Inject]
         private IDashboardService DashboardService { get; set; } = default!;
@@ -41,10 +47,12 @@ namespace BackupService.Components.Pages.BackupServicePage
         private static string PeriodLabel(int days) => $"Last {days} days";
 
         private ApexChart<DailyOutcome>? _outcomesChart;
+        private ApexChart<DailyBytes>? _bytesChart;
         private ApexChart<ProfileDuration>? _durationChart;
         private ApexChart<OutcomeSlice>? _donutChart;
 
         private ApexChartOptions<DailyOutcome> _outcomesOptions = default!;
+        private ApexChartOptions<DailyBytes> _bytesOptions = default!;
         private ApexChartOptions<ProfileDuration> _durationOptions = default!;
         private ApexChartOptions<OutcomeSlice> _donutOptions = default!;
 
@@ -138,6 +146,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         private async Task UpdateChartsAsync()
         {
             await TryUpdate(_outcomesChart);
+            await TryUpdate(_bytesChart);
             await TryUpdate(_durationChart);
             await TryUpdate(_donutChart);
 
@@ -161,8 +170,8 @@ namespace BackupService.Components.Pages.BackupServicePage
         private static IReadOnlyList<OutcomeSlice> BuildSlices(DashboardData d) =>
         [
             new("Success", d.TotalSuccess),
-            new("Completed with errors", d.TotalCompletedWithErrors),
-            new("Failed", d.TotalFailed),
+            new("Warnings", d.TotalCompletedWithWarnings),
+            new("Errors", d.TotalCompletedWithErrors + d.TotalFailed),
         ];
 
         private void BuildChartOptions()
@@ -177,11 +186,24 @@ namespace BackupService.Components.Pages.BackupServicePage
                 Legend = new Legend { Position = LegendPosition.Top },
             };
 
+            _bytesOptions = new ApexChartOptions<DailyBytes>
+            {
+                Theme = new Theme { Mode = Mode.Dark },
+                Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false } },
+                Colors = [AccentColor],
+                PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { ColumnWidth = "60%", BorderRadius = 3 } },
+                DataLabels = new ApexCharts.DataLabels { Enabled = false },
+                Legend = new Legend { Show = false },
+                // Auto-scaled byte units on the y-axis (and in the tooltip).
+                Yaxis = [new YAxis { Labels = new YAxisLabels { Formatter = BytesFormatter } }],
+                Tooltip = new Tooltip { Y = new TooltipY { Formatter = BytesFormatter } },
+            };
+
             _durationOptions = new ApexChartOptions<ProfileDuration>
             {
                 Theme = new Theme { Mode = Mode.Dark },
                 Chart = new Chart { Stacked = true, Background = "transparent", Toolbar = new Toolbar { Show = false } },
-                Colors = [SuccessColor, DangerColor],
+                Colors = [SuccessColor, WarningColor, DangerColor],
                 PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { Horizontal = true, BorderRadius = 3 } },
                 DataLabels = new ApexCharts.DataLabels { Enabled = false },
                 Legend = new Legend { Position = LegendPosition.Top },
@@ -201,9 +223,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private static string OutcomeClass(RunOutcome outcome) => outcome switch
         {
-            RunOutcome.Success => "log-level-info",
-            RunOutcome.CompletedWithErrors => "log-level-warning",
-            _ => "log-level-error",
+            RunOutcome.Success => "log-level-info",            // green
+            RunOutcome.CompletedWithWarnings => "log-level-warning", // amber
+            _ => "log-level-error",                            // red — completed-with-errors + failed
         };
 
         public void Dispose()

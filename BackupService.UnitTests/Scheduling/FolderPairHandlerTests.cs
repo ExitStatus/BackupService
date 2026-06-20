@@ -122,6 +122,23 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task HandleAsync_WhenSyncReportsWarningsOnly_SummaryIsWarningLevel()
+        {
+            var profile = await SeedAndLoadProfileAsync();
+
+            await Handler(new FakeSynchronizer(new BackupResult { Copied = 1, Warnings = 2 }))
+                .HandleAsync(profile, manual: false, CancellationToken.None);
+
+            await using var verify = new BackupDbContext(_options);
+            var log = await verify.OperationLogs.SingleAsync();
+            log.Name.Should().StartWith("Folder Pairs Handler completed with 2 warning(s) in");
+            log.Level.Should().Be(OperationLogLevel.Warning);
+
+            // Warnings don't fail the pair.
+            (await verify.FolderPairs.SingleAsync()).LastRunStatus.Should().Be(FolderPairLastRunStatus.Success);
+        }
+
+        [Test]
         public async Task HandleAsync_OnFatalException_SetsErrorSummaryAndStatusAndRethrows()
         {
             // Make a detail write throw so the handler's try-body fails after the log is created.

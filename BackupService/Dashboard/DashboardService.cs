@@ -49,6 +49,8 @@ namespace BackupService.Dashboard
                     r.Updated,
                     r.Deleted,
                     r.Errors,
+                    r.Warnings,
+                    r.BytesCopied,
                     r.Manual,
                     r.OperationLogId))
                 .ToListAsync(cancellationToken);
@@ -58,10 +60,15 @@ namespace BackupService.Dashboard
 
             var runsInPeriod = inPeriod.Count;
             var totalSuccess = inPeriod.Count(r => r.Outcome == RunOutcome.Success);
+            var totalWarnings = inPeriod.Count(r => r.Outcome == RunOutcome.CompletedWithWarnings);
             var totalErrors = inPeriod.Count(r => r.Outcome == RunOutcome.CompletedWithErrors);
             var totalFailed = inPeriod.Count(r => r.Outcome == RunOutcome.Failed);
             var successRate = runsInPeriod == 0 ? 0 : Math.Round(100.0 * totalSuccess / runsInPeriod, 1);
-            var filesSynced = inPeriod.Sum(r => (long)(r.Copied + r.Updated));
+            // Regular file copies/updates (FolderPair + InstantSync) are counted separately from archives
+            // (ArchiveSync zips), which the dashboard shows on their own.
+            var filesSynced = inPeriod.Where(r => r.Type != ProfileType.ArchiveSync).Sum(r => (long)(r.Copied + r.Updated));
+            var archivesCreated = inPeriod.Where(r => r.Type == ProfileType.ArchiveSync).Sum(r => r.Copied);
+            var bytesCopied = inPeriod.Sum(r => r.BytesCopied);
 
             return new DashboardData(
                 PeriodDays: days,
@@ -71,11 +78,15 @@ namespace BackupService.Dashboard
                 RunsInPeriod: runsInPeriod,
                 SuccessRatePercent: successRate,
                 TotalSuccess: totalSuccess,
+                TotalCompletedWithWarnings: totalWarnings,
                 TotalCompletedWithErrors: totalErrors,
                 TotalFailed: totalFailed,
                 FilesSyncedInPeriod: filesSynced,
+                ArchivesCreatedInPeriod: archivesCreated,
+                BytesCopiedInPeriod: bytesCopied,
                 LastRunUtc: recent.Count > 0 ? recent[0].StartedUtc : null,
                 OutcomesByDay: BuildOutcomesByDay(inPeriod, days),
+                BytesByDay: BuildBytesByDay(inPeriod, days),
                 DurationByProfile: BuildDurationByProfile(inPeriod),
                 RecentRuns: recent.Take(10).Select(ToRecentRun).ToList());
         }
@@ -96,13 +107,31 @@ namespace BackupService.Dashboard
                     result.Add(new DailyOutcome(
                         day,
                         runs.Count(r => r.Outcome == RunOutcome.Success),
+                        runs.Count(r => r.Outcome == RunOutcome.CompletedWithWarnings),
                         runs.Count(r => r.Outcome == RunOutcome.CompletedWithErrors),
                         runs.Count(r => r.Outcome == RunOutcome.Failed)));
                 }
                 else
                 {
-                    result.Add(new DailyOutcome(day, 0, 0, 0));
+                    result.Add(new DailyOutcome(day, 0, 0, 0, 0));
                 }
+            }
+
+            return result;
+        }
+
+        // A continuous series over the last `days` local-calendar days (zero-filled), oldest → newest.
+        private static List<DailyBytes> BuildBytesByDay(List<RunRow> inPeriod, int days)
+        {
+            var byDay = inPeriod
+                .GroupBy(r => DateOnly.FromDateTime(r.StartedUtc.ToLocalTime().Date))
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.BytesCopied));
+
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var result = new List<DailyBytes>(days);
+            for (var day = today.AddDays(-(days - 1)); day <= today; day = day.AddDays(1))
+            {
+                result.Add(new DailyBytes(day, byDay.GetValueOrDefault(day)));
             }
 
             return result;
@@ -113,10 +142,13 @@ namespace BackupService.Dashboard
                 .GroupBy(r => r.ProfileName)
                 .Select(g =>
                 {
+                    var total = g.Count();
                     var avgSeconds = g.Average(r => r.DurationMs) / 1000.0;
-                    var successRate = (double)g.Count(r => r.Outcome == RunOutcome.Success) / g.Count();
-                    var successSeconds = avgSeconds * successRate;
-                    return new ProfileDuration(g.Key, avgSeconds, successSeconds, avgSeconds - successSeconds, g.Count());
+                    var successSeconds = avgSeconds * g.Count(r => r.Outcome == RunOutcome.Success) / total;
+                    var warningSeconds = avgSeconds * g.Count(r => r.Outcome == RunOutcome.CompletedWithWarnings) / total;
+                    // Whatever's left is the failure share (completed-with-errors + failed).
+                    var failureSeconds = avgSeconds - successSeconds - warningSeconds;
+                    return new ProfileDuration(g.Key, avgSeconds, successSeconds, warningSeconds, failureSeconds, total);
                 })
                 .OrderByDescending(p => p.AvgSeconds)
                 .Take(MaxProfilesInChart)
@@ -124,7 +156,7 @@ namespace BackupService.Dashboard
 
         private static RecentRun ToRecentRun(RunRow r) => new(
             r.Id, r.ProfileName, r.Type, r.StartedUtc, r.DurationMs, r.Outcome,
-            r.Copied, r.Updated, r.Deleted, r.Errors, r.Manual, r.OperationLogId);
+            r.Copied, r.Updated, r.Deleted, r.Errors, r.Warnings, r.Manual, r.OperationLogId);
 
         // In-memory projection of a run row (kept minimal for the aggregation above).
         private sealed record RunRow(
@@ -138,6 +170,8 @@ namespace BackupService.Dashboard
             int Updated,
             int Deleted,
             int Errors,
+            int Warnings,
+            long BytesCopied,
             bool Manual,
             int? OperationLogId);
     }

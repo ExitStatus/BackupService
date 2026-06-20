@@ -226,6 +226,9 @@ namespace BackupService.UnitTests.Scheduling
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
 
+            public long GetFileSize(string path) =>
+                _files.TryGetValue(path, out var e) ? e.Content.Length : throw new FileNotFoundException(path);
+
             public void SetLastWriteTimeUtc(string path, DateTime value)
             {
                 if (_files.TryGetValue(path, out var e))

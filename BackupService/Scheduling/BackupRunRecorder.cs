@@ -34,6 +34,8 @@ namespace BackupService.Scheduling
                 Updated = counts.Updated,
                 Deleted = counts.Deleted,
                 Errors = counts.Errors,
+                Warnings = counts.Warnings,
+                BytesCopied = counts.BytesCopied,
                 OperationLogId = operationLogId,
             });
 

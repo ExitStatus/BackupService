@@ -60,7 +60,7 @@ namespace BackupService.UnitTests.Scheduling
                 manual: true,
                 startedUtc: started,
                 durationMs: 2500.6,
-                counts: new BackupResult { Copied = 3, Updated = 1, Deleted = 2, Errors = 4 },
+                counts: new BackupResult { Copied = 3, Updated = 1, Deleted = 2, Errors = 4, Warnings = 5, BytesCopied = 4096 },
                 outcome: RunOutcome.CompletedWithErrors,
                 operationLogId: 42);
 
@@ -76,6 +76,8 @@ namespace BackupService.UnitTests.Scheduling
             run.Updated.Should().Be(1);
             run.Deleted.Should().Be(2);
             run.Errors.Should().Be(4);
+            run.Warnings.Should().Be(5);
+            run.BytesCopied.Should().Be(4096);
             run.OperationLogId.Should().Be(42);
         }
     }

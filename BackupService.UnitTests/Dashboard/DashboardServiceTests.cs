@@ -48,13 +48,14 @@ namespace BackupService.UnitTests.Dashboard
         }
 
         private void AddRun(int profileId, RunOutcome outcome, long durationMs, DateTimeOffset started,
-            int copied = 0, int updated = 0, int deleted = 0, int errors = 0)
+            int copied = 0, int updated = 0, int deleted = 0, int errors = 0, int warnings = 0,
+            long bytesCopied = 0, ProfileType type = ProfileType.FolderPair)
         {
             using var db = new BackupDbContext(_options);
             db.BackupRuns.Add(new BackupRun
             {
                 ProfileId = profileId,
-                Type = ProfileType.FolderPair,
+                Type = type,
                 Outcome = outcome,
                 DurationMs = durationMs,
                 StartedUtc = started,
@@ -62,6 +63,8 @@ namespace BackupService.UnitTests.Dashboard
                 Updated = updated,
                 Deleted = deleted,
                 Errors = errors,
+                Warnings = warnings,
+                BytesCopied = bytesCopied,
             });
             db.SaveChanges();
         }
@@ -122,6 +125,54 @@ namespace BackupService.UnitTests.Dashboard
             // Last run is the most recently recorded (highest id).
             data.LastRunUtc.Should().NotBeNull();
             data.LastRunUtc!.Value.Should().BeCloseTo(now.AddMinutes(-10), TimeSpan.FromMinutes(1));
+        }
+
+        [Test]
+        public async Task GetAsync_CountsWarningsSeparately_AndSplitsDuration()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var profile = SeedProfile("Alpha", enabled: true);
+
+            AddRun(profile, RunOutcome.Success, 2000, now.AddMinutes(-30));
+            AddRun(profile, RunOutcome.CompletedWithWarnings, 4000, now.AddMinutes(-20), copied: 1, warnings: 3);
+
+            var data = await _service.GetAsync(days: 7);
+
+            data.TotalSuccess.Should().Be(1);
+            data.TotalCompletedWithWarnings.Should().Be(1);
+            data.TotalCompletedWithErrors.Should().Be(0);
+            data.TotalFailed.Should().Be(0);
+            data.OutcomesByDay.Sum(d => d.Warnings).Should().Be(1);
+
+            // Duration split: avg 3s, half success / half warning, no failure share.
+            var alpha = data.DurationByProfile.Single();
+            alpha.AvgSeconds.Should().BeApproximately(3.0, 0.001);
+            alpha.SuccessSeconds.Should().BeApproximately(1.5, 0.001);
+            alpha.WarningSeconds.Should().BeApproximately(1.5, 0.001);
+            alpha.FailureSeconds.Should().BeApproximately(0.0, 0.001);
+
+            data.RecentRuns.First().Warnings.Should().Be(3); // the newest run carried the warnings
+        }
+
+        [Test]
+        public async Task GetAsync_SplitsArchivesFromFiles_AndSumsBytesPerDay()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var folder = SeedProfile("Folder", enabled: true);
+            var archive = SeedProfile("Archive", enabled: true);
+
+            AddRun(folder, RunOutcome.Success, 1000, now.AddMinutes(-30),
+                copied: 4, updated: 2, bytesCopied: 2048, type: ProfileType.FolderPair);
+            AddRun(archive, RunOutcome.Success, 5000, now.AddMinutes(-20),
+                copied: 3, bytesCopied: 1_000_000, type: ProfileType.ArchiveSync);
+
+            var data = await _service.GetAsync(days: 7);
+
+            data.FilesSyncedInPeriod.Should().Be(6);     // 4 copied + 2 updated — folder pair only
+            data.ArchivesCreatedInPeriod.Should().Be(3);  // archive 'copied' counted as archives, separately
+            data.BytesCopiedInPeriod.Should().Be(2048 + 1_000_000);
+            data.BytesByDay.Should().HaveCount(7);
+            data.BytesByDay.Sum(b => b.Bytes).Should().Be(2048 + 1_000_000);
         }
 
         [Test]

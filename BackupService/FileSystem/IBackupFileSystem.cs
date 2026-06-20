@@ -26,6 +26,9 @@ namespace BackupService.FileSystem
 
         DateTime GetLastWriteTimeUtc(string path);
 
+        /// <summary>The size of <paramref name="path"/> in bytes.</summary>
+        long GetFileSize(string path);
+
         void SetLastWriteTimeUtc(string path, DateTime value);
 
         void CopyFile(string source, string destination, bool overwrite);

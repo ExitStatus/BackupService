@@ -254,14 +254,37 @@ namespace BackupService.Scheduling
                     fileSystem.DeleteFile(dest);
                 }
                 fileSystem.MoveFile(tempPath, dest, overwrite: false);
+                result.BytesCopied += TrySize(source);
                 return true;
             }
             catch (Exception ex)
             {
                 TryDeleteTemp(tempPath);
-                result.Errors++;
-                await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
+                if (FileLock.IsLockViolation(ex))
+                {
+                    // The file is locked by another process — skip it this run (non-fatal warning).
+                    result.Warnings++;
+                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — in use by another process (locked)");
+                }
+                else
+                {
+                    result.Errors++;
+                    await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
+                }
                 return false;
+            }
+        }
+
+        // Best-effort file size for the bytes-copied stat — never let a stats read fail the copy.
+        private long TrySize(string path)
+        {
+            try
+            {
+                return fileSystem.GetFileSize(path);
+            }
+            catch
+            {
+                return 0;
             }
         }
 

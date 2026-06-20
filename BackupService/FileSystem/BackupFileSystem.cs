@@ -25,6 +25,8 @@ namespace BackupService.FileSystem
 
         public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
 
+        public long GetFileSize(string path) => new FileInfo(path).Length;
+
         public void SetLastWriteTimeUtc(string path, DateTime value) => File.SetLastWriteTimeUtc(path, value);
 
         public void CopyFile(string source, string destination, bool overwrite)

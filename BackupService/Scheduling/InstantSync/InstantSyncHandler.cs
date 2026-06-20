@@ -66,9 +66,10 @@ namespace BackupService.Scheduling
             {
                 stopwatch.Stop();
                 var duration = FormatDuration(stopwatch.Elapsed);
-                var outcome = fatal
-                    ? RunOutcome.Failed
-                    : total.Errors == 0 ? RunOutcome.Success : RunOutcome.CompletedWithErrors;
+                var outcome = fatal ? RunOutcome.Failed
+                    : total.Errors > 0 ? RunOutcome.CompletedWithErrors
+                    : total.Warnings > 0 ? RunOutcome.CompletedWithWarnings
+                    : RunOutcome.Success;
 
                 // Record the structured run row before the summary write (whose ILogWatcher.Notify
                 // the dashboard refreshes on) so the new row is visible when the dashboard reloads.
@@ -76,19 +77,15 @@ namespace BackupService.Scheduling
                     profile.Id, Type, manual, startedUtc, stopwatch.Elapsed.TotalMilliseconds,
                     total, outcome, log.OperationLogId, CancellationToken.None);
 
-                if (fatal)
+                var counts = $"{total.Copied} copied, {total.Updated} updated, {total.Deleted} deleted";
+                var (summary, level) = outcome switch
                 {
-                    await log.SetSummaryAsync($"{handlerName} failed in {duration}", OperationLogLevel.Error);
-                }
-                else
-                {
-                    var counts = $"{total.Copied} copied, {total.Updated} updated, {total.Deleted} deleted";
-                    await log.SetSummaryAsync(
-                        total.Errors == 0
-                            ? $"{handlerName} ran successfully in {duration} — {counts}"
-                            : $"{handlerName} completed with {total.Errors} error(s) in {duration} — {counts}",
-                        total.Errors == 0 ? OperationLogLevel.Info : OperationLogLevel.Error);
-                }
+                    RunOutcome.Failed => ($"{handlerName} failed in {duration}", OperationLogLevel.Error),
+                    RunOutcome.CompletedWithErrors => ($"{handlerName} completed with {total.Errors} error(s) in {duration} — {counts}", OperationLogLevel.Error),
+                    RunOutcome.CompletedWithWarnings => ($"{handlerName} completed with {total.Warnings} warning(s) in {duration} — {counts}", OperationLogLevel.Warning),
+                    _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
+                };
+                await log.SetSummaryAsync(summary, level);
             }
         }
 

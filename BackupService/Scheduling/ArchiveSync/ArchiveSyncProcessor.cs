@@ -74,11 +74,11 @@ namespace BackupService.Scheduling
             }
 
             // Files that couldn't be read (locked/in use) are skipped, not fatal — log each as a Warning
-            // and count it so the run summary reports "completed with N error(s)" while still archiving the
-            // rest.
+            // and count it as a warning so the run summary reports "completed with N warning(s)" while
+            // still archiving the rest.
             foreach (var skip in build.Skipped)
             {
-                result.Errors++;
+                result.Warnings++;
                 await log.AppendAsync(OperationLogLevel.Warning,
                     $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
             }
@@ -322,6 +322,14 @@ namespace BackupService.Scheduling
                     fileSystem.DeleteFile(dest);
                 }
                 fileSystem.MoveFile(tempPath, dest, overwrite: false);
+                try
+                {
+                    result.BytesCopied += fileSystem.GetFileSize(dest); // the archive's size
+                }
+                catch
+                {
+                    // Stats only — never let a size read fail the archive.
+                }
                 return true;
             }
             catch (Exception ex)

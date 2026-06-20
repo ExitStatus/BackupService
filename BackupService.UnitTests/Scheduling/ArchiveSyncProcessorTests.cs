@@ -91,7 +91,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
-        public async Task SkippedFiles_AreLoggedAsWarnings_AndCountAsErrors_ArchiveStillCreated()
+        public async Task SkippedFiles_AreLoggedAsWarnings_AndCountAsWarnings_ArchiveStillCreated()
         {
             _fs.AddFile(@"C:\src\readable.txt", RunTime, "ok");
             _fs.SkippedFiles =
@@ -106,8 +106,9 @@ namespace BackupService.UnitTests.Scheduling
             result.Copied.Should().Be(1);
             _fs.FileExists(KeepName(RunTime)).Should().BeTrue();
 
-            // Each skipped file is a Warning detail line and counts toward the error total.
-            result.Errors.Should().Be(2);
+            // Each skipped (locked/unreadable) file is a non-fatal Warning — counted as a warning, not an error.
+            result.Warnings.Should().Be(2);
+            result.Errors.Should().Be(0);
             _log.Warnings.Should().HaveCount(2);
             _log.Warnings.Should().Contain(m => m.Contains("Skipped file 'locked.vsidx'") && m.Contains("being used by another process"));
             _log.Warnings.Should().Contain(m => m.Contains("sub/also-locked.dat"));
@@ -312,6 +313,9 @@ namespace BackupService.UnitTests.Scheduling
 
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
+
+            public long GetFileSize(string path) =>
+                _files.TryGetValue(path, out var e) ? e.Content.Length : throw new FileNotFoundException(path);
 
             public void SetLastWriteTimeUtc(string path, DateTime value)
             {

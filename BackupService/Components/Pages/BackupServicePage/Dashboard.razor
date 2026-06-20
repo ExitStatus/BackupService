@@ -30,11 +30,12 @@ else
         <div class="stat-card">
             <span class="stat-value">@_data.SuccessRatePercent.ToString("0.#")%</span>
             <span class="stat-label">Success rate</span>
-            <span class="stat-sub">@(_data.TotalCompletedWithErrors + _data.TotalFailed) with issues</span>
+            <span class="stat-sub">@(_data.TotalCompletedWithWarnings + _data.TotalCompletedWithErrors + _data.TotalFailed) with issues</span>
         </div>
         <div class="stat-card">
             <span class="stat-value">@_data.FilesSyncedInPeriod.ToString("N0")</span>
             <span class="stat-label">Files synced (last @_data.PeriodDays days)</span>
+            <span class="stat-sub">@_data.ArchivesCreatedInPeriod.ToString("N0") archives</span>
         </div>
         <div class="stat-card">
             <span class="stat-value">@LastRunText</span>
@@ -54,10 +55,10 @@ else
                 <ApexChart TItem="DailyOutcome" Options="_outcomesOptions" Height="@(260)" @ref="_outcomesChart">
                     <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Success" SeriesType="SeriesType.Bar"
                                      XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.Success)" />
-                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="With errors" SeriesType="SeriesType.Bar"
-                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.CompletedWithErrors)" />
-                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Failed" SeriesType="SeriesType.Bar"
-                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.Failed)" />
+                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Warnings" SeriesType="SeriesType.Bar"
+                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.Warnings)" />
+                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Errors" SeriesType="SeriesType.Bar"
+                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)(o.CompletedWithErrors + o.Failed))" />
                 </ApexChart>
             }
         </div>
@@ -77,7 +78,22 @@ else
             }
         </div>
 
-        <div class="card chart-card chart-card-wide">
+        <div class="card chart-card">
+            <h2 class="chart-title">Data copied <span class="chart-note">(per day)</span></h2>
+            @if (_data.BytesCopiedInPeriod == 0)
+            {
+                <p class="chart-empty">No data copied in this period yet.</p>
+            }
+            else
+            {
+                <ApexChart TItem="DailyBytes" Options="_bytesOptions" Height="@(260)" @ref="_bytesChart">
+                    <ApexPointSeries TItem="DailyBytes" Items="_data.BytesByDay" Name="Data copied" SeriesType="SeriesType.Bar"
+                                     XValue="@(b => b.Date.ToString("dd MMM"))" YValue="@(b => (decimal?)b.Bytes)" />
+                </ApexChart>
+            }
+        </div>
+
+        <div class="card chart-card">
             <h2 class="chart-title">Run time by profile <span class="chart-note">(red = failure share)</span></h2>
             @if (_data.DurationByProfile.Count == 0)
             {
@@ -88,6 +104,8 @@ else
                 <ApexChart TItem="ProfileDuration" Options="_durationOptions" Height="@DurationChartHeight" @ref="_durationChart">
                     <ApexPointSeries TItem="ProfileDuration" Items="_data.DurationByProfile" Name="Successful time (s)" SeriesType="SeriesType.Bar"
                                      XValue="@(p => p.ProfileName)" YValue="@(p => (decimal?)Math.Round(p.SuccessSeconds, 2))" />
+                    <ApexPointSeries TItem="ProfileDuration" Items="_data.DurationByProfile" Name="Warning share (s)" SeriesType="SeriesType.Bar"
+                                     XValue="@(p => p.ProfileName)" YValue="@(p => (decimal?)Math.Round(p.WarningSeconds, 2))" />
                     <ApexPointSeries TItem="ProfileDuration" Items="_data.DurationByProfile" Name="Failure share (s)" SeriesType="SeriesType.Bar"
                                      XValue="@(p => p.ProfileName)" YValue="@(p => (decimal?)Math.Round(p.FailureSeconds, 2))" />
                 </ApexChart>
@@ -114,6 +132,7 @@ else
                         <th>Copied</th>
                         <th>Updated</th>
                         <th>Deleted</th>
+                        <th>Warnings</th>
                         <th>Errors</th>
                     </tr>
                 </thead>
@@ -135,6 +154,7 @@ else
                             <td>@run.Copied</td>
                             <td>@run.Updated</td>
                             <td>@run.Deleted</td>
+                            <td>@run.Warnings</td>
                             <td>@run.Errors</td>
                         </tr>
                     }
