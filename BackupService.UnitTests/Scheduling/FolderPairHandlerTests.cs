@@ -62,7 +62,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private FolderPairHandler Handler(IFolderPairSynchronizer synchronizer) =>
-            new(new OperationLogFactory(_dbFactory), synchronizer, _dbFactory, _statusService, NullLogger<FolderPairHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory), synchronizer, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachPair_WritesSummaryAndPersistsSuccess()
@@ -141,7 +141,7 @@ namespace BackupService.UnitTests.Scheduling
                 FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
             };
             var handler = new FolderPairHandler(
-                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _dbFactory, _statusService, NullLogger<FolderPairHandler>.Instance);
+                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
 
             var act = () => handler.HandleAsync(profile, manual: false, CancellationToken.None);
 

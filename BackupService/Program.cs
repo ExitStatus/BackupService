@@ -1,3 +1,4 @@
+using ApexCharts;
 using BackupService.Authentication;
 using BackupService.Components;
 using BackupService.Database;
@@ -66,6 +67,7 @@ namespace BackupService
             builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
             builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
+            builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
 
             // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
             // The scheduler is a single instance shared across its three roles (singleton,
@@ -73,6 +75,7 @@ namespace BackupService
             builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
             builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
             builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
+            builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
@@ -84,6 +87,9 @@ namespace BackupService
             // IInstantSyncManager re-sync API, and the hosted background service).
             builder.Services.AddSingleton<Scheduling.InstantSyncWatcherService>();
             builder.Services.AddSingleton<Scheduling.IInstantSyncManager>(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
+
+            // ApexCharts (Blazor-ApexCharts) for the dashboard charts.
+            builder.Services.AddApexCharts();
 
             // Blazor Server (interactive server-side rendering).
             builder.Services.AddRazorComponents()

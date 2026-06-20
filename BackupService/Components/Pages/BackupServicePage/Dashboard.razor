@@ -1,5 +1,145 @@
-<h1>Dashboard</h1>
+@namespace BackupService.Components.Pages.BackupServicePage
 
-<div class="card">
-    <p>Welcome to the Backup Service. Dashboard content coming soon.</p>
+<div class="content-header">
+    <h1>Dashboard</h1>
+    <div class="dashboard-period">
+        <Dropdown TValue="int" Value="_days" ValueChanged="OnPeriodChanged" Items="PeriodOptions" DisplayText="PeriodLabel" />
+    </div>
 </div>
+
+@if (_data is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-card">
+            <span class="stat-value">@_data.TotalProfiles</span>
+            <span class="stat-label">Profiles</span>
+            <span class="stat-sub">@_data.EnabledProfiles enabled · @_data.DisabledProfiles disabled</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@RunningNow</span>
+            <span class="stat-label">Running now</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@_data.RunsInPeriod</span>
+            <span class="stat-label">Runs (last @_data.PeriodDays days)</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@_data.SuccessRatePercent.ToString("0.#")%</span>
+            <span class="stat-label">Success rate</span>
+            <span class="stat-sub">@(_data.TotalCompletedWithErrors + _data.TotalFailed) with issues</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@_data.FilesSyncedInPeriod.ToString("N0")</span>
+            <span class="stat-label">Files synced (last @_data.PeriodDays days)</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@LastRunText</span>
+            <span class="stat-label">Last run</span>
+        </div>
+    </div>
+
+    <div class="chart-grid">
+        <div class="card chart-card">
+            <h2 class="chart-title">Runs &amp; outcomes</h2>
+            @if (_data.RunsInPeriod == 0)
+            {
+                <p class="chart-empty">No runs in this period yet.</p>
+            }
+            else
+            {
+                <ApexChart TItem="DailyOutcome" Options="_outcomesOptions" Height="@(260)" @ref="_outcomesChart">
+                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Success" SeriesType="SeriesType.Bar"
+                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.Success)" />
+                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="With errors" SeriesType="SeriesType.Bar"
+                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.CompletedWithErrors)" />
+                    <ApexPointSeries TItem="DailyOutcome" Items="_data.OutcomesByDay" Name="Failed" SeriesType="SeriesType.Bar"
+                                     XValue="@(o => o.Date.ToString("dd MMM"))" YValue="@(o => (decimal?)o.Failed)" />
+                </ApexChart>
+            }
+        </div>
+
+        <div class="card chart-card">
+            <h2 class="chart-title">Overall outcome</h2>
+            @if (_data.RunsInPeriod == 0)
+            {
+                <p class="chart-empty">No runs in this period yet.</p>
+            }
+            else
+            {
+                <ApexChart TItem="OutcomeSlice" Options="_donutOptions" Height="@(260)" @ref="_donutChart">
+                    <ApexPointSeries TItem="OutcomeSlice" Items="_slices" Name="Outcomes" SeriesType="SeriesType.Donut"
+                                     XValue="@(s => s.Label)" YValue="@(s => (decimal?)s.Count)" />
+                </ApexChart>
+            }
+        </div>
+
+        <div class="card chart-card chart-card-wide">
+            <h2 class="chart-title">Run time by profile <span class="chart-note">(red = failure share)</span></h2>
+            @if (_data.DurationByProfile.Count == 0)
+            {
+                <p class="chart-empty">No runs in this period yet.</p>
+            }
+            else
+            {
+                <ApexChart TItem="ProfileDuration" Options="_durationOptions" Height="@DurationChartHeight" @ref="_durationChart">
+                    <ApexPointSeries TItem="ProfileDuration" Items="_data.DurationByProfile" Name="Successful time (s)" SeriesType="SeriesType.Bar"
+                                     XValue="@(p => p.ProfileName)" YValue="@(p => (decimal?)Math.Round(p.SuccessSeconds, 2))" />
+                    <ApexPointSeries TItem="ProfileDuration" Items="_data.DurationByProfile" Name="Failure share (s)" SeriesType="SeriesType.Bar"
+                                     XValue="@(p => p.ProfileName)" YValue="@(p => (decimal?)Math.Round(p.FailureSeconds, 2))" />
+                </ApexChart>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="chart-title">Recent runs</h2>
+        @if (_data.RecentRuns.Count == 0)
+        {
+            <p class="chart-empty">No runs recorded yet.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Profile</th>
+                        <th>Type</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                        <th>Outcome</th>
+                        <th>Copied</th>
+                        <th>Updated</th>
+                        <th>Deleted</th>
+                        <th>Errors</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in _data.RecentRuns)
+                    {
+                        <tr>
+                            <td>
+                                @run.ProfileName
+                                @if (run.Manual)
+                                {
+                                    <span class="run-manual">manual</span>
+                                }
+                            </td>
+                            <td>@run.Type.GetDescription()</td>
+                            <td>@run.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@FormatDuration(run.DurationMs)</td>
+                            <td><span class="log-level @OutcomeClass(run.Outcome)">@run.Outcome.GetDescription()</span></td>
+                            <td>@run.Copied</td>
+                            <td>@run.Updated</td>
+                            <td>@run.Deleted</td>
+                            <td>@run.Errors</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}

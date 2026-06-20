@@ -21,12 +21,14 @@ namespace BackupService.Scheduling
         IFolderPairSynchronizer synchronizer,
         IDatabaseContextFactory contextFactory,
         IProfileStatusService statusService,
+        IBackupRunRecorder runRecorder,
         ILogger<FolderPairHandler> logger) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.FolderPair;
 
         public async Task HandleAsync(Profile profile, bool manual, CancellationToken cancellationToken)
         {
+            var startedUtc = DateTimeOffset.UtcNow;
             var stopwatch = Stopwatch.StartNew();
             // "Run now" runs are prefixed [Manual] in the log to distinguish them from scheduled ones.
             var prefix = manual ? "[Manual] " : string.Empty;
@@ -66,6 +68,15 @@ namespace BackupService.Scheduling
             {
                 stopwatch.Stop();
                 var duration = FormatDuration(stopwatch.Elapsed);
+                var outcome = fatal
+                    ? RunOutcome.Failed
+                    : total.Errors == 0 ? RunOutcome.Success : RunOutcome.CompletedWithErrors;
+
+                // Record the structured run row before the summary write (whose ILogWatcher.Notify
+                // the dashboard refreshes on) so the new row is visible when the dashboard reloads.
+                await runRecorder.RecordAsync(
+                    profile.Id, Type, manual, startedUtc, stopwatch.Elapsed.TotalMilliseconds,
+                    total, outcome, log.OperationLogId, CancellationToken.None);
 
                 if (fatal)
                 {

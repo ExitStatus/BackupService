@@ -70,7 +70,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private ArchiveSyncHandler Handler(IArchiveSyncProcessor processor) =>
-            new(new OperationLogFactory(_dbFactory), processor, _dbFactory, _statusService, NullLogger<ArchiveSyncHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory), processor, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<ArchiveSyncHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachItem_WritesSummaryWithCounts_AndAdvancesRunCount()

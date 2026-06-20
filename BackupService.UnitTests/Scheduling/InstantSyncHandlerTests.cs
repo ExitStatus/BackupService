@@ -62,7 +62,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private InstantSyncHandler Handler(IFolderPairSynchronizer synchronizer) =>
-            new(new OperationLogFactory(_dbFactory), synchronizer, _statusService, NullLogger<InstantSyncHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory), synchronizer, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<InstantSyncHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachItem_WritesSummaryWithCounts()
@@ -131,7 +131,7 @@ namespace BackupService.UnitTests.Scheduling
                 InstantSyncItems = { new InstantSyncItem { Name = "I", SourceFolder = @"C:\a", TargetFolder = @"D:\b", DebounceMilliseconds = 1000 } },
             };
             var handler = new InstantSyncHandler(
-                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _statusService, NullLogger<InstantSyncHandler>.Instance);
+                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<InstantSyncHandler>.Instance);
 
             var act = () => handler.HandleAsync(profile, manual: false, CancellationToken.None);
 

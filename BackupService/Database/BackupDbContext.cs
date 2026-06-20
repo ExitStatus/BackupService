@@ -31,6 +31,8 @@ namespace BackupService.Database
 
         public DbSet<LogRetentionSettings> LogRetentionSettings => Set<LogRetentionSettings>();
 
+        public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
