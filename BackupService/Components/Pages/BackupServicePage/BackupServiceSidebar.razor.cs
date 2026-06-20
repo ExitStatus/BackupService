@@ -20,6 +20,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             new NavItem("dashboard", "Dashboard", "Icons/dashboard.png"),
             new NavItem("profiles", "Backup Profiles", "Icons/profiles.png"),
             new NavItem("logs", "Logs", "Icons/log.png"),
+            new NavItem("connections", "Connections", "Icons/connection.png"),
         ];
 
         protected override async Task OnInitializedAsync()
