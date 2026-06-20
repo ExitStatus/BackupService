@@ -17,6 +17,21 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public string? InitialPath { get; set; }
 
+        /// <summary>
+        /// When set, browsing is confined to this folder and its subtree — the sidebar shows only this
+        /// root, Up stops here, the breadcrumb starts here, and a path outside it can't be navigated to or
+        /// selected. Null = browse the whole machine (drives + Quick access).
+        /// </summary>
+        [Parameter]
+        public string? RootPath { get; set; }
+
+        /// <summary>
+        /// When true, a "New folder" button is offered (creating a sub-folder of the current folder).
+        /// Off by default — only the target-folder picker enables it (you don't create source/exclude folders).
+        /// </summary>
+        [Parameter]
+        public bool AllowCreateFolder { get; set; }
+
         [Parameter]
         public EventCallback<string> OnSelect { get; set; }
 
@@ -37,14 +52,29 @@ namespace BackupService.Components.Dialogs
 
         private List<Crumb> _breadcrumb = [];
 
+        // The normalised browse root (no trailing separator), or null when unconstrained.
+        private string? _root;
+
         private bool _atThisPc => _currentPath is null;
+
+        private bool Rooted => _root is not null;
+
+        private string RootLabel => _root is null
+            ? string.Empty
+            : Path.GetFileName(_root) is { Length: > 0 } name ? name : _root;
 
         protected override void OnInitialized()
         {
             _drives = Browser.GetDrives();
             _quickAccess = Browser.GetQuickAccess();
 
-            if (!string.IsNullOrWhiteSpace(InitialPath) && Directory.Exists(InitialPath))
+            if (!string.IsNullOrWhiteSpace(RootPath) && Directory.Exists(RootPath))
+            {
+                _root = RootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var start = !string.IsNullOrWhiteSpace(InitialPath) && IsWithinRoot(InitialPath!) ? InitialPath! : _root;
+                Navigate(start);
+            }
+            else if (!string.IsNullOrWhiteSpace(InitialPath) && Directory.Exists(InitialPath))
             {
                 Navigate(InitialPath);
             }
@@ -58,10 +88,36 @@ namespace BackupService.Components.Dialogs
 
         private bool CanForward => _historyIndex < _history.Count - 1;
 
-        private bool CanUp => _currentPath is not null;
+        private bool CanUp => Rooted
+            ? _currentPath is not null && !PathEquals(_currentPath, _root)
+            : _currentPath is not null;
+
+        /// <summary>True when <paramref name="path"/> is the root or sits inside it (always true when unrooted).</summary>
+        private bool IsWithinRoot(string path)
+        {
+            if (_root is null)
+            {
+                return true;
+            }
+
+            var p = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return p.Equals(_root, StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool PathEquals(string? a, string? b) => string.Equals(
+            a?.TrimEnd(Path.DirectorySeparatorChar),
+            b?.TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
         private void Navigate(string? path)
         {
+            // When rooted, never leave the subtree (This PC or any path above/outside the root snaps back).
+            if (Rooted && (path is null || !IsWithinRoot(path)))
+            {
+                path = _root;
+            }
+
             // Drop any forward history when navigating somewhere new.
             if (_historyIndex < _history.Count - 1)
             {
@@ -98,7 +154,12 @@ namespace BackupService.Components.Dialogs
                 return;
             }
 
-            Navigate(Browser.GetParent(_currentPath)); // null parent â†’ back to This PC
+            if (Rooted && PathEquals(_currentPath, _root))
+            {
+                return; // already at the root — can't go higher
+            }
+
+            Navigate(Browser.GetParent(_currentPath)); // null parent â†’ back to This PC (clamped to root when rooted)
         }
 
         private void Load(string? path)
@@ -112,6 +173,8 @@ namespace BackupService.Components.Dialogs
             _selectedPath = path;
             _folderText = path ?? string.Empty;
             _breadcrumb = BuildBreadcrumb(path);
+            _creatingFolder = false; // drop any in-progress "new folder" entry on navigation
+            _newFolderError = null;
         }
 
         private void SelectEntry(FolderEntry entry)
@@ -123,9 +186,100 @@ namespace BackupService.Components.Dialogs
         private bool IsSelected(FolderEntry entry) =>
             string.Equals(entry.FullPath, _selectedPath, StringComparison.OrdinalIgnoreCase);
 
+        private bool CanSelect =>
+            !string.IsNullOrWhiteSpace(_folderText) && (!Rooted || IsWithinRoot(_folderText));
+
+        // ---- New folder ----
+
+        private bool _creatingFolder;
+        private string _newFolderName = string.Empty;
+        private string? _newFolderError;
+        private ElementReference _newFolderInput;
+        private bool _focusNewFolder; // set when the create bar opens; honoured in OnAfterRenderAsync
+
+        // A new folder is created under the currently open folder, so there must be a real path open.
+        private bool CanCreateFolder => AllowCreateFolder && _currentPath is not null;
+
+        private void BeginCreateFolder()
+        {
+            _newFolderName = string.Empty;
+            _newFolderError = null;
+            _creatingFolder = true;
+            _focusNewFolder = true; // focus the name box once it renders
+        }
+
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            if (_focusNewFolder)
+            {
+                _focusNewFolder = false;
+                await _newFolderInput.FocusAsync();
+            }
+        }
+
+        private void CancelCreateFolder()
+        {
+            _creatingFolder = false;
+            _newFolderError = null;
+        }
+
+        private void OnNewFolderKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+        {
+            if (e.Key is "Enter" or "NumpadEnter")
+            {
+                ConfirmCreateFolder();
+            }
+            else if (e.Key == "Escape")
+            {
+                CancelCreateFolder();
+            }
+        }
+
+        private void ConfirmCreateFolder()
+        {
+            if (_currentPath is null)
+            {
+                return;
+            }
+
+            var name = _newFolderName.Trim();
+            if (name.Length == 0)
+            {
+                _newFolderError = "Enter a folder name.";
+                return;
+            }
+            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                _newFolderError = "The name contains invalid characters.";
+                return;
+            }
+            if (_entries.Any(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                _newFolderError = $"A folder named '{name}' already exists here.";
+                return;
+            }
+
+            string created;
+            try
+            {
+                created = Browser.CreateDirectory(_currentPath, name);
+            }
+            catch (Exception ex)
+            {
+                _newFolderError = $"Couldn't create the folder: {ex.Message}";
+                return;
+            }
+
+            _creatingFolder = false;
+            // Re-list the current folder so the new one appears, then select it.
+            Load(_currentPath);
+            _selectedPath = created;
+            _folderText = created;
+        }
+
         private async Task SelectAsync()
         {
-            if (!string.IsNullOrWhiteSpace(_folderText))
+            if (CanSelect)
             {
                 await OnSelect.InvokeAsync(_folderText);
             }
@@ -133,6 +287,25 @@ namespace BackupService.Components.Dialogs
 
         private List<Crumb> BuildBreadcrumb(string? path)
         {
+            // When rooted, the breadcrumb starts at the root (not This PC) and never shows above it.
+            if (Rooted)
+            {
+                var rooted = new List<Crumb> { new(RootLabel, _root) };
+                if (path is null || PathEquals(path, _root))
+                {
+                    return rooted;
+                }
+
+                var relative = path[_root!.Length..].Trim(Path.DirectorySeparatorChar);
+                var rootedAccumulated = _root!;
+                foreach (var part in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    rootedAccumulated = Path.Combine(rootedAccumulated, part);
+                    rooted.Add(new(part, rootedAccumulated));
+                }
+                return rooted;
+            }
+
             var crumbs = new List<Crumb> { new("This PC", null) };
             if (path is null)
             {

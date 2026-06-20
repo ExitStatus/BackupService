@@ -27,30 +27,70 @@
                     <button type="button" class="fb-crumb" @onclick="() => Navigate(crumb.Path)">@crumb.Label</button>
                 }
             </div>
+
+            @if (AllowCreateFolder)
+            {
+                <button type="button" class="fb-newfolder" @onclick="BeginCreateFolder" disabled="@(!CanCreateFolder)"
+                        title="New folder">
+                    <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="#e8b339" d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                        <path fill="#fff" d="M12 11h2v2h2v2h-2v2h-2v-2h-2v-2h2z" />
+                    </svg>
+                    New folder
+                </button>
+            }
         </div>
+
+        @if (_creatingFolder)
+        {
+            <div class="fb-newfolder-bar">
+                <label class="fb-newfolder-label" for="fb-newfolder">New folder name:</label>
+                <input id="fb-newfolder" type="text" class="no-enter-submit" @ref="_newFolderInput"
+                       @bind="_newFolderName" @bind:event="oninput" @onkeydown="OnNewFolderKeyDown" />
+                <button type="button" class="fb-select" @onclick="ConfirmCreateFolder" disabled="@(string.IsNullOrWhiteSpace(_newFolderName))">Create</button>
+                <button type="button" class="btn-secondary" @onclick="CancelCreateFolder">Cancel</button>
+                @if (_newFolderError is not null)
+                {
+                    <span class="validation-message fb-newfolder-error">@_newFolderError</span>
+                }
+            </div>
+        }
 
         <div class="fb-body">
             <div class="fb-sidebar">
-                <div class="fb-group-label">Quick access</div>
-                @foreach (var entry in _quickAccess)
+                @if (Rooted)
                 {
-                    <FolderTreeNode Path="@entry.FullPath"
-                                    Label="@entry.Name"
+                    <div class="fb-group-label">Source folder</div>
+                    <FolderTreeNode Path="@_root"
+                                    Label="@RootLabel"
                                     IsDrive="false"
                                     Depth="0"
                                     SelectedPath="@_currentPath"
                                     OnNavigate="Navigate" />
                 }
-
-                <div class="fb-group-label">This PC</div>
-                @foreach (var drive in _drives)
+                else
                 {
-                    <FolderTreeNode Path="@drive.RootPath"
-                                    Label="@drive.Label"
-                                    IsDrive="true"
-                                    Depth="0"
-                                    SelectedPath="@_currentPath"
-                                    OnNavigate="Navigate" />
+                    <div class="fb-group-label">Quick access</div>
+                    @foreach (var entry in _quickAccess)
+                    {
+                        <FolderTreeNode Path="@entry.FullPath"
+                                        Label="@entry.Name"
+                                        IsDrive="false"
+                                        Depth="0"
+                                        SelectedPath="@_currentPath"
+                                        OnNavigate="Navigate" />
+                    }
+
+                    <div class="fb-group-label">This PC</div>
+                    @foreach (var drive in _drives)
+                    {
+                        <FolderTreeNode Path="@drive.RootPath"
+                                        Label="@drive.Label"
+                                        IsDrive="true"
+                                        Depth="0"
+                                        SelectedPath="@_currentPath"
+                                        OnNavigate="Navigate" />
+                    }
                 }
             </div>
 
@@ -104,8 +144,8 @@
 
         <div class="fb-footer">
             <label class="fb-folder-label" for="fb-folder">Folder:</label>
-            <input id="fb-folder" type="text" class="fb-folder-input" @bind="_folderText" @bind:event="oninput" />
-            <button type="button" class="fb-select" @onclick="SelectAsync" disabled="@(string.IsNullOrWhiteSpace(_folderText))">Select Folder</button>
+            <input id="fb-folder" type="text" class="fb-folder-input no-enter-submit" @bind="_folderText" @bind:event="oninput" />
+            <button type="button" class="fb-select" @onclick="SelectAsync" disabled="@(!CanSelect)">Select Folder</button>
             <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
         </div>
     </div>

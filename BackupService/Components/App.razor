@@ -13,6 +13,19 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        // Stop Enter in an opted-out input (class "no-enter-submit") from implicitly
+        // submitting the surrounding EditForm. Blazor Server can't preventDefault from
+        // its server-side keydown handler (it round-trips after the browser has already
+        // submitted), so guard on the client. This does not stop the keydown reaching
+        // Blazor, so the component's own onkeydown handler still runs.
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && e.target instanceof HTMLInputElement
+                && e.target.classList.contains('no-enter-submit')) {
+                e.preventDefault();
+            }
+        });
+    </script>
 </body>
 
 </html>

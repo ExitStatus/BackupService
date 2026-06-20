@@ -63,11 +63,11 @@
             }
             else if (_activeTab == "includes")
             {
-                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" />
+                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" SourceFolder="@Model.SourceFolder" />
             }
             else
             {
-                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" />
+                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" SourceFolder="@Model.SourceFolder" />
             }
         </div>
 
@@ -81,6 +81,7 @@
 @if (_browseFor is not null)
 {
     <FolderBrowserDialog InitialPath="@CurrentBrowsePath"
+                         AllowCreateFolder="@(_browseFor == "target")"
                          OnSelect="OnFolderSelected"
                          OnCancel="() => _browseFor = null" />
 }

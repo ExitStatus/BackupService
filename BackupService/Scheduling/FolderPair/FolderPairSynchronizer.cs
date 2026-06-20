@@ -173,8 +173,8 @@ namespace BackupService.Scheduling
                 foreach (var sourceSub in sourceDirs)
                 {
                     var name = Path.GetFileName(sourceSub)!;
-                    // An excluded folder's whole subtree is left out of the backup.
-                    if (filter.ExcludesFolder(name))
+                    // An excluded folder's (by name, or by exact relative path) whole subtree is left out.
+                    if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
                     {
                         continue;
                     }
@@ -189,7 +189,9 @@ namespace BackupService.Scheduling
                         ct.ThrowIfCancellationRequested();
                         var targetSubName = Path.GetFileName(targetSub)!;
                         // Don't delete an excluded target subtree (it's out of scope, not an orphan).
-                        if (!sourceSubNames.Contains(targetSubName) && !filter.ExcludesFolder(targetSubName))
+                        if (!sourceSubNames.Contains(targetSubName) &&
+                            !filter.ExcludesFolder(targetSubName) &&
+                            !filter.ExcludesPath([.. ancestors, targetSubName]))
                         {
                             await DeleteOrphanDirectoryAsync(targetSub, log, result, ct);
                         }

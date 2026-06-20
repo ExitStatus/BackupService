@@ -70,6 +70,7 @@
 @if (_browseFor is not null)
 {
     <FolderBrowserDialog InitialPath="@CurrentBrowsePath"
+                         AllowCreateFolder="@(_browseFor == "target")"
                          OnSelect="OnFolderSelected"
                          OnCancel="() => _browseFor = null" />
 }

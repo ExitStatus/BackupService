@@ -12,6 +12,7 @@ namespace BackupService.UnitTests.FileSystem
         private static FilterRule Include(string pattern) => new(FilterDirection.Include, FilterKind.File, pattern);
         private static FilterRule ExcludeFile(string pattern) => new(FilterDirection.Exclude, FilterKind.File, pattern);
         private static FilterRule ExcludeFolder(string pattern) => new(FilterDirection.Exclude, FilterKind.Folder, pattern);
+        private static FilterRule ExcludePath(string pattern) => new(FilterDirection.Exclude, FilterKind.Path, pattern);
 
         [Test]
         public void NoRules_IsEmpty_AndEverythingInScope()
@@ -92,6 +93,40 @@ namespace BackupService.UnitTests.FileSystem
 
             filter.IsFileInScope("notes.txt", []).Should().BeTrue();
             filter.IsFileInScope("secret.txt", []).Should().BeFalse(); // matches include but excluded
+        }
+
+        [Test]
+        public void ExcludePath_DropsThatExactLocation_NotByNameElsewhere()
+        {
+            var filter = Filter(ExcludePath(@"bin\Debug"));
+
+            filter.IsEmpty.Should().BeFalse();
+            // The exact relative path (the folder itself and anything beneath it) is excluded.
+            filter.ExcludesPath(["bin", "Debug"]).Should().BeTrue();
+            filter.IsFileInScope("app.dll", ["bin", "Debug"]).Should().BeFalse();
+            filter.IsFileInScope("app.dll", ["bin", "Debug", "net10.0"]).Should().BeFalse(); // subtree
+            // A folder of the same name at a different location is NOT excluded (unlike an exclude-Folder).
+            filter.IsFileInScope("app.dll", ["src", "bin", "Debug"]).Should().BeTrue();
+            filter.ExcludesFolder("Debug").Should().BeFalse();
+        }
+
+        [Test]
+        public void ExcludePath_CanTargetASingleFile()
+        {
+            var filter = Filter(ExcludePath(@"config\secrets.json"));
+
+            filter.IsFileInScope("secrets.json", ["config"]).Should().BeFalse();
+            filter.IsFileInScope("secrets.json", ["other"]).Should().BeTrue();   // different location
+            filter.IsFileInScope("settings.json", ["config"]).Should().BeTrue(); // different file
+        }
+
+        [Test]
+        public void ExcludePath_NormalisesSeparators_AndIsCaseInsensitive()
+        {
+            var filter = Filter(ExcludePath("Logs/Old"));
+
+            filter.IsRelativePathInScope(@"logs\old\a.txt").Should().BeFalse();
+            filter.IsRelativePathInScope(@"logs\current\a.txt").Should().BeTrue();
         }
 
         [Test]

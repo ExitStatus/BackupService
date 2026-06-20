@@ -969,6 +969,42 @@ label.check {
 
 .fb-select { flex: 0 0 auto; }
 
+.fb-newfolder {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: 0.35rem;
+    padding: 0.3rem 0.55rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.fb-newfolder:hover:not(:disabled) { background: var(--surface-2); }
+.fb-newfolder:disabled { color: var(--border); cursor: default; opacity: 0.6; }
+
+.fb-newfolder-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+.fb-newfolder-bar input {
+    flex: 1;
+    min-width: 8rem;
+    margin: 0;
+}
+
+.fb-newfolder-label { flex: 0 0 auto; margin: 0; color: var(--text-muted); }
+
+.fb-newfolder-error { flex-basis: 100%; }
+
 /* Schedule builder */
 .weekdays {
     display: flex;

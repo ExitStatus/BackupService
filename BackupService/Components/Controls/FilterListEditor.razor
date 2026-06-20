@@ -15,7 +15,12 @@
             }
         </div>
         <div class="input-row">
-            <input type="text" placeholder="@Placeholder" @bind="_pattern" @bind:event="oninput" @onkeydown="OnKeyDown" />
+            <input type="text" class="no-enter-submit" placeholder="@Placeholder" @bind="_pattern" @bind:event="oninput" @onkeydown="OnKeyDown" />
+            @if (ShowBrowse)
+            {
+                <button type="button" class="btn-secondary" @onclick="OpenBrowse" disabled="@(!CanBrowse)"
+                        title="@(CanBrowse ? "Browse the source folder" : "Set the source folder first")">Browse</button>
+            }
             <button type="button" class="btn-secondary" @onclick="Add">Add</button>
         </div>
         @if (_error is not null)
@@ -70,3 +75,9 @@
         </div>
     }
 </div>
+
+@if (_browsing)
+{
+    <FolderBrowserDialog RootPath="@SourceFolder" InitialPath="@SourceFolder"
+                         OnSelect="OnPathSelected" OnCancel="() => _browsing = false" />
+}

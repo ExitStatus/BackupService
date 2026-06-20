@@ -316,6 +316,34 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task ExcludePath_OnlyThatExactSubtreeIsSkipped_NotByNameElsewhere()
+        {
+            _fs.AddFile(@"C:\src\bin\obj.txt", T1, "a");        // excluded exact path
+            _fs.AddFile(@"C:\src\sub\bin\keep.txt", T1, "b");   // same folder name, different path → kept
+            var pair = Pair(includeSubFolders: true);
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.Path, @"bin"));
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\bin\obj.txt").Should().BeFalse();   // exact path excluded
+            _fs.FileExists(@"C:\dst\sub\bin\keep.txt").Should().BeTrue(); // not excluded by name
+            result.Copied.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ExcludePath_ExistingTargetSubtreeIsNotDeleted()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\logs\old.txt", T1, "x"); // target-only folder matching an exclude path
+            var pair = Pair(allowDeletions: true, includeSubFolders: true);
+            pair.Filters.Add(Filter(FilterDirection.Exclude, FilterKind.Path, @"logs"));
+
+            await Run(pair);
+
+            _fs.FileExists(@"C:\dst\logs\old.txt").Should().BeTrue(); // excluded path left untouched
+        }
+
+        [Test]
         public async Task Deletions_RemoveInScopeOrphans_ButLeaveExcludedTargetFiles()
         {
             _fs.AddFile(@"C:\src\a.txt", T1, "a");

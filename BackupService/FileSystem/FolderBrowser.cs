@@ -51,6 +51,13 @@ namespace BackupService.FileSystem
             }
         }
 
+        public string CreateDirectory(string parentPath, string name)
+        {
+            var full = Path.Combine(parentPath, name);
+            Directory.CreateDirectory(full);
+            return full;
+        }
+
         private static FolderEntry ToEntry(string path)
         {
             var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));

@@ -15,5 +15,12 @@ namespace BackupService.Enumerations
         /// <summary>A folder-name pattern, matched against folder names; a match skips that subtree.</summary>
         [Description("Folder")]
         Folder = 1,
+
+        /// <summary>
+        /// A path relative to the source root (exclude only), matched against the exact location rather
+        /// than by name everywhere — excludes that file, or that folder and its whole subtree.
+        /// </summary>
+        [Description("Path")]
+        Path = 2,
     }
 }
