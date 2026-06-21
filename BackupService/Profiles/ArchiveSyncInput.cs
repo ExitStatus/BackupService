@@ -16,5 +16,7 @@ namespace BackupService.Profiles
         ArchiveRetentionMode RetentionMode,
         int RetentionCount,
         int MaxLevels,
-        IReadOnlyList<FilterInput>? Filters = null);
+        IReadOnlyList<FilterInput>? Filters = null,
+        int? SourceConnectionId = null,
+        int? TargetConnectionId = null);
 }

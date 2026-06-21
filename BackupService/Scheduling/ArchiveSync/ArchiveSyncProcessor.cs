@@ -9,12 +9,14 @@ namespace BackupService.Scheduling
     /// <summary>
     /// Default <see cref="IArchiveSyncProcessor"/>. Builds the ZIP in a local temp folder, then copies
     /// it into the target crash-safe (via a dot-prefixed temp then rename — the same idiom as
-    /// <see cref="FolderPairSynchronizer"/>). Retention is derived from the target folder listing: each
-    /// archive's level (for GFS) is encoded in its file name, so no extra state is needed beyond the
-    /// item's run counter. All filesystem access goes through <see cref="IBackupFileSystem"/> so the
-    /// retention/promotion logic is unit-testable.
+    /// <see cref="FolderPairSynchronizer"/>). The source and target may each be local or on a connection
+    /// (resolved via <see cref="IEndpointFileSystemFactory"/>): a remote source is staged to a local temp
+    /// folder before zipping, and a remote target receives the finished zip over the connection. Retention
+    /// is derived from the target folder listing (each archive's GFS level is encoded in its file name), so
+    /// no extra state is needed beyond the item's run counter. All filesystem access goes through
+    /// <see cref="IBackupFileSystem"/> so the retention/promotion logic is unit-testable.
     /// </summary>
-    public sealed class ArchiveSyncProcessor(IBackupFileSystem fileSystem) : IArchiveSyncProcessor
+    public sealed class ArchiveSyncProcessor(IBackupFileSystem fileSystem, IEndpointFileSystemFactory endpointFactory) : IArchiveSyncProcessor
     {
         private const string TimestampFormat = "yyyy-MM-dd_HHmmss";
 
@@ -23,23 +25,69 @@ namespace BackupService.Scheduling
         {
             var result = new BackupResult();
 
-            // 1. The source must exist before we try to archive it.
+            var targetEndpoint = await endpointFactory.ResolveAsync(item.TargetConnectionId, item.TargetFolder, cancellationToken);
             try
             {
-                if (!fileSystem.DirectoryExists(item.SourceFolder))
+                var target = new Target(targetEndpoint.FileSystem, targetEndpoint.BasePath);
+
+                // 1. Resolve the source to a local directory to zip — directly when local, or by staging a
+                //    remote source to a local temp folder first (CreateZipFromDirectory reads local only).
+                string sourceDir;
+                string? stagingDir = null;
+                try
+                {
+                    if (item.SourceConnectionId is null)
+                    {
+                        if (!fileSystem.DirectoryExists(item.SourceFolder))
+                        {
+                            result.Errors++;
+                            await log.ErrorAsync($"Source folder '{item.SourceFolder}' does not exist.");
+                            return result;
+                        }
+                        sourceDir = item.SourceFolder;
+                    }
+                    else
+                    {
+                        stagingDir = await StageRemoteSourceAsync(item, log, cancellationToken);
+                        if (stagingDir is null)
+                        {
+                            result.Errors++;
+                            await log.ErrorAsync($"Remote source folder '{item.SourceFolder}' could not be staged.");
+                            return result;
+                        }
+                        sourceDir = stagingDir;
+                    }
+                }
+                catch (Exception ex)
                 {
                     result.Errors++;
-                    await log.ErrorAsync($"Source folder '{item.SourceFolder}' does not exist.");
+                    await log.ErrorAsync($"Failed to access source folder '{item.SourceFolder}'", ex);
                     return result;
                 }
+
+                try
+                {
+                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, cancellationToken);
+                }
+                finally
+                {
+                    if (stagingDir is not null)
+                    {
+                        TryDeleteDirectory(stagingDir);
+                    }
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                result.Errors++;
-                await log.ErrorAsync($"Failed to access source folder '{item.SourceFolder}'", ex);
-                return result;
+                targetEndpoint.Session.Dispose();
             }
 
+            return result;
+        }
+
+        private async Task BuildAndStoreAsync(
+            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, CancellationToken cancellationToken)
+        {
             var gfs = item.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon;
             var stamp = timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture);
             // GFS archives are born at level 1 (the "son"); Keep-last-N has no level token.
@@ -54,14 +102,14 @@ namespace BackupService.Scheduling
             {
                 tempZip = fileSystem.GetTempFilePath(finalName);
                 build = fileSystem.CreateZipFromDirectory(
-                    item.SourceFolder, tempZip, item.IncludeSubFolders,
+                    sourceDir, tempZip, item.IncludeSubFolders,
                     filter.IsEmpty ? null : filter.IsRelativePathInScope);
             }
             catch (Exception ex)
             {
                 result.Errors++;
                 await log.ErrorAsync($"Failed to create archive of '{item.SourceFolder}'", ex);
-                return result;
+                return;
             }
 
             if (build.Added.Count > 0)
@@ -83,20 +131,20 @@ namespace BackupService.Scheduling
                     $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
             }
 
-            // 3. Crash-safe copy into the target folder.
-            if (!await EnsureDirectoryAsync(item.TargetFolder, log, result))
+            // 3. Crash-safe copy into the target folder (local, or over the connection).
+            if (!await EnsureDirectoryAsync(target.Fs, target.Base, log, result))
             {
-                TryDelete(tempZip);
-                return result;
+                TryDelete(fileSystem, tempZip);
+                return;
             }
 
-            var destPath = Path.Combine(item.TargetFolder, finalName);
-            var copied = await CopyThroughTempAsync(tempZip, destPath, item.TargetFolder, log, result);
-            TryDelete(tempZip); // best-effort cleanup of the local temp build, copied or not
+            var destPath = Path.Combine(target.Base, finalName);
+            var copied = await CopyThroughTempAsync(tempZip, destPath, target, log, result);
+            TryDelete(fileSystem, tempZip); // best-effort cleanup of the local temp build, copied or not
 
             if (!copied)
             {
-                return result;
+                return;
             }
 
             result.Copied++;
@@ -107,11 +155,11 @@ namespace BackupService.Scheduling
             {
                 if (gfs)
                 {
-                    await ApplyGfsRetentionAsync(item, runIndex, log, result, cancellationToken);
+                    await ApplyGfsRetentionAsync(item, target, runIndex, log, result, cancellationToken);
                 }
                 else
                 {
-                    await ApplyKeepLastNAsync(item, log, result, cancellationToken);
+                    await ApplyKeepLastNAsync(item, target, log, result, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -123,27 +171,74 @@ namespace BackupService.Scheduling
                 result.Errors++;
                 await log.ErrorAsync($"Failed to apply retention in '{item.TargetFolder}'", ex);
             }
+        }
 
-            return result;
+        /// <summary>
+        /// Recursively copies a remote source tree into a fresh local temp folder so it can be zipped.
+        /// Returns the staging folder, or null if the remote source doesn't exist.
+        /// </summary>
+        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, IOperationLogger log, CancellationToken cancellationToken)
+        {
+            var endpoint = await endpointFactory.ResolveAsync(item.SourceConnectionId, item.SourceFolder, cancellationToken);
+            try
+            {
+                if (!endpoint.FileSystem.DirectoryExists(endpoint.BasePath))
+                {
+                    return null;
+                }
+
+                // A unique local temp directory (GetTempFilePath creates one and hands back a path in it).
+                var stagingDir = Path.GetDirectoryName(fileSystem.GetTempFilePath("stage"))!;
+                await log.AppendAsync($"Staging remote source '{item.SourceFolder}' locally before archiving.");
+                StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, cancellationToken);
+                return stagingDir;
+            }
+            finally
+            {
+                endpoint.Session.Dispose();
+            }
+        }
+
+        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            fileSystem.CreateDirectory(localDir);
+
+            foreach (var file in sourceFs.GetFiles(sourceDir))
+            {
+                ct.ThrowIfCancellationRequested();
+                var localPath = Path.Combine(localDir, Path.GetFileName(file)!);
+                using var input = sourceFs.OpenRead(file);
+                using var output = fileSystem.OpenWrite(localPath);
+                input.CopyTo(output);
+            }
+
+            if (includeSubFolders)
+            {
+                foreach (var sub in sourceFs.GetDirectories(sourceDir))
+                {
+                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, ct);
+                }
+            }
         }
 
         // ---- Retention ----
 
-        private async Task ApplyKeepLastNAsync(ArchiveSyncItem item, IOperationLogger log, BackupResult result, CancellationToken ct)
+        private async Task ApplyKeepLastNAsync(ArchiveSyncItem item, Target target, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var keep = Math.Max(1, item.RetentionCount);
-            var archives = ListArchives(item, gfs: false)
+            var archives = ListArchives(item, target, gfs: false)
                 .OrderByDescending(a => a.Timestamp)
                 .ToList();
 
             foreach (var old in archives.Skip(keep))
             {
                 ct.ThrowIfCancellationRequested();
-                await DeleteArchiveAsync(old, log, result);
+                await DeleteArchiveAsync(target, old, log, result);
             }
         }
 
-        private async Task ApplyGfsRetentionAsync(ArchiveSyncItem item, long runIndex, IOperationLogger log, BackupResult result, CancellationToken ct)
+        private async Task ApplyGfsRetentionAsync(ArchiveSyncItem item, Target target, long runIndex, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var n = Math.Max(1, item.RetentionCount);
             var maxLevels = Math.Max(1, item.MaxLevels);
@@ -158,13 +253,13 @@ namespace BackupService.Scheduling
                     continue;
                 }
 
-                var oldest = ListArchives(item, gfs: true)
+                var oldest = ListArchives(item, target, gfs: true)
                     .Where(a => a.Level == level)
                     .OrderBy(a => a.Timestamp)
                     .FirstOrDefault();
                 if (oldest is not null)
                 {
-                    await PromoteAsync(item, oldest, level + 1, log, result, ct);
+                    await PromoteAsync(item, target, oldest, level + 1, log, result, ct);
                 }
             }
 
@@ -172,13 +267,13 @@ namespace BackupService.Scheduling
             for (var level = 1; level <= maxLevels; level++)
             {
                 ct.ThrowIfCancellationRequested();
-                var atLevel = ListArchives(item, gfs: true)
+                var atLevel = ListArchives(item, target, gfs: true)
                     .Where(a => a.Level == level)
                     .OrderByDescending(a => a.Timestamp)
                     .ToList();
                 foreach (var old in atLevel.Skip(n))
                 {
-                    await DeleteArchiveAsync(old, log, result);
+                    await DeleteArchiveAsync(target, old, log, result);
                 }
             }
         }
@@ -199,14 +294,14 @@ namespace BackupService.Scheduling
             return runIndex % period == 0;
         }
 
-        private async Task PromoteAsync(ArchiveSyncItem item, ArchiveFile archive, int newLevel, IOperationLogger log, BackupResult result, CancellationToken ct)
+        private async Task PromoteAsync(ArchiveSyncItem item, Target target, ArchiveFile archive, int newLevel, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             var stamp = archive.Timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture);
-            var newPath = Path.Combine(item.TargetFolder, $"{item.FileName}_L{newLevel}_{stamp}.zip");
+            var newPath = Path.Combine(target.Base, $"{item.FileName}_L{newLevel}_{stamp}.zip");
             try
             {
-                fileSystem.MoveFile(archive.Path, newPath, overwrite: true);
+                target.Fs.MoveFile(archive.Path, newPath, overwrite: true);
                 await log.AppendAsync($"Promoted archive '{archive.Path}' to level {newLevel}");
             }
             catch (Exception ex)
@@ -216,11 +311,11 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task DeleteArchiveAsync(ArchiveFile archive, IOperationLogger log, BackupResult result)
+        private async Task DeleteArchiveAsync(Target target, ArchiveFile archive, IOperationLogger log, BackupResult result)
         {
             try
             {
-                fileSystem.DeleteFile(archive.Path);
+                target.Fs.DeleteFile(archive.Path);
                 result.Deleted++;
                 await log.AppendAsync($"Pruned archive '{archive.Path}'");
             }
@@ -236,12 +331,12 @@ namespace BackupService.Scheduling
         /// expected level/timestamp shape). Files whose timestamp token doesn't parse are skipped so a
         /// foreign file is never treated as one of ours.
         /// </summary>
-        private IReadOnlyList<ArchiveFile> ListArchives(ArchiveSyncItem item, bool gfs)
+        private static IReadOnlyList<ArchiveFile> ListArchives(ArchiveSyncItem item, Target target, bool gfs)
         {
             IReadOnlyList<string> files;
             try
             {
-                files = fileSystem.GetFiles(item.TargetFolder);
+                files = target.Fs.GetFiles(target.Base);
             }
             catch
             {
@@ -292,13 +387,13 @@ namespace BackupService.Scheduling
 
         // ---- Crash-safe copy (the same idiom as FolderPairSynchronizer / InstantSyncProcessor) ----
 
-        private async Task<bool> EnsureDirectoryAsync(string directory, IOperationLogger log, BackupResult result)
+        private async Task<bool> EnsureDirectoryAsync(IBackupFileSystem fs, string directory, IOperationLogger log, BackupResult result)
         {
             try
             {
-                if (!fileSystem.DirectoryExists(directory))
+                if (!fs.DirectoryExists(directory))
                 {
-                    fileSystem.CreateDirectory(directory);
+                    fs.CreateDirectory(directory);
                     await log.AppendAsync($"Created folder '{directory}'");
                 }
                 return true;
@@ -311,20 +406,27 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, IOperationLogger log, BackupResult result)
+        /// <summary>Copies the locally-built zip into the target (possibly a different filesystem) crash-safe.</summary>
+        private async Task<bool> CopyThroughTempAsync(string localZip, string dest, Target target, IOperationLogger log, BackupResult result)
         {
+            var targetDir = Path.GetDirectoryName(dest)!;
             var tempPath = Path.Combine(targetDir, "." + Path.GetFileName(dest) + ".tmp");
             try
             {
-                fileSystem.CopyFile(source, tempPath, overwrite: true); // fresh temp, clobbering any stale one
-                if (fileSystem.FileExists(dest))
+                using (var input = fileSystem.OpenRead(localZip))
+                using (var output = target.Fs.OpenWrite(tempPath))
                 {
-                    fileSystem.DeleteFile(dest);
+                    await input.CopyToAsync(output);
                 }
-                fileSystem.MoveFile(tempPath, dest, overwrite: false);
+
+                if (target.Fs.FileExists(dest))
+                {
+                    target.Fs.DeleteFile(dest);
+                }
+                target.Fs.MoveFile(tempPath, dest, overwrite: false);
                 try
                 {
-                    result.BytesCopied += fileSystem.GetFileSize(dest); // the archive's size
+                    result.BytesCopied += target.Fs.GetFileSize(dest); // the archive's size
                 }
                 catch
                 {
@@ -334,20 +436,20 @@ namespace BackupService.Scheduling
             }
             catch (Exception ex)
             {
-                TryDelete(tempPath);
+                TryDelete(target.Fs, tempPath);
                 result.Errors++;
-                await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
+                await log.ErrorAsync($"Failed to copy '{localZip}' -> '{dest}'", ex);
                 return false;
             }
         }
 
-        private void TryDelete(string path)
+        private static void TryDelete(IBackupFileSystem fs, string path)
         {
             try
             {
-                if (fileSystem.FileExists(path))
+                if (fs.FileExists(path))
                 {
-                    fileSystem.DeleteFile(path);
+                    fs.DeleteFile(path);
                 }
             }
             catch
@@ -356,6 +458,24 @@ namespace BackupService.Scheduling
             }
         }
 
+        private void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (fileSystem.DirectoryExists(path))
+                {
+                    fileSystem.DeleteDirectory(path, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort cleanup of the local staging folder.
+            }
+        }
+
         private sealed record ArchiveFile(string Path, int Level, DateTime Timestamp);
+
+        /// <summary>The resolved target filesystem and base path for one archive run.</summary>
+        private sealed record Target(IBackupFileSystem Fs, string Base);
     }
 }

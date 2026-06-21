@@ -1,0 +1,83 @@
+@namespace BackupService.Components.Dialogs
+
+<div class="modal-overlay">
+    <div class="modal smb-browser" role="dialog" aria-modal="true" aria-label="Select remote folder">
+        <h2>Select folder on @Info.Share</h2>
+
+        <div class="smb-browser-bar">
+            <button type="button" class="btn-secondary" @onclick="UpAsync" disabled="@(_busy || _currentPath.Length == 0)">Up</button>
+            @if (AllowCreateFolder)
+            {
+                <button type="button" class="btn-secondary" @onclick="StartCreate" disabled="@(_busy || _creating)">New folder</button>
+            }
+            <div class="smb-breadcrumb">
+                <button type="button" class="crumb" @onclick="() => NavigateAsync(string.Empty)">@RootLabel</button>
+                @{
+                    var accumulated = string.Empty;
+                }
+                @foreach (var segment in Segments)
+                {
+                    accumulated = accumulated.Length == 0 ? segment : $@"{accumulated}\{segment}";
+                    var target = accumulated;
+                    <span class="crumb-sep">\</span>
+                    <button type="button" class="crumb" @onclick="() => NavigateAsync(target)">@segment</button>
+                }
+            </div>
+        </div>
+
+        @if (_creating)
+        {
+            <div class="smb-newfolder">
+                <input type="text" class="no-enter-submit" @ref="_newFolderInput" @bind="_newName" @bind:event="oninput"
+                       @onkeydown="OnNewFolderKeyDown" placeholder="New folder name" />
+                <button type="button" @onclick="CreateAsync" disabled="@_busy">Create</button>
+                <button type="button" class="btn-secondary" @onclick="CancelCreate">Cancel</button>
+            </div>
+            @if (_createError is not null)
+            {
+                <span class="validation-message">@_createError</span>
+            }
+        }
+
+        <div class="smb-browser-list">
+            @if (_busy)
+            {
+                <p class="smb-browser-msg">Loading…</p>
+            }
+            else if (_error is not null)
+            {
+                <p class="smb-browser-msg fail">@_error</p>
+            }
+            else if (_dirs.Count == 0)
+            {
+                <p class="smb-browser-msg">No sub-folders here.</p>
+            }
+            else
+            {
+                <ul class="smb-folder-list">
+                    @foreach (var dir in _dirs)
+                    {
+                        var full = _currentPath.Length == 0 ? dir : $@"{_currentPath}\{dir}";
+                        <li>
+                            <button type="button" class="smb-folder @(_selected == full ? "selected" : null)"
+                                    @onclick="() => _selected = full"
+                                    @ondblclick="() => NavigateAsync(full)">
+                                📁 @dir
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <label class="smb-folder-box">
+            Folder
+            <input type="text" readonly value="@(_selected ?? _currentPath)" placeholder="(share root)" />
+        </label>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="Select">Select Folder</button>
+        </div>
+    </div>
+</div>

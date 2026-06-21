@@ -93,6 +93,8 @@ namespace BackupService.Components.Dialogs
                     Name = pair.Name,
                     SourceFolder = pair.SourceFolder,
                     TargetFolder = pair.TargetFolder,
+                    SourceConnectionId = pair.SourceConnectionId,
+                    TargetConnectionId = pair.TargetConnectionId,
                     AllowDeletions = pair.AllowDeletions,
                     IncludeSubFolders = pair.IncludeSubFolders,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
@@ -109,6 +111,8 @@ namespace BackupService.Components.Dialogs
                     Name = item.Name,
                     SourceFolder = item.SourceFolder,
                     TargetFolder = item.TargetFolder,
+                    SourceConnectionId = item.SourceConnectionId,
+                    TargetConnectionId = item.TargetConnectionId,
                     DebounceMilliseconds = item.DebounceMilliseconds,
                     IncludeSubFolders = item.IncludeSubFolders,
                     AllowDeletions = item.AllowDeletions,
@@ -123,6 +127,8 @@ namespace BackupService.Components.Dialogs
                     Name = item.Name,
                     SourceFolder = item.SourceFolder,
                     TargetFolder = item.TargetFolder,
+                    SourceConnectionId = item.SourceConnectionId,
+                    TargetConnectionId = item.TargetConnectionId,
                     FileName = item.FileName,
                     IncludeSubFolders = item.IncludeSubFolders,
                     RetentionMode = item.RetentionMode,
@@ -170,7 +176,7 @@ namespace BackupService.Components.Dialogs
             var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
             var folderPairs = _folderPairs
-                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes)))
+                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes), p.SourceConnectionId, p.TargetConnectionId))
                 .ToList();
 
             if (ProfileId is { } id)
@@ -193,7 +199,7 @@ namespace BackupService.Components.Dialogs
             }
 
             var items = _instantSyncItems
-                .Select(i => new InstantSyncInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions))
+                .Select(i => new InstantSyncInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions, i.SourceConnectionId, i.TargetConnectionId))
                 .ToList();
 
             // InstantSync isn't scheduled — never carries a cron.
@@ -220,7 +226,7 @@ namespace BackupService.Components.Dialogs
             var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
             var items = _archiveSyncItems
-                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes)))
+                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes), a.SourceConnectionId, a.TargetConnectionId))
                 .ToList();
 
             if (ProfileId is { } id)

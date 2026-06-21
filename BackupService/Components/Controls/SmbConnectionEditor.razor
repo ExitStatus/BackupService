@@ -1,0 +1,67 @@
+@namespace BackupService.Components.Controls
+
+<div class="smb-editor">
+    <label>
+        Host / server
+        <input type="text" @bind="Model.Host" placeholder="e.g. 192.168.1.10 or fileserver" />
+        @if (_hostError)
+        {
+            <span class="validation-message">The Host field is required.</span>
+        }
+    </label>
+
+    <label>
+        Share
+        <input type="text" @bind="Model.Share" placeholder="e.g. Backups" />
+        @if (_shareError)
+        {
+            <span class="validation-message">The Share field is required.</span>
+        }
+    </label>
+
+    <label>
+        Domain (optional)
+        <input type="text" @bind="Model.Domain" />
+    </label>
+
+    <label>
+        Username
+        <input type="text" @bind="Model.Username" autocomplete="off" />
+        @if (_usernameError)
+        {
+            <span class="validation-message">The Username field is required.</span>
+        }
+    </label>
+
+    <label>
+        Password
+        <input type="password" @bind="Model.Password" autocomplete="new-password"
+               placeholder="@(ConnectionId is null ? string.Empty : "Leave blank to keep the stored password")" />
+    </label>
+
+    <label>
+        Root folder
+        <div class="input-row">
+            <input type="text" @bind="Model.RootFolder" placeholder="(share root)" />
+            <button type="button" class="btn-secondary" @onclick="BrowseAsync" disabled="@_busy">Browse</button>
+        </div>
+    </label>
+
+    <div class="smb-test-row">
+        <button type="button" class="btn-secondary" @onclick="TestAsync" disabled="@_busy">
+            @(_busy ? "Testing…" : "Test connection")
+        </button>
+        @if (_testResult is not null)
+        {
+            <span class="smb-test-result @(_testResult.Ok ? "ok" : "fail")">@_testResult.Message</span>
+        }
+    </div>
+</div>
+
+@if (_showBrowser && _browseInfo is not null)
+{
+    <SmbFolderBrowserDialog Info="_browseInfo"
+                            InitialRelativePath="@Model.RootFolder"
+                            OnSelect="OnFolderSelected"
+                            OnCancel="() => _showBrowser = false" />
+}

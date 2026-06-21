@@ -27,6 +27,17 @@ namespace BackupService.Database
         [MaxLength(1024)]
         public required string TargetFolder { get; set; }
 
+        /// <summary>When set, the source is on this connection and <see cref="SourceFolder"/> is relative to its root
+        /// (the remote tree is staged to a local temp before zipping).</summary>
+        public int? SourceConnectionId { get; set; }
+
+        public Connection? SourceConnection { get; set; }
+
+        /// <summary>When set, the target is on this connection and <see cref="TargetFolder"/> is relative to its root.</summary>
+        public int? TargetConnectionId { get; set; }
+
+        public Connection? TargetConnection { get; set; }
+
         /// <summary>Base name for the generated archive; a timestamp (and GFS level token) is appended.</summary>
         [MaxLength(256)]
         public required string FileName { get; set; }

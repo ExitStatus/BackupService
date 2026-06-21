@@ -31,6 +31,18 @@ namespace BackupService.FileSystem
 
         void SetLastWriteTimeUtc(string path, DateTime value);
 
+        /// <summary>
+        /// Opens <paramref name="path"/> for reading. Used for cross-filesystem copies (read from one
+        /// filesystem, write to another) — see the synchroniser. The caller disposes the stream.
+        /// </summary>
+        Stream OpenRead(string path);
+
+        /// <summary>
+        /// Creates (or truncates) <paramref name="path"/> and opens it for writing. The caller disposes
+        /// the stream. The containing directory is expected to exist.
+        /// </summary>
+        Stream OpenWrite(string path);
+
         void CopyFile(string source, string destination, bool overwrite);
 
         /// <summary>Renames/moves <paramref name="source"/> to <paramref name="destination"/>.</summary>

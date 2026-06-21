@@ -20,7 +20,6 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public EventCallback OnCancel { get; set; }
 
-        private string? _browseFor; // "source" or "target"
         private bool _nameError;
         private bool _sourceError;
         private bool _targetError;
@@ -33,32 +32,15 @@ namespace BackupService.Components.Dialogs
             set => Model.DebounceMilliseconds = (int)Math.Round(value * 1000);
         }
 
-        private string? CurrentBrowsePath =>
-            _browseFor == "source" ? Model.SourceFolder : Model.TargetFolder;
-
-        private void BrowseSource() => _browseFor = "source";
-
-        private void BrowseTarget() => _browseFor = "target";
-
-        private void OnFolderSelected(string path)
-        {
-            if (_browseFor == "source")
-            {
-                Model.SourceFolder = path;
-            }
-            else if (_browseFor == "target")
-            {
-                Model.TargetFolder = path;
-            }
-
-            _browseFor = null;
-        }
-
         private async Task SaveAsync()
         {
+            // The source is always a local folder (a remote source can't be watched live).
+            Model.SourceConnectionId = null;
+
             _nameError = string.IsNullOrWhiteSpace(Model.Name);
             _sourceError = string.IsNullOrWhiteSpace(Model.SourceFolder);
-            _targetError = string.IsNullOrWhiteSpace(Model.TargetFolder);
+            // A remote target may legitimately be the connection root (empty), so only require a path locally.
+            _targetError = Model.TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
             _debounceError = Model.DebounceMilliseconds < 0;
 
             if (_nameError || _sourceError || _targetError || _debounceError)

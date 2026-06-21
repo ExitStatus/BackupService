@@ -57,6 +57,7 @@ namespace BackupService
             builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
             builder.Services.AddSingleton<FileSystem.IFolderBrowser, FileSystem.FolderBrowser>();
             builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
+            builder.Services.AddSingleton<FileSystem.IEndpointFileSystemFactory, FileSystem.EndpointFileSystemFactory>();
             builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
             builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
@@ -68,6 +69,12 @@ namespace BackupService
             builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
             builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
+
+            // Connections (remote resources, e.g. SMB shares). Passwords are DPAPI-encrypted at rest.
+            builder.Services.AddSingleton<Security.ISecretProtector, Security.DpapiSecretProtector>();
+            builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
+            builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
+            builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
 
             // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
             // The scheduler is a single instance shared across its three roles (singleton,

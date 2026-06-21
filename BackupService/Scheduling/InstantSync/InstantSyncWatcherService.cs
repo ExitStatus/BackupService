@@ -20,6 +20,7 @@ namespace BackupService.Scheduling
     public sealed class InstantSyncWatcherService(
         IDatabaseContextFactory contextFactory,
         IInstantSyncProcessor processor,
+        IFolderPairSynchronizer synchronizer,
         IOperationLogFactory operationLogFactory,
         ILogger<InstantSyncWatcherService> logger) : BackgroundService, IInstantSyncManager
     {
@@ -102,9 +103,19 @@ namespace BackupService.Scheduling
             var list = new List<ItemWatcher>();
             foreach (var item in profile.InstantSyncItems)
             {
+                // A source on a remote connection can't be watched (no FileSystemWatcher over SMB) — it
+                // only syncs via a manual "Run now". A remote target is fine (the flush reconciles to it).
+                if (item.SourceConnectionId is not null)
+                {
+                    logger.LogInformation(
+                        "Instant sync item '{Item}' (profile {ProfileId}) has a remote source — live watching is not supported; use Run now.",
+                        item.Name, profile.Id);
+                    continue;
+                }
+
                 try
                 {
-                    list.Add(new ItemWatcher(item, profile.Id, processor, operationLogFactory, logger, _stoppingToken));
+                    list.Add(new ItemWatcher(item, profile.Id, processor, synchronizer, operationLogFactory, logger, _stoppingToken));
                 }
                 catch (Exception ex)
                 {
@@ -173,6 +184,7 @@ namespace BackupService.Scheduling
             private readonly InstantSyncItem _item;
             private readonly int _profileId;
             private readonly IInstantSyncProcessor _processor;
+            private readonly IFolderPairSynchronizer _synchronizer;
             private readonly IOperationLogFactory _logFactory;
             private readonly ILogger _logger;
             private readonly CancellationToken _stoppingToken;
@@ -191,6 +203,7 @@ namespace BackupService.Scheduling
                 InstantSyncItem item,
                 int profileId,
                 IInstantSyncProcessor processor,
+                IFolderPairSynchronizer synchronizer,
                 IOperationLogFactory logFactory,
                 ILogger logger,
                 CancellationToken stoppingToken)
@@ -198,6 +211,7 @@ namespace BackupService.Scheduling
                 _item = item;
                 _profileId = profileId;
                 _processor = processor;
+                _synchronizer = synchronizer;
                 _logFactory = logFactory;
                 _logger = logger;
                 _stoppingToken = stoppingToken;
@@ -350,7 +364,12 @@ namespace BackupService.Scheduling
                 BackupResult result;
                 try
                 {
-                    result = await _processor.ProcessBatchAsync(_item, changes, deletes, log, _stoppingToken);
+                    // A remote target can't be written incrementally by the local processor, so reconcile the
+                    // whole item through the connection-aware folder-pair engine instead. Local targets keep
+                    // the fast incremental path. (The source is always local here — remote sources aren't watched.)
+                    result = _item.TargetConnectionId is not null
+                        ? await ReconcileViaConnectionAsync(log)
+                        : await _processor.ProcessBatchAsync(_item, changes, deletes, log, _stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -378,6 +397,24 @@ namespace BackupService.Scheduling
                         ? $"Instant Sync '{_item.Name}' synced {changeCount} change(s) in {duration} — {counts}"
                         : $"Instant Sync '{_item.Name}' completed with {result.Errors} error(s) in {duration} — {counts}",
                     result.Errors == 0 ? OperationLogLevel.Info : OperationLogLevel.Error);
+            }
+
+            // Full reconcile of the item via the connection-aware folder-pair engine (used when the target
+            // is on a connection). Instant sync is source-authoritative → always overwrite.
+            private Task<BackupResult> ReconcileViaConnectionAsync(IOperationLogger log)
+            {
+                var pair = new FolderPair
+                {
+                    Name = _item.Name,
+                    SourceFolder = _item.SourceFolder,
+                    TargetFolder = _item.TargetFolder,
+                    SourceConnectionId = _item.SourceConnectionId,
+                    TargetConnectionId = _item.TargetConnectionId,
+                    AllowDeletions = _item.AllowDeletions,
+                    IncludeSubFolders = _item.IncludeSubFolders,
+                    OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
+                };
+                return _synchronizer.SyncAsync(pair, log, _stoppingToken);
             }
 
             private static string FormatDuration(TimeSpan elapsed) =>

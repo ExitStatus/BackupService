@@ -1,3 +1,4 @@
+using System.Text;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.FileSystem;
@@ -26,7 +27,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs = new FakeFileSystem();
             _fs.AddDirectory(Source);
             _log = new CapturingLogger();
-            _sut = new FolderPairSynchronizer(_fs);
+            _sut = new FolderPairSynchronizer(new SingleFsEndpointFactory(_fs));
         }
 
         private static FolderPair Pair(
@@ -395,7 +396,57 @@ namespace BackupService.UnitTests.Scheduling
             result.Deleted.Should().Be(1);
         }
 
+        // ---- Cross-filesystem (e.g. local source -> SMB target) ----
+
+        [Test]
+        public async Task CrossFilesystem_StreamsFileFromSourceFsToTargetFs_PreservingTimestampAndBytes()
+        {
+            var sourceFs = new FakeFileSystem();
+            sourceFs.AddDirectory(Source);
+            sourceFs.AddFile(@"C:\src\a.txt", T1, "hello");
+
+            var targetFs = new FakeFileSystem();
+            targetFs.AddDirectory(Target);
+
+            var sut = new FolderPairSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs));
+
+            var result = await sut.SyncAsync(Pair(), _log, CancellationToken.None);
+
+            // The file crossed from the source filesystem into the (separate) target filesystem.
+            sourceFs.FileExists(@"C:\dst\a.txt").Should().BeFalse();
+            targetFs.FileExists(@"C:\dst\a.txt").Should().BeTrue();
+            targetFs.ContentOf(@"C:\dst\a.txt").Should().Be("hello");
+            targetFs.TimeOf(@"C:\dst\a.txt").Should().Be(T1); // source timestamp carried across
+            targetFs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Copied.Should().Be(1);
+            result.BytesCopied.Should().Be(5);
+        }
+
         // ---- Fakes ----
+
+        // Returns the same filesystem for both sides (source fs == target fs), starting the walk at the
+        // pair's configured paths — preserves the single-filesystem behaviour the bulk of the tests assert.
+        private sealed class SingleFsEndpointFactory(IBackupFileSystem fs) : IEndpointFileSystemFactory
+        {
+            public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default) =>
+                Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
+        }
+
+        // Returns a different filesystem for the source and target sides (distinguished by configured path).
+        private sealed class TwoFsEndpointFactory(IBackupFileSystem sourceFs, string sourcePath, IBackupFileSystem targetFs) : IEndpointFileSystemFactory
+        {
+            public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default)
+            {
+                var fs = string.Equals(configuredPath, sourcePath, StringComparison.OrdinalIgnoreCase) ? sourceFs : targetFs;
+                return Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
+            }
+        }
+
+        private sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new();
+            public void Dispose() { }
+        }
 
         private sealed class CapturingLogger : IOperationLogger
         {
@@ -527,6 +578,31 @@ namespace BackupService.UnitTests.Scheduling
                 _files[path] = e with { Time = value };
             }
 
+            public Stream OpenRead(string path)
+            {
+                if (!_files.TryGetValue(path, out var e))
+                {
+                    throw new FileNotFoundException(path);
+                }
+                return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
+            }
+
+            public Stream OpenWrite(string path)
+            {
+                // The crash-safe copy writes to a target temp; the failure predicates target the temp path.
+                if (CopyLockedFail?.Invoke(path) == true)
+                {
+                    throw new IOException($"Locked: {path}", unchecked((int)0x80070020)); // ERROR_SHARING_VIOLATION
+                }
+                if (CopyShouldFail?.Invoke(path) == true)
+                {
+                    throw new IOException($"Write failed: {path}");
+                }
+                // Register the file (with a placeholder timestamp) when the stream is disposed; the engine
+                // then stamps it via SetLastWriteTimeUtc.
+                return new FakeWriteStream(bytes => _files[path] = new Entry(default, Encoding.UTF8.GetString(bytes)));
+            }
+
             public void CopyFile(string source, string destination, bool overwrite)
             {
                 if (CopyLockedFail?.Invoke(destination) == true)
@@ -546,6 +622,22 @@ namespace BackupService.UnitTests.Scheduling
                     throw new IOException($"File exists: {destination}");
                 }
                 _files[destination] = e; // record is immutable — safe to share
+            }
+
+            // A write stream that hands the written bytes to a callback on dispose.
+            private sealed class FakeWriteStream(Action<byte[]> onClose) : MemoryStream
+            {
+                private bool _done;
+
+                protected override void Dispose(bool disposing)
+                {
+                    if (!_done)
+                    {
+                        _done = true;
+                        onClose(ToArray());
+                    }
+                    base.Dispose(disposing);
+                }
             }
 
             public void MoveFile(string source, string destination, bool overwrite)

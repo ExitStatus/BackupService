@@ -100,6 +100,8 @@ namespace BackupService.Components.Controls
             Name = source.Name,
             SourceFolder = source.SourceFolder,
             TargetFolder = source.TargetFolder,
+            SourceConnectionId = source.SourceConnectionId,
+            TargetConnectionId = source.TargetConnectionId,
             AllowDeletions = source.AllowDeletions,
             IncludeSubFolders = source.IncludeSubFolders,
             OverwriteBehaviour = source.OverwriteBehaviour,
@@ -119,6 +121,12 @@ namespace BackupService.Components.Controls
         public string SourceFolder { get; set; } = string.Empty;
 
         public string TargetFolder { get; set; } = string.Empty;
+
+        /// <summary>When set, the source is on this connection and <see cref="SourceFolder"/> is relative to its root.</summary>
+        public int? SourceConnectionId { get; set; }
+
+        /// <summary>When set, the target is on this connection and <see cref="TargetFolder"/> is relative to its root.</summary>
+        public int? TargetConnectionId { get; set; }
 
         public bool AllowDeletions { get; set; }
 

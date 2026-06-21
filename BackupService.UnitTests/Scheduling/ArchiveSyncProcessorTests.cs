@@ -1,3 +1,4 @@
+using System.Text;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.FileSystem;
@@ -26,7 +27,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddDirectory(Source);
             _fs.AddDirectory(Target);
             _log = new CapturingLogger();
-            _sut = new ArchiveSyncProcessor(_fs);
+            _sut = new ArchiveSyncProcessor(_fs, new LocalEndpointFactory(_fs));
         }
 
         private static ArchiveSyncItem KeepLastN(int count) => new()
@@ -70,6 +71,39 @@ namespace BackupService.UnitTests.Scheduling
             // Verbose: the archived files are logged as a single Debug detail row.
             _log.DebugMessages.Should().ContainSingle()
                 .Which.Should().Contain("Archived 1 file(s):").And.Contain("file.txt");
+        }
+
+        [Test]
+        public async Task RemoteTarget_WritesArchiveToTheTargetFilesystem_NotLocal()
+        {
+            // Local source/build filesystem, separate remote target filesystem.
+            var localFs = new FakeFileSystem();
+            localFs.AddDirectory(Source);
+            localFs.AddFile(@"C:\src\file.txt", RunTime, "data");
+
+            var remoteFs = new FakeFileSystem();
+            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, targetConnectionId: 7, remoteFs));
+
+            var item = new ArchiveSyncItem
+            {
+                Name = "A",
+                SourceFolder = Source,
+                TargetFolder = @"archives",
+                TargetConnectionId = 7,
+                FileName = "Backup",
+                RetentionMode = ArchiveRetentionMode.KeepLastN,
+                RetentionCount = 5,
+                MaxLevels = 1,
+            };
+
+            var result = await sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+            var archive = $@"archives\Backup_{RunTime:yyyy-MM-dd_HHmmss}.zip";
+            remoteFs.FileExists(archive).Should().BeTrue();              // landed on the remote target
+            remoteFs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            localFs.AllFiles.Should().NotContain(p => p.EndsWith(".zip")); // local temp build was cleaned up
         }
 
         [Test]
@@ -261,6 +295,30 @@ namespace BackupService.UnitTests.Scheduling
             public Task SetSummaryAsync(string message, OperationLogLevel level) => Task.CompletedTask;
         }
 
+        // Resolves every endpoint to the one fake filesystem, starting at the configured path (so local
+        // source/target both map to the fake — matching the pre-connection behaviour the tests assert).
+        private sealed class LocalEndpointFactory(IBackupFileSystem fs) : IEndpointFileSystemFactory
+        {
+            public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default) =>
+                Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
+        }
+
+        // Returns the remote filesystem for the target connection id, the local one otherwise.
+        private sealed class TwoFsArchiveFactory(IBackupFileSystem localFs, int targetConnectionId, IBackupFileSystem remoteFs) : IEndpointFileSystemFactory
+        {
+            public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default)
+            {
+                var fs = connectionId == targetConnectionId ? remoteFs : localFs;
+                return Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
+            }
+        }
+
+        private sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new();
+            public void Dispose() { }
+        }
+
         private sealed class FakeFileSystem : IBackupFileSystem
         {
             private sealed record Entry(DateTime Time, string Content);
@@ -322,6 +380,34 @@ namespace BackupService.UnitTests.Scheduling
                 if (_files.TryGetValue(path, out var e))
                 {
                     _files[path] = e with { Time = value };
+                }
+            }
+
+            public Stream OpenRead(string path)
+            {
+                if (!_files.TryGetValue(path, out var e))
+                {
+                    throw new FileNotFoundException(path);
+                }
+                return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
+            }
+
+            public Stream OpenWrite(string path) =>
+                new FakeWriteStream(bytes => _files[path] = new Entry(default, Encoding.UTF8.GetString(bytes)));
+
+            // A write stream that hands the written bytes to a callback on dispose.
+            private sealed class FakeWriteStream(Action<byte[]> onClose) : MemoryStream
+            {
+                private bool _done;
+
+                protected override void Dispose(bool disposing)
+                {
+                    if (!_done)
+                    {
+                        _done = true;
+                        onClose(ToArray());
+                    }
+                    base.Dispose(disposing);
                 }
             }
 

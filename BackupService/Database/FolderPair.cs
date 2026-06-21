@@ -24,6 +24,22 @@ namespace BackupService.Database
         [MaxLength(1024)]
         public required string TargetFolder { get; set; }
 
+        /// <summary>
+        /// When set, the source lives on this <see cref="Connection"/> and <see cref="SourceFolder"/>
+        /// is interpreted relative to the connection's root. Null = a local path on this machine.
+        /// </summary>
+        public int? SourceConnectionId { get; set; }
+
+        public Connection? SourceConnection { get; set; }
+
+        /// <summary>
+        /// When set, the target lives on this <see cref="Connection"/> and <see cref="TargetFolder"/>
+        /// is interpreted relative to the connection's root. Null = a local path on this machine.
+        /// </summary>
+        public int? TargetConnectionId { get; set; }
+
+        public Connection? TargetConnection { get; set; }
+
         public bool AllowDeletions { get; set; }
 
         public bool IncludeSubFolders { get; set; }

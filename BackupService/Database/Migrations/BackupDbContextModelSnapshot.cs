@@ -99,10 +99,16 @@ namespace BackupService.Database.Migrations
                     b.Property<int>("RunCount")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("SourceConnectionId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SourceFolder")
                         .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("TargetConnectionId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("TargetFolder")
                         .IsRequired()
@@ -112,6 +118,10 @@ namespace BackupService.Database.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProfileId");
+
+                    b.HasIndex("SourceConnectionId");
+
+                    b.HasIndex("TargetConnectionId");
 
                     b.ToTable("ArchiveSyncItems");
                 });
@@ -224,6 +234,28 @@ namespace BackupService.Database.Migrations
                     b.ToTable("BackupRuns");
                 });
 
+            modelBuilder.Entity("BackupService.Database.Connection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("DateCreated")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Connections");
+                });
+
             modelBuilder.Entity("BackupService.Database.FolderPair", b =>
                 {
                     b.Property<int>("Id")
@@ -250,12 +282,18 @@ namespace BackupService.Database.Migrations
                     b.Property<int>("ProfileId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("SourceConnectionId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SourceFolder")
                         .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("TargetConnectionId")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("TargetFolder")
@@ -266,6 +304,10 @@ namespace BackupService.Database.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProfileId");
+
+                    b.HasIndex("SourceConnectionId");
+
+                    b.HasIndex("TargetConnectionId");
 
                     b.ToTable("FolderPairs");
                 });
@@ -320,10 +362,16 @@ namespace BackupService.Database.Migrations
                     b.Property<int>("ProfileId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("SourceConnectionId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SourceFolder")
                         .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("TargetConnectionId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("TargetFolder")
                         .IsRequired()
@@ -333,6 +381,10 @@ namespace BackupService.Database.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProfileId");
+
+                    b.HasIndex("SourceConnectionId");
+
+                    b.HasIndex("TargetConnectionId");
 
                     b.ToTable("InstantSyncItems");
                 });
@@ -447,6 +499,47 @@ namespace BackupService.Database.Migrations
                     b.ToTable("Profiles");
                 });
 
+            modelBuilder.Entity("BackupService.Database.SmbConnectionSettings", b =>
+                {
+                    b.Property<int>("ConnectionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Domain")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordEncrypted")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RootFolder")
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShareName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConnectionId");
+
+                    b.ToTable("SmbConnectionSettings");
+                });
+
             modelBuilder.Entity("BackupService.Database.ArchiveSyncFilter", b =>
                 {
                     b.HasOne("BackupService.Database.ArchiveSyncItem", "ArchiveSyncItem")
@@ -466,7 +559,21 @@ namespace BackupService.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("BackupService.Database.Connection", "SourceConnection")
+                        .WithMany()
+                        .HasForeignKey("SourceConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("BackupService.Database.Connection", "TargetConnection")
+                        .WithMany()
+                        .HasForeignKey("TargetConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Profile");
+
+                    b.Navigation("SourceConnection");
+
+                    b.Navigation("TargetConnection");
                 });
 
             modelBuilder.Entity("BackupService.Database.BackupRun", b =>
@@ -488,7 +595,21 @@ namespace BackupService.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("BackupService.Database.Connection", "SourceConnection")
+                        .WithMany()
+                        .HasForeignKey("SourceConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("BackupService.Database.Connection", "TargetConnection")
+                        .WithMany()
+                        .HasForeignKey("TargetConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Profile");
+
+                    b.Navigation("SourceConnection");
+
+                    b.Navigation("TargetConnection");
                 });
 
             modelBuilder.Entity("BackupService.Database.FolderPairFilter", b =>
@@ -510,7 +631,21 @@ namespace BackupService.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("BackupService.Database.Connection", "SourceConnection")
+                        .WithMany()
+                        .HasForeignKey("SourceConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("BackupService.Database.Connection", "TargetConnection")
+                        .WithMany()
+                        .HasForeignKey("TargetConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Profile");
+
+                    b.Navigation("SourceConnection");
+
+                    b.Navigation("TargetConnection");
                 });
 
             modelBuilder.Entity("BackupService.Database.OperationLog", b =>
@@ -534,9 +669,25 @@ namespace BackupService.Database.Migrations
                     b.Navigation("OperationLog");
                 });
 
+            modelBuilder.Entity("BackupService.Database.SmbConnectionSettings", b =>
+                {
+                    b.HasOne("BackupService.Database.Connection", "Connection")
+                        .WithOne("Smb")
+                        .HasForeignKey("BackupService.Database.SmbConnectionSettings", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
             modelBuilder.Entity("BackupService.Database.ArchiveSyncItem", b =>
                 {
                     b.Navigation("Filters");
+                });
+
+            modelBuilder.Entity("BackupService.Database.Connection", b =>
+                {
+                    b.Navigation("Smb");
                 });
 
             modelBuilder.Entity("BackupService.Database.FolderPair", b =>

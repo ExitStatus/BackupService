@@ -237,6 +237,10 @@ namespace BackupService.UnitTests.Scheduling
                 }
             }
 
+            public Stream OpenRead(string path) => throw new NotSupportedException();
+
+            public Stream OpenWrite(string path) => throw new NotSupportedException();
+
             public void CopyFile(string source, string destination, bool overwrite)
             {
                 if (CopyShouldFail?.Invoke(destination) == true)

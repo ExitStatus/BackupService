@@ -11,29 +11,12 @@
             }
         </label>
 
-        <label>
-            Source folder
-            <div class="input-row">
-                <input type="text" @bind="Model.SourceFolder" />
-                <button type="button" class="btn-secondary" @onclick="BrowseSource">Browse</button>
-            </div>
-            @if (_sourceError)
-            {
-                <span class="validation-message">The Source folder field is required.</span>
-            }
-        </label>
+        <ConnectionLocationField Label="Source" Grouped="true" LocalOnly="true" @bind-Path="Model.SourceFolder"
+                                 Error="@(_sourceError ? "The Source folder field is required." : null)" />
 
-        <label>
-            Target folder
-            <div class="input-row">
-                <input type="text" @bind="Model.TargetFolder" />
-                <button type="button" class="btn-secondary" @onclick="BrowseTarget">Browse</button>
-            </div>
-            @if (_targetError)
-            {
-                <span class="validation-message">The Target folder field is required.</span>
-            }
-        </label>
+        <ConnectionLocationField Label="Target" Grouped="true" @bind-ConnectionId="Model.TargetConnectionId" @bind-Path="Model.TargetFolder"
+                                 AllowCreateFolder="true"
+                                 Error="@(_targetError ? "The Target folder field is required." : null)" />
 
         <label>
             Debounce (seconds)
@@ -66,11 +49,3 @@
         </div>
     </div>
 </div>
-
-@if (_browseFor is not null)
-{
-    <FolderBrowserDialog InitialPath="@CurrentBrowsePath"
-                         AllowCreateFolder="@(_browseFor == "target")"
-                         OnSelect="OnFolderSelected"
-                         OnCancel="() => _browseFor = null" />
-}

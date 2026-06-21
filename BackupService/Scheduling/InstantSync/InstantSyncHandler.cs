@@ -99,6 +99,8 @@ namespace BackupService.Scheduling
                 Name = item.Name,
                 SourceFolder = item.SourceFolder,
                 TargetFolder = item.TargetFolder,
+                SourceConnectionId = item.SourceConnectionId,
+                TargetConnectionId = item.TargetConnectionId,
                 AllowDeletions = item.AllowDeletions,
                 IncludeSubFolders = item.IncludeSubFolders,
                 OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,

@@ -29,6 +29,13 @@ namespace BackupService.FileSystem
 
         public void SetLastWriteTimeUtc(string path, DateTime value) => File.SetLastWriteTimeUtc(path, value);
 
+        public Stream OpenRead(string path) =>
+            // Permissive share so a file another process holds open for writing can still be read.
+            new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        public Stream OpenWrite(string path) =>
+            new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+
         public void CopyFile(string source, string destination, bool overwrite)
         {
             // Open the source with a permissive share mode so a file another process holds open for

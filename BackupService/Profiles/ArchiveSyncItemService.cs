@@ -50,6 +50,8 @@ namespace BackupService.Profiles
                     existing.Name = input.Name;
                     existing.SourceFolder = input.SourceFolder;
                     existing.TargetFolder = input.TargetFolder;
+                    existing.SourceConnectionId = input.SourceConnectionId;
+                    existing.TargetConnectionId = input.TargetConnectionId;
                     existing.FileName = input.FileName;
                     existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.RetentionMode = input.RetentionMode;
@@ -141,6 +143,8 @@ namespace BackupService.Profiles
             Name = input.Name,
             SourceFolder = input.SourceFolder,
             TargetFolder = input.TargetFolder,
+            SourceConnectionId = input.SourceConnectionId,
+            TargetConnectionId = input.TargetConnectionId,
             FileName = input.FileName,
             IncludeSubFolders = input.IncludeSubFolders,
             RetentionMode = input.RetentionMode,

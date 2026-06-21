@@ -2,8 +2,72 @@
 
 <div class="content-header">
     <h1>Connections</h1>
+    <button @onclick="OpenCreate">Create Connection</button>
 </div>
 
-<div class="card">
-    <p>Connections coming soon.</p>
-</div>
+@if (_connections is null)
+{
+    <p>Loading…</p>
+}
+else if (_connections.TotalCount == 0)
+{
+    <p>No connections yet. Click <strong>Create Connection</strong> to add one.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Name)">Name@(SortIndicator(ConnectionSortColumn.Name))</button></th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Type)">Type@(SortIndicator(ConnectionSortColumn.Type))</button></th>
+                <th>Endpoint</th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.DateCreated)">Created@(SortIndicator(ConnectionSortColumn.DateCreated))</button></th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var connection in _connections.Items)
+            {
+                <tr>
+                    <td>@connection.Name</td>
+                    <td>@connection.Type.GetDescription()</td>
+                    <td>@Endpoint(connection)</td>
+                    <td>@connection.DateCreated.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Edit connection"
+                                    aria-label="Edit connection" @onclick="() => OpenEdit(connection.Id)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete connection"
+                                    aria-label="Delete connection" @onclick="() => OpenDelete(connection)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="pager">
+        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_connections.PageNumber <= 1)">Previous</button>
+        <span>Page @_connections.PageNumber of @_connections.TotalPages (@_connections.TotalCount total)</span>
+        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_connections.PageNumber >= _connections.TotalPages)">Next</button>
+    </div>
+}
+
+@if (_showDialog)
+{
+    <ConnectionDialog ConnectionId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" />
+}
+
+@if (_deleteTarget is not null)
+{
+    <ConfirmDialog Title="Delete connection"
+                   Message="@($"Delete the connection \"{_deleteTarget.Name}\"? This cannot be undone.")"
+                   OnConfirm="ConfirmDeleteAsync"
+                   OnCancel="CancelDelete" />
+}
+
+<Notification @ref="_notification" />

@@ -424,8 +424,9 @@ textarea:focus {
 /* Wider modals for the richer dialogs. */
 .modal.create-profile { max-width: 810px; }
 .modal.schedule-dialog { max-width: 460px; }
-.modal.folder-pair-edit { max-width: 540px; }
-.modal.tabbed { max-width: 600px; }
+/* The three profile-type item editors (folder pair, instant sync, archive) share a 750px width. */
+.modal.folder-pair-edit { max-width: 750px; }
+.modal.tabbed { max-width: 750px; }
 
 /* Tab strip for the tabbed edit dialogs (horizontal section switcher). */
 .modal-tabs {
@@ -624,6 +625,45 @@ label.check {
 .input-row > button {
     flex: 0 0 auto;
     white-space: nowrap;
+}
+
+/* Grouped connection-location layout: a fixed caption column and a control column that fills the rest,
+   so the dropdown (no Browse button) and the folder input-row span the same full width and align. */
+.loc-grid {
+    display: grid;
+    /* Caption column sized to its content ("Location"), so the control sits right after it (no dead
+       space); the control column fills the rest. */
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.6rem 0.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.loc-heading {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.loc-cap {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* Right-justify the "Folder" caption so it sits against its control (whose left edge lines up with the
+   dropdown above it). */
+.loc-cap-right {
+    text-align: right;
+}
+
+/* Controls are grid items in the control column — drop their own top margin so they centre on the caption. */
+.loc-grid .dropdown,
+.loc-grid .input-row {
+    margin-top: 0;
+}
+
+/* The validation message sits under the control column, spanning the rest of the row. */
+.loc-error {
+    grid-column: 2;
 }
 
 /* Page content header (title + primary action). */
@@ -1671,4 +1711,138 @@ label.check {
     justify-content: flex-end;
     gap: 0.75rem;
     padding: 0 1.25rem 1.25rem;
+}
+
+/* SMB connection editor */
+.smb-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.smb-test-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.smb-test-result {
+    font-size: 0.9rem;
+}
+
+.smb-test-result.ok {
+    color: var(--notify-success);
+}
+
+.smb-test-result.fail {
+    color: var(--danger);
+}
+
+/* SMB remote folder browser */
+.modal.smb-browser {
+    width: 560px;
+    max-width: 92vw;
+}
+
+.smb-browser-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.smb-breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.15rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    flex: 1;
+    min-width: 0;
+}
+
+.smb-breadcrumb .crumb {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0.1rem 0.25rem;
+}
+
+.smb-breadcrumb .crumb:hover {
+    text-decoration: underline;
+}
+
+.smb-breadcrumb .crumb-sep {
+    color: var(--text-muted);
+}
+
+.smb-browser-list {
+    height: 280px;
+    overflow-y: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem;
+}
+
+.smb-browser-msg {
+    color: var(--text-muted);
+    padding: 0.75rem;
+}
+
+.smb-browser-msg.fail {
+    color: var(--danger);
+}
+
+.smb-folder-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.smb-folder-list li {
+    margin: 0;
+}
+
+.smb-folder {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+}
+
+.smb-folder:hover {
+    background: var(--border);
+}
+
+.smb-folder.selected {
+    background: var(--accent);
+    color: #fff;
+}
+
+.smb-folder-box {
+    margin-top: 0.75rem;
+}
+
+.smb-newfolder {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.smb-newfolder input {
+    flex: 1;
+    min-width: 0;
 }

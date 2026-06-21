@@ -1,0 +1,43 @@
+@namespace BackupService.Components.Dialogs
+
+<div class="modal-overlay">
+    <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit connection" : "Create connection")">
+        <h2>@DialogTitle</h2>
+
+        <p class="modal-intro">@IntroText</p>
+
+        <EditForm Model="Input" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+
+            <label>
+                Name
+                <InputText @bind-Value="Input.Name" />
+            </label>
+
+            @if (!IsEdit)
+            {
+                <label>
+                    Connection type
+                    <Dropdown TValue="ConnectionType"
+                              @bind-Value="Input.Type"
+                              Items="Enum.GetValues<ConnectionType>()"
+                              DisplayText="t => t.GetDescription()" />
+                </label>
+            }
+
+            @switch (Input.Type)
+            {
+                case ConnectionType.Smb:
+                    <SmbConnectionEditor @ref="_smbEditor" Model="_smb" ConnectionId="ConnectionId" />
+                    break;
+            }
+
+            <ValidationSummary />
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+                <button type="submit">@(IsEdit ? "Save" : "Create")</button>
+            </div>
+        </EditForm>
+    </div>
+</div>

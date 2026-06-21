@@ -29,7 +29,6 @@ namespace BackupService.Components.Dialogs
         ];
 
         private string _activeTab = "detail";
-        private string? _browseFor; // "source" or "target"
         private bool _nameError;
         private bool _sourceError;
         private bool _targetError;
@@ -44,32 +43,12 @@ namespace BackupService.Components.Dialogs
         private string FileNamePreview =>
             string.IsNullOrWhiteSpace(Model.FileName) ? "MyBackup" : Model.FileName;
 
-        private string? CurrentBrowsePath =>
-            _browseFor == "source" ? Model.SourceFolder : Model.TargetFolder;
-
-        private void BrowseSource() => _browseFor = "source";
-
-        private void BrowseTarget() => _browseFor = "target";
-
-        private void OnFolderSelected(string path)
-        {
-            if (_browseFor == "source")
-            {
-                Model.SourceFolder = path;
-            }
-            else if (_browseFor == "target")
-            {
-                Model.TargetFolder = path;
-            }
-
-            _browseFor = null;
-        }
-
         private async Task SaveAsync()
         {
             _nameError = string.IsNullOrWhiteSpace(Model.Name);
-            _sourceError = string.IsNullOrWhiteSpace(Model.SourceFolder);
-            _targetError = string.IsNullOrWhiteSpace(Model.TargetFolder);
+            // A remote side may legitimately be the connection root (empty), so only require a path locally.
+            _sourceError = Model.SourceConnectionId is null && string.IsNullOrWhiteSpace(Model.SourceFolder);
+            _targetError = Model.TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
             _fileNameError = string.IsNullOrWhiteSpace(Model.FileName);
             _countError = Model.RetentionCount < 1;
             _levelsError = IsGfs && Model.MaxLevels < 1;

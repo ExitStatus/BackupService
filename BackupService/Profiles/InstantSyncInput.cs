@@ -11,5 +11,7 @@ namespace BackupService.Profiles
         string TargetFolder,
         int DebounceMilliseconds,
         bool IncludeSubFolders,
-        bool AllowDeletions);
+        bool AllowDeletions,
+        int? SourceConnectionId = null,
+        int? TargetConnectionId = null);
 }

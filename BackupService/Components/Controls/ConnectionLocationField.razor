@@ -1,0 +1,71 @@
+@namespace BackupService.Components.Controls
+
+@* "Grouped" renders a bold Source/Target heading with "Location"/"Folder" captions inline on the same row
+   as their control (a CSS grid). LocalOnly drops the Location row (this side can only be local). *@
+@if (Grouped)
+{
+    <div class="field-label loc-heading">@Label</div>
+
+    <div class="loc-grid">
+        @if (!LocalOnly)
+        {
+            <span class="loc-cap">Location</span>
+            <Dropdown TValue="int?" Value="ConnectionId" ValueChanged="OnLocationChanged"
+                      Items="_options" DisplayText="LocationLabel" />
+        }
+
+        <span class="loc-cap loc-cap-right">Folder</span>
+        <div class="input-row">
+            <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
+            <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
+        </div>
+
+        @if (Error is not null)
+        {
+            <span class="validation-message loc-error">@Error</span>
+        }
+    </div>
+}
+else
+{
+    @if (!LocalOnly)
+    {
+        <label>
+            @LocationCaption
+            <Dropdown TValue="int?" Value="ConnectionId" ValueChanged="OnLocationChanged"
+                      Items="_options" DisplayText="LocationLabel" />
+        </label>
+    }
+
+    <label>
+        @FolderCaption
+        <div class="input-row">
+            <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
+            <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
+        </div>
+        @if (Error is not null)
+        {
+            <span class="validation-message">@Error</span>
+        }
+    </label>
+}
+
+@if (_browsing)
+{
+    @if (_smbInfo is null)
+    {
+        <FolderBrowserDialog InitialPath="@Path"
+                             AllowCreateFolder="@(AllowCreateFolder && ConnectionId is null)"
+                             OnSelect="OnSelected"
+                             OnCancel="CancelBrowse" />
+    }
+    else
+    {
+        <SmbFolderBrowserDialog Info="_smbInfo"
+                                InitialRelativePath="@Path"
+                                ConfineToRoot="true"
+                                AllowCreateFolder="AllowCreateFolder"
+                                OnSelect="OnSelected"
+                                OnCancel="CancelBrowse" />
+    }
+}
