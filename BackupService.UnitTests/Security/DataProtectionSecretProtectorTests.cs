@@ -1,12 +1,14 @@
 using BackupService.Security;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace BackupService.UnitTests.Security
 {
     [TestFixture]
-    public class DpapiSecretProtectorTests
+    public class DataProtectionSecretProtectorTests
     {
-        private readonly DpapiSecretProtector _protector = new();
+        // An in-memory data-protection provider is enough to exercise the wrapper.
+        private readonly DataProtectionSecretProtector _protector = new(new EphemeralDataProtectionProvider());
 
         [Test]
         public void Protect_ThenUnprotect_RoundTripsThePlaintext()
@@ -14,9 +16,8 @@ namespace BackupService.UnitTests.Security
             const string secret = "S3cr3t-p@ssw0rd!";
 
             var protectedValue = _protector.Protect(secret);
-            var recovered = _protector.Unprotect(protectedValue);
 
-            recovered.Should().Be(secret);
+            _protector.Unprotect(protectedValue).Should().Be(secret);
         }
 
         [Test]

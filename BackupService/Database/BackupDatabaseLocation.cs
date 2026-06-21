@@ -15,7 +15,12 @@ namespace BackupService.Database
         private const string FileName = "backupservice.db";
         private const string ProgramDataFolder = "BackupService";
 
-        public static string GetDatabasePath()
+        /// <summary>
+        /// The directory that holds the app's persistent data (the SQLite database and the data-protection
+        /// key ring). ProgramData when running as a Windows Service (shared machine-wide); next to the exe
+        /// otherwise. Created if missing.
+        /// </summary>
+        public static string GetDataDirectory()
         {
             string directory = WindowsServiceHelpers.IsWindowsService()
                 ? Path.Combine(
@@ -23,11 +28,13 @@ namespace BackupService.Database
                     ProgramDataFolder)
                 : AppContext.BaseDirectory;
 
-            // SQLite will not create missing directories; ensure it exists.
+            // Callers (SQLite, the key ring) won't create missing directories; ensure it exists.
             Directory.CreateDirectory(directory);
 
-            return Path.Combine(directory, FileName);
+            return directory;
         }
+
+        public static string GetDatabasePath() => Path.Combine(GetDataDirectory(), FileName);
 
         public static string GetConnectionString()
             => $"Data Source={GetDatabasePath()}";

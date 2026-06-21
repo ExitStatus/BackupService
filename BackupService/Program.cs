@@ -1,5 +1,6 @@
 using ApexCharts;
 using BackupService.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using BackupService.Components;
 using BackupService.Database;
 using BackupService.Hosting;
@@ -70,8 +71,16 @@ namespace BackupService
             builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
             builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
 
-            // Connections (remote resources, e.g. SMB shares). Passwords are DPAPI-encrypted at rest.
-            builder.Services.AddSingleton<Security.ISecretProtector, Security.DpapiSecretProtector>();
+            // Connections (remote resources, e.g. SMB shares). SMB passwords are encrypted at rest via
+            // ASP.NET Core Data Protection (cross-platform). The key ring is persisted under the app's data
+            // directory with a fixed application name so secrets stay decryptable across restarts.
+            builder.Services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(Database.BackupDatabaseLocation.GetDataDirectory(), "keys")))
+                .SetApplicationName("BackupService");
+            builder.Services.AddSingleton<Security.ISecretProtector, Security.DataProtectionSecretProtector>();
+            // Reads legacy (DPAPI) passwords for the one-time startup migration to Data Protection.
+            builder.Services.AddSingleton<Security.ILegacySecretReader, Security.DpapiLegacySecretReader>();
+            builder.Services.AddSingleton<Connections.ConnectionSecretMigrator>();
             builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
             builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
             builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
@@ -113,6 +122,9 @@ namespace BackupService
             {
                 db.Database.Migrate();
             }
+
+            // Migrate any legacy (DPAPI) SMB passwords to the cross-platform Data Protection format.
+            app.Services.GetRequiredService<Connections.ConnectionSecretMigrator>().Migrate();
 
             // Ensure the default admin credential exists.
             app.Services.GetRequiredService<IAdminCredentialService>()

@@ -26,4 +26,10 @@
     <ProjectReference Include="..\BackupService\BackupService.csproj" />
   </ItemGroup>
 
+  <!-- The app is an ASP.NET Core (Web SDK) project; this lets the tests reference its framework types
+       (e.g. Data Protection's EphemeralDataProtectionProvider). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
 </Project>

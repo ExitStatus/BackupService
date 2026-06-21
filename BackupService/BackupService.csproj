@@ -18,7 +18,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
     <!-- SMB client (SMB2/3) for the Connections feature; netstandard2.0, works on net10.0. -->
     <PackageReference Include="SMBLibrary" Version="1.5.7" />
-    <!-- DPAPI for encrypting SMB passwords at rest (LocalMachine scope; Windows-only). -->
+    <!-- DPAPI: used ONLY to read legacy (pre-Data-Protection) SMB passwords for the one-time migration in
+         DpapiLegacySecretReader (Windows-guarded). New secrets use cross-platform Data Protection. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <!-- Override the SQLitePCLRaw bundle that EF Core pulls in transitively (2.1.11) with the 3.x line,
          whose native SQLite is patched — fixes GHSA-2m69-gcr7-jv3q (the vulnerable SQLitePCLRaw.lib.e_sqlite3
