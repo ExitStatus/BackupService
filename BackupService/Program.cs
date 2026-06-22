@@ -17,7 +17,7 @@ namespace BackupService
             // Service install/uninstall commands run and exit without starting the host.
             if (args.Contains("--install"))
             {
-                return WindowsServiceInstaller.Install();
+                return WindowsServiceInstaller.Install(args);
             }
             if (args.Contains("--uninstall"))
             {
