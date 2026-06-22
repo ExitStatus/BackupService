@@ -30,6 +30,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            bool handleMissedSync = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -44,6 +45,7 @@ namespace BackupService.Profiles
                 Type = type,
                 Schedule = scheduleCron,
                 Enabled = enabled,
+                HandleMissedSync = handleMissedSync,
                 DateCreated = DateTimeOffset.UtcNow,
             };
 
@@ -64,7 +66,7 @@ namespace BackupService.Profiles
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, folderPairs, instantItems, archiveItems, cancellationToken);
+            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, handleMissedSync, folderPairs, instantItems, archiveItems, cancellationToken);
 
             // Track the new profile's status (starts Idle), then register it with both drivers — the
             // scheduler (cron-driven types) and the instant-sync manager (watcher-driven types). Each
@@ -81,6 +83,7 @@ namespace BackupService.Profiles
             ProfileType type,
             string? scheduleCron,
             bool enabled,
+            bool handleMissedSync,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput> instantSyncItems,
             IReadOnlyList<ArchiveSyncInput> archiveSyncItems,
@@ -93,6 +96,7 @@ namespace BackupService.Profiles
                 $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}",
                 $"Schedule: {ScheduleDefinition.Describe(scheduleCron)}",
+                $"Handle missed sync: {YesNo(handleMissedSync)}",
                 $"Enabled: {YesNo(enabled)}");
 
             var itemLines = type switch
@@ -246,6 +250,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            bool handleMissedSync = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -269,11 +274,13 @@ namespace BackupService.Profiles
             var oldDescription = profile.Description;
             var oldSchedule = profile.Schedule;
             var oldEnabled = profile.Enabled;
+            var oldHandleMissedSync = profile.HandleMissedSync;
 
             profile.Name = name;
             profile.Description = description;
             profile.Schedule = scheduleCron;
             profile.Enabled = enabled;
+            profile.HandleMissedSync = handleMissedSync;
 
             // The type-specific item data (and the description of what changed within it) is owned by
             // the matching data service; the profile type is fixed, so only that one runs.
@@ -288,7 +295,7 @@ namespace BackupService.Profiles
 
             await LogProfileUpdatedAsync(
                 id, oldName, name, oldDescription, description, oldSchedule, scheduleCron,
-                oldEnabled, enabled, itemChanges, cancellationToken);
+                oldEnabled, enabled, oldHandleMissedSync, handleMissedSync, itemChanges, cancellationToken);
 
             await scheduler.SyncAsync(id, cancellationToken);
             await instantSyncManager.SyncAsync(id, cancellationToken);
@@ -304,6 +311,8 @@ namespace BackupService.Profiles
             string? newSchedule,
             bool oldEnabled,
             bool newEnabled,
+            bool oldHandleMissedSync,
+            bool newHandleMissedSync,
             IReadOnlyList<string> itemChanges,
             CancellationToken cancellationToken)
         {
@@ -324,6 +333,10 @@ namespace BackupService.Profiles
             if (oldEnabled != newEnabled)
             {
                 changes.Add($"Enabled changed from '{YesNo(oldEnabled)}' to '{YesNo(newEnabled)}'");
+            }
+            if (oldHandleMissedSync != newHandleMissedSync)
+            {
+                changes.Add($"Handle missed sync changed from '{YesNo(oldHandleMissedSync)}' to '{YesNo(newHandleMissedSync)}'");
             }
 
             // Item changes are described by the matching type's data service.

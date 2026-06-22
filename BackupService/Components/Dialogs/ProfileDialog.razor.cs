@@ -80,6 +80,7 @@ namespace BackupService.Components.Dialogs
             Input.Description = profile.Description;
             Input.Type = profile.Type;
             Input.Enabled = profile.Enabled;
+            Input.HandleMissedSync = profile.HandleMissedSync;
             _existingScheduleCron = profile.Schedule;
             // Parse the stored cron back into the builder so the schedule shows human-readable
             // and the schedule dialog opens pre-filled.
@@ -182,11 +183,11 @@ namespace BackupService.Components.Dialogs
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs);
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs);
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync);
             }
 
             return true;
@@ -232,11 +233,11 @@ namespace BackupService.Components.Dialogs
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items);
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items);
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync);
             }
 
             return true;
@@ -269,6 +270,9 @@ namespace BackupService.Components.Dialogs
             public ProfileType Type { get; set; } = ProfileType.FolderPair;
 
             public bool Enabled { get; set; } = true;
+
+            /// <summary>Run immediately on startup if a scheduled run was missed while the service was down.</summary>
+            public bool HandleMissedSync { get; set; }
         }
     }
 }

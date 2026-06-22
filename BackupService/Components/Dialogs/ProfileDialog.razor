@@ -39,6 +39,18 @@
                 </div>
             </label>
 
+            @if (!IsInstantSync)
+            {
+                <label class="check">
+                    <input type="checkbox" @bind="Input.HandleMissedSync" />
+                    Handle missed sync
+                </label>
+                <p class="help-text">
+                    If the service was not running at the scheduled time, run this profile immediately when the
+                    service next starts.
+                </p>
+            }
+
             @switch (Input.Type)
             {
                 case ProfileType.FolderPair:

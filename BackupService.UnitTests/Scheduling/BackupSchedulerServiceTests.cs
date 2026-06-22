@@ -1,5 +1,6 @@
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Logging;
 using BackupService.Profiles;
 using BackupService.Scheduling;
 using FluentAssertions;
@@ -37,7 +38,7 @@ namespace BackupService.UnitTests.Scheduling
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
 
-            _scheduler = new BackupSchedulerService(_dbFactory, Mock.Of<IBackupRunner>(), new ProfileStatusService(), NullLogger<BackupSchedulerService>.Instance);
+            _scheduler = new BackupSchedulerService(_dbFactory, Mock.Of<IBackupRunner>(), new ProfileStatusService(), Mock.Of<IOperationLogFactory>(), NullLogger<BackupSchedulerService>.Instance);
         }
 
         [TearDown]
@@ -142,6 +143,49 @@ namespace BackupService.UnitTests.Scheduling
         {
             BackupSchedulerService.GetNextOccurrence(cron, DateTimeOffset.UtcNow, TimeZoneInfo.Utc)
                 .Should().BeNull();
+        }
+
+        [Test]
+        public async Task SyncAsync_RecordsNextRun()
+        {
+            var id = SeedProfile(enabled: true, schedule: "*/15 * * * *");
+
+            await _scheduler.SyncAsync(id);
+
+            using var db = new BackupDbContext(_options);
+            db.Profiles.Single(p => p.Id == id).DateNextRun
+                .Should().NotBeNull().And.BeAfter(DateTimeOffset.Now);
+        }
+
+        [Test]
+        public async Task SyncAsync_ClearsNextRunWhenUnscheduled()
+        {
+            var id = SeedProfile(enabled: true, schedule: "*/15 * * * *");
+            await _scheduler.SyncAsync(id);
+
+            SetProfile(id, enabled: false, schedule: "*/15 * * * *");
+            await _scheduler.SyncAsync(id);
+
+            using var db = new BackupDbContext(_options);
+            db.Profiles.Single(p => p.Id == id).DateNextRun.Should().BeNull();
+        }
+
+        [Test]
+        public void ShouldCatchUp_TrueOnlyWhenOptedIn_AndNextRunIsPast()
+        {
+            var now = new DateTimeOffset(2026, 6, 22, 12, 0, 0, TimeSpan.Zero);
+            var past = now.AddMinutes(-5);
+            var future = now.AddMinutes(5);
+
+            // Opted in + a missed (past) next-run → catch up.
+            BackupSchedulerService.ShouldCatchUp(handleMissedSync: true, past, now).Should().BeTrue();
+
+            // Not opted in → never.
+            BackupSchedulerService.ShouldCatchUp(handleMissedSync: false, past, now).Should().BeFalse();
+            // Next-run still in the future → not missed.
+            BackupSchedulerService.ShouldCatchUp(handleMissedSync: true, future, now).Should().BeFalse();
+            // No recorded next-run → nothing to catch up.
+            BackupSchedulerService.ShouldCatchUp(handleMissedSync: true, null, now).Should().BeFalse();
         }
     }
 }

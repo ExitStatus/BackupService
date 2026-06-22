@@ -1,4 +1,5 @@
 using BackupService.Database;
+using BackupService.Logging;
 using BackupService.Profiles;
 using Cronos;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,7 @@ namespace BackupService.Scheduling
         IDatabaseContextFactory contextFactory,
         IBackupRunner runner,
         IProfileStatusService statusService,
+        IOperationLogFactory operationLogFactory,
         ILogger<BackupSchedulerService> logger) : BackgroundService, IBackupScheduler
     {
         // The longest the loop sleeps before re-evaluating, even when the next run is further off.
@@ -42,7 +44,13 @@ namespace BackupService.Scheduling
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                var delay = FireDueAndComputeWait();
+                var (delay, advanced) = FireDueAndComputeWait();
+
+                // Record the new next-run time for every entry that just advanced.
+                foreach (var (id, next) in advanced)
+                {
+                    await PersistNextRunAsync(id, next, stoppingToken);
+                }
 
                 try
                 {
@@ -63,6 +71,7 @@ namespace BackupService.Scheduling
         {
             var info = await ReadProfileScheduleAsync(profileId, cancellationToken);
 
+            DateTimeOffset? nextRun = null;
             lock (_entriesLock)
             {
                 _entries.Remove(profileId);
@@ -73,9 +82,13 @@ namespace BackupService.Scheduling
                     if (next.HasValue)
                     {
                         _entries[profileId] = new ScheduledEntry(cron, next.Value);
+                        nextRun = next.Value;
                     }
                 }
             }
+
+            // Record the upcoming run (or clear it when the profile is unscheduled).
+            await PersistNextRunAsync(profileId, nextRun, cancellationToken);
 
             Wake();
         }
@@ -96,42 +109,82 @@ namespace BackupService.Scheduling
         public static DateTimeOffset? GetNextOccurrence(string? cron, DateTimeOffset from, TimeZoneInfo timeZone)
             => TryParse(cron)?.GetNextOccurrence(from, timeZone);
 
+        /// <summary>
+        /// Whether a profile missed its scheduled run while the service was down and should run immediately on
+        /// startup: only when it opted in (<paramref name="handleMissedSync"/>) and its last recorded next-run
+        /// time (<paramref name="persistedNextRun"/>) is before <paramref name="now"/>. Pure — extracted for tests.
+        /// </summary>
+        public static bool ShouldCatchUp(bool handleMissedSync, DateTimeOffset? persistedNextRun, DateTimeOffset now)
+            => handleMissedSync && persistedNextRun is { } due && due < now;
+
         private async Task LoadAllAsync(CancellationToken cancellationToken)
         {
-            List<(int Id, string? Schedule)> scheduled;
+            List<ProfileScheduleState> scheduled;
             await using (var db = contextFactory.CreateDbContext())
             {
                 scheduled = await db.Profiles
                     .AsNoTracking()
                     .Where(p => p.Enabled && p.Schedule != null && p.Schedule != "")
-                    .Select(p => new ValueTuple<int, string?>(p.Id, p.Schedule))
+                    .Select(p => new ProfileScheduleState(p.Id, p.Name, p.Schedule, p.HandleMissedSync, p.DateNextRun))
                     .ToListAsync(cancellationToken);
             }
 
             var now = DateTimeOffset.Now;
+            var registered = new List<(int Id, DateTimeOffset Next)>();
+            var missed = new List<(int Id, string Name, DateTimeOffset Due)>();
+
             lock (_entriesLock)
             {
                 _entries.Clear();
-                foreach (var (id, schedule) in scheduled)
+                foreach (var state in scheduled)
                 {
-                    if (TryParse(schedule) is { } cron && cron.GetNextOccurrence(now, _timeZone) is { } next)
+                    if (TryParse(state.Schedule) is not { } cron || cron.GetNextOccurrence(now, _timeZone) is not { } next)
                     {
-                        _entries[id] = new ScheduledEntry(cron, next);
+                        continue;
+                    }
+
+                    _entries[state.Id] = new ScheduledEntry(cron, next);
+                    registered.Add((state.Id, next));
+
+                    // Decide catch-up against the PREVIOUSLY persisted next-run (before we overwrite it).
+                    if (ShouldCatchUp(state.HandleMissedSync, state.PersistedNextRun, now))
+                    {
+                        missed.Add((state.Id, state.Name, state.PersistedNextRun!.Value));
                     }
                 }
+            }
+
+            // Record the fresh next-run for every scheduled profile.
+            foreach (var (id, next) in registered)
+            {
+                await PersistNextRunAsync(id, next, cancellationToken);
+            }
+
+            // Run any profile that missed its scheduled time while the service was down, logging a visible
+            // (profile-associated) operation log so the catch-up is distinguishable from a normal run.
+            foreach (var (id, name, due) in missed)
+            {
+                logger.LogInformation("Profile {ProfileId} missed its scheduled run (due {Due}) while the service was down — running now.", id, due);
+                await operationLogFactory.CreateAsync(
+                    $"Missed scheduled run for '{name}' (was due {due.ToLocalTime():g}) — running now on startup",
+                    profileId: id,
+                    cancellationToken: cancellationToken);
+                FireJob(id);
             }
 
             logger.LogInformation("Backup scheduler loaded {Count} scheduled profile(s).", _entries.Count);
         }
 
         /// <summary>
-        /// Fires every entry whose next run has arrived (advancing it to its following occurrence),
-        /// and returns how long to wait before the next evaluation.
+        /// Fires every entry whose next run has arrived (advancing it to its following occurrence), and
+        /// returns how long to wait before the next evaluation plus the entries that advanced (so the caller
+        /// can persist their new next-run time).
         /// </summary>
-        private TimeSpan FireDueAndComputeWait()
+        private (TimeSpan Wait, List<(int Id, DateTimeOffset Next)> Advanced) FireDueAndComputeWait()
         {
             var now = DateTimeOffset.Now;
             var due = new List<int>();
+            var advanced = new List<(int Id, DateTimeOffset Next)>();
             DateTimeOffset? soonest = null;
 
             lock (_entriesLock)
@@ -145,6 +198,7 @@ namespace BackupService.Scheduling
                         if (next.HasValue)
                         {
                             entry.NextRun = next.Value;
+                            advanced.Add((id, next.Value));
                         }
                     }
                 }
@@ -165,7 +219,7 @@ namespace BackupService.Scheduling
 
             if (soonest is null)
             {
-                return MaxWait;
+                return (MaxWait, advanced);
             }
 
             var wait = soonest.Value - DateTimeOffset.Now;
@@ -173,7 +227,23 @@ namespace BackupService.Scheduling
             {
                 wait = TimeSpan.Zero;
             }
-            return wait < MaxWait ? wait : MaxWait;
+            return (wait < MaxWait ? wait : MaxWait, advanced);
+        }
+
+        /// <summary>Records a profile's next-run time (or clears it), tolerating a transient write failure.</summary>
+        private async Task PersistNextRunAsync(int profileId, DateTimeOffset? nextRun, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await using var db = contextFactory.CreateDbContext();
+                await db.Profiles
+                    .Where(p => p.Id == profileId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.DateNextRun, nextRun), cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Failed to record next-run time for profile {ProfileId}.", profileId);
+            }
         }
 
         private void FireJob(int profileId)
@@ -257,5 +327,7 @@ namespace BackupService.Scheduling
         }
 
         private sealed record ProfileScheduleInfo(bool Enabled, string? Schedule);
+
+        private sealed record ProfileScheduleState(int Id, string Name, string? Schedule, bool HandleMissedSync, DateTimeOffset? PersistedNextRun);
     }
 }

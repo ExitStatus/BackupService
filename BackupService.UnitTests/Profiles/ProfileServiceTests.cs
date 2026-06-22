@@ -75,6 +75,34 @@ namespace BackupService.UnitTests.Profiles
         }
 
         [Test]
+        public async Task CreateAsync_PersistsHandleMissedSync()
+        {
+            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, "0 2 * * *", enabled: true,
+                [new FolderPairInput(0, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)],
+                handleMissedSync: true);
+
+            await using var context = new BackupDbContext(_options);
+            context.Profiles.Single().HandleMissedSync.Should().BeTrue();
+        }
+
+        [Test]
+        public async Task UpdateAsync_UpdatesHandleMissedSync()
+        {
+            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, "0 2 * * *", enabled: true,
+                [new FolderPairInput(0, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+            var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
+            var pairId = original!.FolderPairs.Single().Id;
+            original.HandleMissedSync.Should().BeFalse();
+
+            await _service.UpdateAsync(original.Id, "Docs", null, "0 2 * * *", enabled: true,
+                [new FolderPairInput(pairId, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)],
+                handleMissedSync: true);
+
+            await using var context = new BackupDbContext(_options);
+            context.Profiles.Single().HandleMissedSync.Should().BeTrue();
+        }
+
+        [Test]
         public async Task CreateAsync_PersistsMultipleFolderPairs()
         {
             await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,

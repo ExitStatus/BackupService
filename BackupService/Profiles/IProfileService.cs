@@ -23,6 +23,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            bool handleMissedSync = false,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -70,6 +71,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            bool handleMissedSync = false,
             CancellationToken cancellationToken = default);
     }
 }

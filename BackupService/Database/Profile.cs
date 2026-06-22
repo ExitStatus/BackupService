@@ -25,6 +25,18 @@ namespace BackupService.Database
         [MaxLength(256)]
         public string? Schedule { get; set; }
 
+        /// <summary>
+        /// When the next scheduled run should occur (recorded by <c>BackupSchedulerService</c> for scheduled
+        /// profiles). Null when not scheduled. Persisted so a missed run can be detected after a restart.
+        /// </summary>
+        public DateTimeOffset? DateNextRun { get; set; }
+
+        /// <summary>
+        /// When true, if the service was not running at <see cref="DateNextRun"/> the profile runs immediately
+        /// on the next startup (catch-up). Only meaningful for scheduled profile types.
+        /// </summary>
+        public bool HandleMissedSync { get; set; }
+
         public DateTimeOffset DateCreated { get; set; }
 
         public DateTimeOffset? DateLastRun { get; set; }
