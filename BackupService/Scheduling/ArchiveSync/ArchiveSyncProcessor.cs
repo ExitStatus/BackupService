@@ -6,6 +6,7 @@ using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.FileSystem;
 using BackupService.Logging;
+using BackupService.Security;
 
 namespace BackupService.Scheduling
 {
@@ -19,7 +20,7 @@ namespace BackupService.Scheduling
     /// no extra state is needed beyond the item's run counter. All filesystem access goes through
     /// <see cref="IBackupFileSystem"/> so the retention/promotion logic is unit-testable.
     /// </summary>
-    public sealed class ArchiveSyncProcessor(IBackupFileSystem fileSystem, IEndpointFileSystemFactory endpointFactory) : IArchiveSyncProcessor
+    public sealed class ArchiveSyncProcessor(IBackupFileSystem fileSystem, IEndpointFileSystemFactory endpointFactory, ISecretProtector secretProtector) : IArchiveSyncProcessor
     {
         private const string TimestampFormat = "yyyy-MM-dd_HHmmss";
 
@@ -117,6 +118,29 @@ namespace BackupService.Scheduling
                 }
             }
 
+            // Resolve the archive password (decrypted) when protection is on — never produce an unencrypted
+            // archive when the user asked for protection.
+            string? password = null;
+            if (item.PasswordProtect)
+            {
+                if (string.IsNullOrEmpty(item.PasswordEncrypted))
+                {
+                    result.Errors++;
+                    await log.ErrorAsync("Archive is password-protected but no password is stored — re-enter it on the profile.");
+                    return;
+                }
+                try
+                {
+                    password = secretProtector.Unprotect(item.PasswordEncrypted);
+                }
+                catch (Exception ex)
+                {
+                    result.Errors++;
+                    await log.ErrorAsync("Failed to decrypt the archive password", ex);
+                    return;
+                }
+            }
+
             string tempZip;
             ZipBuildResult build;
             try
@@ -126,7 +150,9 @@ namespace BackupService.Scheduling
                     sourceDir, tempZip, item.IncludeSubFolders,
                     filter.IsEmpty ? null : filter.IsRelativePathInScope,
                     fingerprint,
-                    item.CompressionLevel.ToCompressionLevel());
+                    item.CompressionLevel.ToCompressionLevel(),
+                    password,
+                    useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256);
             }
             catch (Exception ex)
             {

@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using ICSharpCode.SharpZipLib.Zip;
 
 namespace BackupService.FileSystem
 {
@@ -63,7 +64,16 @@ namespace BackupService.FileSystem
             return Path.Combine(directory, fileName);
         }
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal)
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true)
+        {
+            // Encrypted archives need a ZIP writer that supports encryption (the BCL can't), so route them
+            // through SharpZipLib; the common unencrypted path stays on System.IO.Compression unchanged.
+            return string.IsNullOrEmpty(password)
+                ? CreatePlainZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel)
+                : CreateEncryptedZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, password, useAesEncryption);
+        }
+
+        private static ZipBuildResult CreatePlainZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
             // gets the list of files added — both for the top-level-only case and for verbose logging —
@@ -72,7 +82,7 @@ namespace BackupService.FileSystem
             var added = new List<string>();
             var skipped = new List<ZipSkippedFile>();
 
-            using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
+            using var zip = System.IO.Compression.ZipFile.Open(destinationZip, ZipArchiveMode.Create);
             if (comment is not null)
             {
                 zip.Comment = comment; // stored in the EOCD record (the "only copy on change" fingerprint)
@@ -105,11 +115,73 @@ namespace BackupService.FileSystem
             return new ZipBuildResult(added, skipped);
         }
 
+        // Encrypted counterpart of CreatePlainZip (SharpZipLib): same per-entry skip-on-locked, includeEntry
+        // filtering, comment and timestamps, but each entry is encrypted (AES-256, else legacy ZipCrypto).
+        private static ZipBuildResult CreateEncryptedZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, string password, bool useAesEncryption)
+        {
+            var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var added = new List<string>();
+            var skipped = new List<ZipSkippedFile>();
+            var stored = compressionLevel == CompressionLevel.NoCompression;
+
+            using var output = new FileStream(destinationZip, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var zip = new ZipOutputStream(output) { Password = password, IsStreamOwner = true };
+            zip.SetLevel(ToDeflateLevel(compressionLevel));
+            if (comment is not null)
+            {
+                zip.SetComment(comment); // EOCD comment — the "only copy on change" fingerprint
+            }
+
+            foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
+            {
+                var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/');
+                if (includeEntry is not null && !includeEntry(entryName))
+                {
+                    continue;
+                }
+                try
+                {
+                    // Open first (the dominant failure point) so a locked file is skipped before an entry
+                    // is written — matching the plain path.
+                    using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    var entry = new ZipEntry(entryName)
+                    {
+                        DateTime = File.GetLastWriteTime(file),
+                        AESKeySize = useAesEncryption ? 256 : 0, // 0 with a Password set = legacy ZipCrypto
+                    };
+                    if (stored)
+                    {
+                        entry.CompressionMethod = CompressionMethod.Stored;
+                    }
+                    zip.PutNextEntry(entry);
+                    src.CopyTo(zip);
+                    zip.CloseEntry();
+                    added.Add(entryName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    skipped.Add(new ZipSkippedFile(entryName, ex.Message));
+                }
+            }
+
+            zip.Finish();
+            return new ZipBuildResult(added, skipped);
+        }
+
+        // BCL CompressionLevel → SharpZipLib deflate level (0–9).
+        private static int ToDeflateLevel(CompressionLevel level) => level switch
+        {
+            CompressionLevel.NoCompression => 0,
+            CompressionLevel.Fastest => 1,
+            CompressionLevel.SmallestSize => 9,
+            _ => 6, // Optimal
+        };
+
         public string? GetZipComment(string path)
         {
             try
             {
-                using var zip = ZipFile.OpenRead(path);
+                using var zip = System.IO.Compression.ZipFile.OpenRead(path);
                 return string.IsNullOrEmpty(zip.Comment) ? null : zip.Comment;
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)

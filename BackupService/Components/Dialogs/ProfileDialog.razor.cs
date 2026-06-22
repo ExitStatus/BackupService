@@ -134,6 +134,9 @@ namespace BackupService.Components.Dialogs
                     IncludeSubFolders = item.IncludeSubFolders,
                     OnlyCopyOnChange = item.OnlyCopyOnChange,
                     CompressionLevel = item.CompressionLevel,
+                    PasswordProtect = item.PasswordProtect,
+                    HasExistingPassword = !string.IsNullOrEmpty(item.PasswordEncrypted),
+                    EncryptionMethod = item.EncryptionMethod,
                     RetentionMode = item.RetentionMode,
                     RetentionCount = item.RetentionCount,
                     MaxLevels = item.MaxLevels,
@@ -229,7 +232,7 @@ namespace BackupService.Components.Dialogs
             var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
 
             var items = _archiveSyncItems
-                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.OnlyCopyOnChange, a.CompressionLevel, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes), a.SourceConnectionId, a.TargetConnectionId))
+                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.OnlyCopyOnChange, a.CompressionLevel, a.PasswordProtect, a.Password, a.EncryptionMethod, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes), a.SourceConnectionId, a.TargetConnectionId))
                 .ToList();
 
             if (ProfileId is { } id)

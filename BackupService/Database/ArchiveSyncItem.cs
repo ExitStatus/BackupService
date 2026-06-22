@@ -55,6 +55,19 @@ namespace BackupService.Database
         /// <summary>How hard to compress the ZIP (maps to the BCL compression level).</summary>
         public ArchiveCompressionLevel CompressionLevel { get; set; }
 
+        /// <summary>When true, the archive is encrypted with <see cref="PasswordEncrypted"/>.</summary>
+        public bool PasswordProtect { get; set; }
+
+        /// <summary>
+        /// The archive password, encrypted at rest via <c>ISecretProtector</c> (Data Protection) — never
+        /// stored or logged in plaintext. Null when not password-protected.
+        /// </summary>
+        [MaxLength(4096)]
+        public string? PasswordEncrypted { get; set; }
+
+        /// <summary>The encryption scheme used when <see cref="PasswordProtect"/> is set.</summary>
+        public ArchiveEncryptionMethod EncryptionMethod { get; set; }
+
         public ArchiveRetentionMode RetentionMode { get; set; }
 
         /// <summary>Archives kept — total for <see cref="ArchiveRetentionMode.KeepLastN"/>, per level for GFS.</summary>

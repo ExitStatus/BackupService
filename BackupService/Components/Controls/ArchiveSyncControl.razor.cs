@@ -107,6 +107,10 @@ namespace BackupService.Components.Controls
             IncludeSubFolders = source.IncludeSubFolders,
             OnlyCopyOnChange = source.OnlyCopyOnChange,
             CompressionLevel = source.CompressionLevel,
+            PasswordProtect = source.PasswordProtect,
+            Password = source.Password,
+            HasExistingPassword = source.HasExistingPassword,
+            EncryptionMethod = source.EncryptionMethod,
             RetentionMode = source.RetentionMode,
             RetentionCount = source.RetentionCount,
             MaxLevels = source.MaxLevels,
@@ -142,6 +146,18 @@ namespace BackupService.Components.Controls
 
         /// <summary>How hard to compress the ZIP; defaults to Optimal.</summary>
         public ArchiveCompressionLevel CompressionLevel { get; set; } = ArchiveCompressionLevel.Optimal;
+
+        /// <summary>When true, the archive is encrypted with <see cref="Password"/>.</summary>
+        public bool PasswordProtect { get; set; }
+
+        /// <summary>Plaintext password as typed; blank on edit means "keep the stored one".</summary>
+        public string Password { get; set; } = string.Empty;
+
+        /// <summary>Whether a password is already stored (so the field can offer "leave blank to keep").</summary>
+        public bool HasExistingPassword { get; set; }
+
+        /// <summary>Encryption scheme used when <see cref="PasswordProtect"/> is set; defaults to AES-256.</summary>
+        public ArchiveEncryptionMethod EncryptionMethod { get; set; } = ArchiveEncryptionMethod.Aes256;
 
         public ArchiveRetentionMode RetentionMode { get; set; }
 

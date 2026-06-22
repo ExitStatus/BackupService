@@ -71,9 +71,10 @@ namespace BackupService.FileSystem
         /// verbose logging) plus the files skipped and why, so the caller can log/count them.
         /// <paramref name="comment"/> is stored as the ZIP's archive comment when non-null (used by
         /// ArchiveSync's "only copy on change" fingerprint). <paramref name="compressionLevel"/> sets how hard
-        /// each entry is compressed.
+        /// each entry is compressed. When <paramref name="password"/> is non-empty the archive is encrypted
+        /// (AES-256 when <paramref name="useAesEncryption"/>, otherwise legacy ZipCrypto).
         /// </summary>
-        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal);
+        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true);
 
         /// <summary>
         /// Returns the archive comment of the ZIP at <paramref name="path"/>, or null when there is none or

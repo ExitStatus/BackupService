@@ -24,6 +24,7 @@ namespace BackupService.Components.Dialogs
         private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
         [
             new("detail", "Detail"),
+            new("archive", "Archive"),
             new("includes", "File Includes"),
             new("excludes", "Excludes"),
         ];
@@ -35,6 +36,7 @@ namespace BackupService.Components.Dialogs
         private bool _fileNameError;
         private bool _countError;
         private bool _levelsError;
+        private bool _passwordError;
 
         private bool IsGfs => Model.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon;
 
@@ -52,10 +54,18 @@ namespace BackupService.Components.Dialogs
             _fileNameError = string.IsNullOrWhiteSpace(Model.FileName);
             _countError = Model.RetentionCount < 1;
             _levelsError = IsGfs && Model.MaxLevels < 1;
+            // A password is required when protecting a new archive (or one without a stored password);
+            // on an existing protected archive a blank box keeps the stored password.
+            _passwordError = Model.PasswordProtect && !Model.HasExistingPassword && string.IsNullOrWhiteSpace(Model.Password);
 
-            if (_nameError || _sourceError || _targetError || _fileNameError || _countError || _levelsError)
+            if (_nameError || _sourceError || _targetError || _countError || _levelsError)
             {
-                _activeTab = "detail"; // the validated fields live on the Detail tab — show it
+                _activeTab = "detail"; // these validated fields live on the Detail tab — show it
+                return;
+            }
+            if (_fileNameError || _passwordError)
+            {
+                _activeTab = "archive"; // the file name and password live on the Archive tab
                 return;
             }
 

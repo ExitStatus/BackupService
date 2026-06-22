@@ -285,7 +285,7 @@ namespace BackupService.UnitTests.Scheduling
 
             public string GetTempFilePath(string fileName) => throw new NotSupportedException();
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal) =>
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true) =>
                 throw new NotSupportedException();
 
             public string? GetZipComment(string path) => throw new NotSupportedException();

@@ -18,6 +18,9 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
     <!-- SMB client (SMB2/3) for the Connections feature; netstandard2.0, works on net10.0. -->
     <PackageReference Include="SMBLibrary" Version="1.5.7" />
+    <!-- ZIP writer with encryption (AES-256 / ZipCrypto) for password-protected ArchiveSync archives —
+         the BCL System.IO.Compression cannot produce encrypted zips. Used only on the encrypted path. -->
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
     <!-- DPAPI: used ONLY to read legacy (pre-Data-Protection) SMB passwords for the one-time migration in
          DpapiLegacySecretReader (Windows-guarded). New secrets use cross-platform Data Protection. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />

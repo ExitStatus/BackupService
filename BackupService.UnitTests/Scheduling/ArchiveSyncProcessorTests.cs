@@ -4,6 +4,7 @@ using BackupService.Enumerations;
 using BackupService.FileSystem;
 using BackupService.Logging;
 using BackupService.Scheduling;
+using BackupService.UnitTests.Connections;
 using FluentAssertions;
 
 namespace BackupService.UnitTests.Scheduling
@@ -27,7 +28,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddDirectory(Source);
             _fs.AddDirectory(Target);
             _log = new CapturingLogger();
-            _sut = new ArchiveSyncProcessor(_fs, new LocalEndpointFactory(_fs));
+            _sut = new ArchiveSyncProcessor(_fs, new LocalEndpointFactory(_fs), new ReversibleProtector());
         }
 
         private static ArchiveSyncItem KeepLastN(int count) => new()
@@ -82,7 +83,7 @@ namespace BackupService.UnitTests.Scheduling
             localFs.AddFile(@"C:\src\file.txt", RunTime, "data");
 
             var remoteFs = new FakeFileSystem();
-            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, targetConnectionId: 7, remoteFs));
+            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, targetConnectionId: 7, remoteFs), new ReversibleProtector());
 
             var item = new ArchiveSyncItem
             {
@@ -309,6 +310,37 @@ namespace BackupService.UnitTests.Scheduling
             _fs.LastCompressionLevel.Should().Be(System.IO.Compression.CompressionLevel.SmallestSize);
         }
 
+        [Test]
+        public async Task PasswordProtected_DecryptsPassword_AndPassesEncryptionMethod()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.PasswordProtect = true;
+            item.PasswordEncrypted = new ReversibleProtector().Protect("hunter2");
+            item.EncryptionMethod = ArchiveEncryptionMethod.ZipCrypto;
+
+            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            _fs.LastPassword.Should().Be("hunter2");      // decrypted before zipping
+            _fs.LastUseAesEncryption.Should().BeFalse();  // ZipCrypto chosen
+        }
+
+        [Test]
+        public async Task PasswordProtected_WithNoStoredPassword_Errors_NoArchive()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.PasswordProtect = true;
+            item.PasswordEncrypted = null;
+
+            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            result.Errors.Should().Be(1);
+            result.Copied.Should().Be(0);
+            _fs.FileExists(KeepName(RunTime)).Should().BeFalse();
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -519,12 +551,16 @@ namespace BackupService.UnitTests.Scheduling
             // Files the next CreateZipFromDirectory call reports as skipped (locked/unreadable).
             public IReadOnlyList<ZipSkippedFile> SkippedFiles { get; set; } = [];
 
-            // The compression level passed to the most recent CreateZipFromDirectory call.
+            // The compression level / encryption args passed to the most recent CreateZipFromDirectory call.
             public System.IO.Compression.CompressionLevel LastCompressionLevel { get; private set; }
+            public string? LastPassword { get; private set; }
+            public bool LastUseAesEncryption { get; private set; }
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal)
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true)
             {
                 LastCompressionLevel = compressionLevel;
+                LastPassword = password;
+                LastUseAesEncryption = useAesEncryption;
                 // Stand in for a real zip — record a file at the destination so the copy can read it,
                 // and return the relative entry names of the source files (top-level or recursive),
                 // honouring the include/exclude predicate so filtering is exercised. The archive comment is

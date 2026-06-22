@@ -1,6 +1,7 @@
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
+using BackupService.Security;
 
 namespace BackupService.Profiles
 {
@@ -8,9 +9,10 @@ namespace BackupService.Profiles
     /// Default <see cref="IArchiveSyncItemService"/>. A stateless helper over the tracked
     /// <see cref="Profile"/> entity graph (no DbContext), mirroring <see cref="FolderPairService"/> and
     /// <see cref="InstantSyncItemService"/>. The per-item <c>RunCount</c> (which drives the GFS
-    /// promotion cadence) is owned by the run, so it is left untouched here.
+    /// promotion cadence) is owned by the run, so it is left untouched here. Archive passwords are
+    /// encrypted at rest via <see cref="ISecretProtector"/> and never logged.
     /// </summary>
-    public sealed class ArchiveSyncItemService : IArchiveSyncItemService
+    public sealed class ArchiveSyncItemService(ISecretProtector secretProtector) : IArchiveSyncItemService
     {
         public void Add(Profile profile, IReadOnlyList<ArchiveSyncInput> inputs)
         {
@@ -25,7 +27,7 @@ namespace BackupService.Profiles
             // Snapshot the original items before mutating so we can describe what changed.
             var oldItems = profile.ArchiveSyncItems.ToDictionary(
                 i => i.Id,
-                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.OnlyCopyOnChange, i.CompressionLevel, i.RetentionMode, i.RetentionCount, i.MaxLevels, FilterSignature(i.Filters)));
+                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.OnlyCopyOnChange, i.CompressionLevel, i.PasswordProtect, i.EncryptionMethod, i.RetentionMode, i.RetentionCount, i.MaxLevels, FilterSignature(i.Filters)));
 
             // Remove items the user deleted (not present by id in the new set).
             var keptIds = inputs.Where(i => i.Id != 0).Select(i => i.Id).ToHashSet();
@@ -56,6 +58,9 @@ namespace BackupService.Profiles
                     existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.OnlyCopyOnChange = input.OnlyCopyOnChange;
                     existing.CompressionLevel = input.CompressionLevel;
+                    existing.PasswordProtect = input.PasswordProtect;
+                    existing.EncryptionMethod = input.EncryptionMethod;
+                    ApplyPassword(existing, input);
                     existing.RetentionMode = input.RetentionMode;
                     existing.RetentionCount = input.RetentionCount;
                     existing.MaxLevels = input.MaxLevels;
@@ -78,6 +83,11 @@ namespace BackupService.Profiles
                 lines.Add($"Include sub-folders: {YesNo(item.IncludeSubFolders)}");
                 lines.Add($"Only copy on change: {YesNo(item.OnlyCopyOnChange)}");
                 lines.Add($"Compression: {item.CompressionLevel.GetDescription()}");
+                lines.Add($"Password protected: {YesNo(item.PasswordProtect)}");
+                if (item.PasswordProtect)
+                {
+                    lines.Add($"Encryption: {item.EncryptionMethod.GetDescription()}");
+                }
                 lines.Add($"Retention: {RetentionText(item)}");
                 lines.AddRange((item.Filters ?? []).Select(FilterLine));
             }
@@ -137,6 +147,18 @@ namespace BackupService.Profiles
                 {
                     changes.Add($"Archive '{input.Name}' compression changed from '{old.CompressionLevel.GetDescription()}' to '{input.CompressionLevel.GetDescription()}'");
                 }
+                if (old.PasswordProtect != input.PasswordProtect)
+                {
+                    changes.Add($"Archive '{input.Name}' password protection changed from '{YesNo(old.PasswordProtect)}' to '{YesNo(input.PasswordProtect)}'");
+                }
+                else if (input.PasswordProtect && !string.IsNullOrEmpty(input.Password))
+                {
+                    changes.Add($"Archive '{input.Name}' password updated");
+                }
+                if (input.PasswordProtect && old.EncryptionMethod != input.EncryptionMethod)
+                {
+                    changes.Add($"Archive '{input.Name}' encryption changed from '{old.EncryptionMethod.GetDescription()}' to '{input.EncryptionMethod.GetDescription()}'");
+                }
                 if (old.RetentionMode != input.RetentionMode || old.RetentionCount != input.RetentionCount || old.MaxLevels != input.MaxLevels)
                 {
                     changes.Add($"Archive '{input.Name}' retention changed from '{RetentionText(old)}' to '{RetentionText(input)}'");
@@ -150,7 +172,7 @@ namespace BackupService.Profiles
             return changes;
         }
 
-        private static ArchiveSyncItem NewItem(ArchiveSyncInput input) => new()
+        private ArchiveSyncItem NewItem(ArchiveSyncInput input) => new()
         {
             Name = input.Name,
             SourceFolder = input.SourceFolder,
@@ -161,11 +183,30 @@ namespace BackupService.Profiles
             IncludeSubFolders = input.IncludeSubFolders,
             OnlyCopyOnChange = input.OnlyCopyOnChange,
             CompressionLevel = input.CompressionLevel,
+            PasswordProtect = input.PasswordProtect,
+            EncryptionMethod = input.EncryptionMethod,
+            PasswordEncrypted = input.PasswordProtect && !string.IsNullOrEmpty(input.Password)
+                ? secretProtector.Protect(input.Password)
+                : null,
             RetentionMode = input.RetentionMode,
             RetentionCount = input.RetentionCount,
             MaxLevels = input.MaxLevels,
             Filters = NewFilters(input.Filters),
         };
+
+        // Apply the password on update: drop the stored secret when protection is off, re-encrypt when a new
+        // password was typed, otherwise keep the existing stored one (a blank box means "keep").
+        private void ApplyPassword(ArchiveSyncItem existing, ArchiveSyncInput input)
+        {
+            if (!input.PasswordProtect)
+            {
+                existing.PasswordEncrypted = null;
+            }
+            else if (!string.IsNullOrEmpty(input.Password))
+            {
+                existing.PasswordEncrypted = secretProtector.Protect(input.Password);
+            }
+        }
 
         private static List<ArchiveSyncFilter> NewFilters(IReadOnlyList<FilterInput>? inputs) =>
             (inputs ?? []).Select(f => new ArchiveSyncFilter
@@ -240,6 +281,8 @@ namespace BackupService.Profiles
             bool IncludeSubFolders,
             bool OnlyCopyOnChange,
             ArchiveCompressionLevel CompressionLevel,
+            bool PasswordProtect,
+            ArchiveEncryptionMethod EncryptionMethod,
             ArchiveRetentionMode RetentionMode,
             int RetentionCount,
             int MaxLevels,

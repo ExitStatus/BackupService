@@ -3,6 +3,7 @@ using BackupService.Enumerations;
 using BackupService.Logging;
 using BackupService.Profiles;
 using BackupService.Scheduling;
+using BackupService.UnitTests.Connections;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -39,7 +40,7 @@ namespace BackupService.UnitTests.Profiles
                 new OperationLogFactory(factory.Object),
                 new FolderPairService(),
                 new InstantSyncItemService(),
-                new ArchiveSyncItemService(),
+                new ArchiveSyncItemService(new ReversibleProtector()),
                 Mock.Of<IBackupScheduler>(),
                 Mock.Of<IInstantSyncManager>(),
                 new ProfileStatusService());
@@ -408,7 +409,7 @@ namespace BackupService.UnitTests.Profiles
                 new OperationLogFactory(factory.Object),
                 new FolderPairService(),
                 new InstantSyncItemService(),
-                new ArchiveSyncItemService(),
+                new ArchiveSyncItemService(new ReversibleProtector()),
                 Mock.Of<IBackupScheduler>(),
                 manager.Object,
                 new ProfileStatusService());
@@ -461,7 +462,7 @@ namespace BackupService.UnitTests.Profiles
                 "Nightly", "zip docs", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();
@@ -486,14 +487,14 @@ namespace BackupService.UnitTests.Profiles
                 "Nightly", null, ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
             var id = await GetOnlyProfileIdAsync();
 
             await _service.UpdateAsync(
                 id, "Nightly", null, "0 3 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();

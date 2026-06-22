@@ -23,18 +23,6 @@
                                          AllowCreateFolder="true"
                                          Error="@(_targetError ? "The Target folder field is required." : null)" />
 
-                <label>
-                    Archive file name
-                    <input type="text" @bind="Model.FileName" />
-                    @if (_fileNameError)
-                    {
-                        <span class="validation-message">The Archive file name field is required.</span>
-                    }
-                </label>
-                <p class="help-text">
-                    A timestamp is appended to make each archive unique, e.g. <code>@($"{FileNamePreview}_2026-06-18_120000.zip")</code>.
-                </p>
-
                 <div class="check-rows">
                     <label class="check">
                         <input type="checkbox" @bind="Model.IncludeSubFolders" />
@@ -50,15 +38,6 @@
                     Skip creating a new archive when the source content is identical to the most recent archive
                     in the target (compared by a SHA256 fingerprint stored in each archive's ZIP comment).
                 </p>
-
-                <label>
-                    Compression
-                    <Dropdown TValue="ArchiveCompressionLevel"
-                              @bind-Value="Model.CompressionLevel"
-                              Items="Enum.GetValues<ArchiveCompressionLevel>()"
-                              DisplayText="c => c.GetDescription()" />
-                </label>
-                <p class="help-text">@Model.CompressionLevel.GetHelpText()</p>
 
                 <label>
                     Retention
@@ -88,6 +67,56 @@
                             <span class="validation-message">Must be at least 1.</span>
                         }
                     </label>
+                }
+            }
+            else if (_activeTab == "archive")
+            {
+                <label>
+                    Archive file name
+                    <input type="text" @bind="Model.FileName" />
+                    @if (_fileNameError)
+                    {
+                        <span class="validation-message">The Archive file name field is required.</span>
+                    }
+                </label>
+                <p class="help-text">
+                    A timestamp is appended to make each archive unique, e.g. <code>@($"{FileNamePreview}_2026-06-18_120000.zip")</code>.
+                </p>
+
+                <label>
+                    Compression
+                    <Dropdown TValue="ArchiveCompressionLevel"
+                              @bind-Value="Model.CompressionLevel"
+                              Items="Enum.GetValues<ArchiveCompressionLevel>()"
+                              DisplayText="c => c.GetDescription()" />
+                </label>
+                <p class="help-text">@Model.CompressionLevel.GetHelpText()</p>
+
+                <label class="check">
+                    <input type="checkbox" @bind="Model.PasswordProtect" />
+                    Password protect
+                </label>
+                <p class="help-text">Encrypt the archive so a password is required to open it.</p>
+
+                @if (Model.PasswordProtect)
+                {
+                    <label>
+                        Password
+                        <input type="password" @bind="Model.Password" placeholder="@(Model.HasExistingPassword ? "Leave blank to keep the current password" : null)" />
+                        @if (_passwordError)
+                        {
+                            <span class="validation-message">A password is required.</span>
+                        }
+                    </label>
+
+                    <label>
+                        Encryption
+                        <Dropdown TValue="ArchiveEncryptionMethod"
+                                  @bind-Value="Model.EncryptionMethod"
+                                  Items="Enum.GetValues<ArchiveEncryptionMethod>()"
+                                  DisplayText="e => e.GetDescription()" />
+                    </label>
+                    <p class="help-text">@Model.EncryptionMethod.GetHelpText()</p>
                 }
             }
             else if (_activeTab == "includes")
