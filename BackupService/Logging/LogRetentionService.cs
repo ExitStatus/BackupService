@@ -73,6 +73,23 @@ namespace BackupService.Logging
             }
         }
 
+        public async Task<int> ClearOperationLogsAsync(CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            // Delete detail lines first, then the headers, so we don't rely on SQLite FK cascade under
+            // ExecuteDelete (which issues a single raw DELETE) — the same ordering as the retention purge.
+            await db.OperationLogDetails.ExecuteDeleteAsync(cancellationToken);
+            var deleted = await db.OperationLogs.ExecuteDeleteAsync(cancellationToken);
+
+            // Also clear the structured run history that drives the dashboard stats/charts, so "Clear logs"
+            // resets the dashboard too.
+            await db.BackupRuns.ExecuteDeleteAsync(cancellationToken);
+
+            logger.LogInformation("Cleared {Count} operation log(s) and the dashboard run history on admin request.", deleted);
+            return deleted;
+        }
+
         private async Task PurgeAsync(CancellationToken cancellationToken)
         {
             await using var db = contextFactory.CreateDbContext();

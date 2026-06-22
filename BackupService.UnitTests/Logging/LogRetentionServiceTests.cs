@@ -114,6 +114,36 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task ClearOperationLogsAsync_DeletesAllOperationLogs_Details_AndRunHistory_LeavesAuthHistory()
+        {
+            using (var db = new BackupDbContext(_options))
+            {
+                db.AuthenticationHistory.Add(new AuthenticationHistory { EventType = AuthenticationEventType.LoginSucceeded, TimestampUtc = Now });
+                db.OperationLogs.Add(new OperationLog
+                {
+                    Name = "a", TimestampUtc = Now.AddDays(-1),
+                    Details = { new OperationLogDetail { Message = "line", TimestampUtc = Now.AddDays(-1), Sequence = 1 } },
+                });
+                db.OperationLogs.Add(new OperationLog { Name = "b", TimestampUtc = Now }); // detail-less
+                var profile = new Profile { Name = "p", Type = ProfileType.FolderPair };
+                db.Profiles.Add(profile);
+                db.SaveChanges();
+                db.BackupRuns.Add(new BackupRun { ProfileId = profile.Id, Type = ProfileType.FolderPair, StartedUtc = Now, Outcome = RunOutcome.Success });
+                db.SaveChanges();
+            }
+
+            var removed = await _service.ClearOperationLogsAsync();
+
+            removed.Should().Be(2);
+
+            await using var verify = new BackupDbContext(_options);
+            (await verify.OperationLogs.CountAsync()).Should().Be(0);
+            (await verify.OperationLogDetails.CountAsync()).Should().Be(0);
+            (await verify.BackupRuns.CountAsync()).Should().Be(0); // dashboard stats cleared
+            (await verify.AuthenticationHistory.CountAsync()).Should().Be(1); // unaffected
+        }
+
+        [Test]
         public async Task PurgeIfDueAsync_RunsOncePerDay_ThenAgainNextDay()
         {
             await SeedOldAuthAsync();

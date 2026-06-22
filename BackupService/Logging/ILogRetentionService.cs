@@ -22,5 +22,13 @@ namespace BackupService.Logging
         /// logged and retried on a later call).
         /// </summary>
         Task PurgeIfDueAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Deletes <b>all</b> operation log history (headers and their detail lines) <b>and</b> the
+        /// structured <c>BackupRun</c> history that drives the dashboard stats/charts, immediately and
+        /// regardless of retention. Used by the "Clear logs" admin action. Returns the number of log
+        /// headers removed.
+        /// </summary>
+        Task<int> ClearOperationLogsAsync(CancellationToken cancellationToken = default);
     }
 }

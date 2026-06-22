@@ -187,6 +187,11 @@ h3:focus {
     box-shadow: var(--shadow);
 }
 
+/* Spacing between the Logging retention card and the Clear logs card. */
+.clear-logs-card {
+    margin-top: 8px;
+}
+
 /* Buttons */
 button,
 .btn {

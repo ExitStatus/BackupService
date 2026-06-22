@@ -16,6 +16,7 @@ namespace BackupService.Components.Pages.Logging
 
         private InputModel? _model;
         private string? _error;
+        private bool _confirmClear;
         private Notification _notification = default!;
 
         protected override async Task OnInitializedAsync()
@@ -44,6 +45,17 @@ namespace BackupService.Components.Pages.Logging
             _error = null;
             await RetentionService.UpdateSettingsAsync(_model.AuthenticationLogRetentionDays, _model.OperationLogRetentionDays);
             _notification.Show("Logging settings saved", NotificationLevel.Success);
+        }
+
+        private void ShowClearConfirm() => _confirmClear = true;
+
+        private void CancelClear() => _confirmClear = false;
+
+        private async Task ConfirmClearAsync()
+        {
+            _confirmClear = false;
+            var cleared = await RetentionService.ClearOperationLogsAsync();
+            _notification.Show($"Cleared {cleared} log{(cleared == 1 ? string.Empty : "s")}", NotificationLevel.Success);
         }
 
         private sealed class InputModel

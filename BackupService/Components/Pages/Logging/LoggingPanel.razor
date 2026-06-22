@@ -33,4 +33,24 @@
     }
 </div>
 
+<div class="card clear-logs-card">
+    <h2>Clear logs</h2>
+    <p>
+        Permanently delete <strong>all</strong> operation log history now, regardless of the retention
+        period above. This also clears the dashboard statistics. This cannot be undone.
+    </p>
+    <div class="modal-actions">
+        <button type="button" class="btn-danger" @onclick="ShowClearConfirm">Clear logs</button>
+    </div>
+</div>
+
+@if (_confirmClear)
+{
+    <ConfirmDialog Title="Clear logs"
+                   Message="Permanently delete all operation log history and the dashboard statistics? This cannot be undone."
+                   ConfirmText="Clear logs"
+                   OnConfirm="ConfirmClearAsync"
+                   OnCancel="CancelClear" />
+}
+
 <Notification @ref="_notification" />
