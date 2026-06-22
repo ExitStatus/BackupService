@@ -23,13 +23,14 @@ namespace BackupService.Components.Dialogs
 
         private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
         [
-            new("detail", "Detail"),
+            new("location", "Location"),
+            new("retention", "Retention"),
             new("archive", "Archive"),
             new("includes", "File Includes"),
             new("excludes", "Excludes"),
         ];
 
-        private string _activeTab = "detail";
+        private string _activeTab = "location";
         private bool _nameError;
         private bool _sourceError;
         private bool _targetError;
@@ -58,9 +59,14 @@ namespace BackupService.Components.Dialogs
             // on an existing protected archive a blank box keeps the stored password.
             _passwordError = Model.PasswordProtect && !Model.HasExistingPassword && string.IsNullOrWhiteSpace(Model.Password);
 
-            if (_nameError || _sourceError || _targetError || _countError || _levelsError)
+            if (_nameError || _sourceError || _targetError)
             {
-                _activeTab = "detail"; // these validated fields live on the Detail tab — show it
+                _activeTab = "location"; // name + source/target live on the Location tab
+                return;
+            }
+            if (_countError || _levelsError)
+            {
+                _activeTab = "retention"; // the keep-count and max-levels live on the Retention tab
                 return;
             }
             if (_fileNameError || _passwordError)

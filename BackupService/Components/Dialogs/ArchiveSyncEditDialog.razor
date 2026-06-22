@@ -5,7 +5,7 @@
         <TabBar Items="_tabs" @bind-SelectedKey="_activeTab" />
 
         <div class="modal-tab-content">
-            @if (_activeTab == "detail")
+            @if (_activeTab == "location")
             {
                 <label>
                     Name
@@ -38,7 +38,9 @@
                     Skip creating a new archive when the source content is identical to the most recent archive
                     in the target (compared by a SHA256 fingerprint stored in each archive's ZIP comment).
                 </p>
-
+            }
+            else if (_activeTab == "retention")
+            {
                 <label>
                     Retention
                     <Dropdown TValue="ArchiveRetentionMode"
