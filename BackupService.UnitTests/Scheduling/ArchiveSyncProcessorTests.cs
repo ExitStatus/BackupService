@@ -297,6 +297,18 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(KeepName(RunTime.AddHours(1))).Should().BeTrue();
         }
 
+        [Test]
+        public async Task UsesConfiguredCompressionLevel()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.CompressionLevel = ArchiveCompressionLevel.SmallestSize;
+
+            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            _fs.LastCompressionLevel.Should().Be(System.IO.Compression.CompressionLevel.SmallestSize);
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -507,8 +519,12 @@ namespace BackupService.UnitTests.Scheduling
             // Files the next CreateZipFromDirectory call reports as skipped (locked/unreadable).
             public IReadOnlyList<ZipSkippedFile> SkippedFiles { get; set; } = [];
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null)
+            // The compression level passed to the most recent CreateZipFromDirectory call.
+            public System.IO.Compression.CompressionLevel LastCompressionLevel { get; private set; }
+
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal)
             {
+                LastCompressionLevel = compressionLevel;
                 // Stand in for a real zip — record a file at the destination so the copy can read it,
                 // and return the relative entry names of the source files (top-level or recursive),
                 // honouring the include/exclude predicate so filtering is exercised. The archive comment is

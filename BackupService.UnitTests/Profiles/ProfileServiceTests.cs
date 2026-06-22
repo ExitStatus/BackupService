@@ -461,7 +461,7 @@ namespace BackupService.UnitTests.Profiles
                 "Nightly", "zip docs", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();
@@ -486,14 +486,14 @@ namespace BackupService.UnitTests.Profiles
                 "Nightly", null, ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, OnlyCopyOnChange: false, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
             var id = await GetOnlyProfileIdAsync();
 
             await _service.UpdateAsync(
                 id, "Nightly", null, "0 3 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
-                archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);
+                archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.ArchiveSyncItems).SingleAsync();

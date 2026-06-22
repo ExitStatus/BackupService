@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Extensions;
 using BackupService.FileSystem;
 using BackupService.Logging;
 
@@ -124,7 +125,8 @@ namespace BackupService.Scheduling
                 build = fileSystem.CreateZipFromDirectory(
                     sourceDir, tempZip, item.IncludeSubFolders,
                     filter.IsEmpty ? null : filter.IsRelativePathInScope,
-                    fingerprint);
+                    fingerprint,
+                    item.CompressionLevel.ToCompressionLevel());
             }
             catch (Exception ex)
             {

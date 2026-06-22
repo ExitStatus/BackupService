@@ -52,6 +52,9 @@ namespace BackupService.Database
         /// </summary>
         public bool OnlyCopyOnChange { get; set; }
 
+        /// <summary>How hard to compress the ZIP (maps to the BCL compression level).</summary>
+        public ArchiveCompressionLevel CompressionLevel { get; set; }
+
         public ArchiveRetentionMode RetentionMode { get; set; }
 
         /// <summary>Archives kept — total for <see cref="ArchiveRetentionMode.KeepLastN"/>, per level for GFS.</summary>

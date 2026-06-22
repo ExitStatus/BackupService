@@ -106,6 +106,7 @@ namespace BackupService.Components.Controls
             FileName = source.FileName,
             IncludeSubFolders = source.IncludeSubFolders,
             OnlyCopyOnChange = source.OnlyCopyOnChange,
+            CompressionLevel = source.CompressionLevel,
             RetentionMode = source.RetentionMode,
             RetentionCount = source.RetentionCount,
             MaxLevels = source.MaxLevels,
@@ -138,6 +139,9 @@ namespace BackupService.Components.Controls
 
         /// <summary>When true, only create a new archive when the source content has changed.</summary>
         public bool OnlyCopyOnChange { get; set; }
+
+        /// <summary>How hard to compress the ZIP; defaults to Optimal.</summary>
+        public ArchiveCompressionLevel CompressionLevel { get; set; } = ArchiveCompressionLevel.Optimal;
 
         public ArchiveRetentionMode RetentionMode { get; set; }
 

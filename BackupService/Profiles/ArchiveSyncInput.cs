@@ -14,6 +14,7 @@ namespace BackupService.Profiles
         string FileName,
         bool IncludeSubFolders,
         bool OnlyCopyOnChange,
+        ArchiveCompressionLevel CompressionLevel,
         ArchiveRetentionMode RetentionMode,
         int RetentionCount,
         int MaxLevels,

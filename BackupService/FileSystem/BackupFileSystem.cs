@@ -63,7 +63,7 @@ namespace BackupService.FileSystem
             return Path.Combine(directory, fileName);
         }
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null)
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
             // gets the list of files added — both for the top-level-only case and for verbose logging —
@@ -90,7 +90,7 @@ namespace BackupService.FileSystem
                     // FileShare.Read that CreateEntryFromFile uses would fail on those). The open is the
                     // dominant failure point; a file readable here is added in full.
                     using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    var entry = zip.CreateEntry(entryName, CompressionLevel.Optimal);
+                    var entry = zip.CreateEntry(entryName, compressionLevel);
                     entry.LastWriteTime = File.GetLastWriteTime(file); // mirror CreateEntryFromFile
                     using var entryStream = entry.Open();
                     src.CopyTo(entryStream);

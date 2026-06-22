@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 namespace BackupService.FileSystem
 {
     /// <summary>
@@ -68,9 +70,10 @@ namespace BackupService.FileSystem
         /// is skipped rather than aborting the archive. Returns the relative entry names added (for
         /// verbose logging) plus the files skipped and why, so the caller can log/count them.
         /// <paramref name="comment"/> is stored as the ZIP's archive comment when non-null (used by
-        /// ArchiveSync's "only copy on change" fingerprint).
+        /// ArchiveSync's "only copy on change" fingerprint). <paramref name="compressionLevel"/> sets how hard
+        /// each entry is compressed.
         /// </summary>
-        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null);
+        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal);
 
         /// <summary>
         /// Returns the archive comment of the ZIP at <paramref name="path"/>, or null when there is none or

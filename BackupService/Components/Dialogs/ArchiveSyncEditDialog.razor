@@ -52,6 +52,15 @@
                 </p>
 
                 <label>
+                    Compression
+                    <Dropdown TValue="ArchiveCompressionLevel"
+                              @bind-Value="Model.CompressionLevel"
+                              Items="Enum.GetValues<ArchiveCompressionLevel>()"
+                              DisplayText="c => c.GetDescription()" />
+                </label>
+                <p class="help-text">@Model.CompressionLevel.GetHelpText()</p>
+
+                <label>
                     Retention
                     <Dropdown TValue="ArchiveRetentionMode"
                               @bind-Value="Model.RetentionMode"
