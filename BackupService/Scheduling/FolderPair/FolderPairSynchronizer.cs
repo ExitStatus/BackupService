@@ -295,11 +295,12 @@ namespace BackupService.Scheduling
             catch (Exception ex)
             {
                 TryDeleteTemp(ctx, tempPath);
-                if (FileLock.IsLockViolation(ex))
+                if (FileLock.IsSkippableReadError(ex, out var reason))
                 {
-                    // The file is locked by another process — skip it this run (non-fatal warning).
+                    // The file couldn't be read (locked, or an unavailable cloud file) — skip it this run
+                    // as a non-fatal warning rather than failing the run.
                     result.Warnings++;
-                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — in use by another process (locked)");
+                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — {reason}");
                 }
                 else
                 {

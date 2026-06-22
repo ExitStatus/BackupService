@@ -294,9 +294,18 @@ namespace BackupService.Scheduling
                         .Where(e => filter.IsEmpty || filter.IsRelativePathInScope(e.Entry))
                         .OrderBy(e => e.Entry, StringComparer.Ordinal))
                     {
+                        // A file that can't be read here (e.g. a OneDrive cloud-only placeholder that can't
+                        // hydrate from a session-0 service) is omitted from the manifest rather than aborting
+                        // the whole archive — the zip build skips the same file and logs it as a warning, so
+                        // the readable-content fingerprint and the archived set stay consistent.
+                        var hash = TryHashFile(path);
+                        if (hash is null)
+                        {
+                            continue;
+                        }
                         writer.Write(entry);
                         writer.Write('\t');
-                        writer.Write(HashFile(path));
+                        writer.Write(hash);
                         writer.Write('\n');
                     }
                 }
@@ -327,6 +336,19 @@ namespace BackupService.Scheduling
         {
             using var stream = fileSystem.OpenRead(path);
             return Convert.ToHexString(SHA256.HashData(stream));
+        }
+
+        /// <summary>Hashes a file, returning null if it can't be read (locked, or an un-hydratable cloud file).</summary>
+        private string? TryHashFile(string path)
+        {
+            try
+            {
+                return HashFile(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         // ---- Retention ----

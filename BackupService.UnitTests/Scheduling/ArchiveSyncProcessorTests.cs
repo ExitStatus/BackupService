@@ -341,6 +341,24 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(KeepName(RunTime)).Should().BeFalse();
         }
 
+        [Test]
+        public async Task OnlyCopyOnChange_UnreadableSourceFile_DoesNotFailArchive()
+        {
+            // A cloud-only file that can't be read must not abort the fingerprint pass (and hence the whole
+            // archive) — it's skipped from the manifest, the readable files are still archived.
+            _fs.AddFile(@"C:\src\readable.txt", RunTime, "data");
+            _fs.AddFile(@"C:\src\cloud.txt", RunTime, "data");
+            _fs.Unreadable.Add(@"C:\src\cloud.txt");
+            var item = KeepLastN(5);
+            item.OnlyCopyOnChange = true;
+
+            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            result.Errors.Should().Be(0);
+            result.Copied.Should().Be(1);
+            _fs.FileExists(KeepName(RunTime)).Should().BeTrue();
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -475,11 +493,19 @@ namespace BackupService.UnitTests.Scheduling
                 }
             }
 
+            // Files that exist (are enumerated) but throw on read — e.g. a OneDrive cloud-only placeholder
+            // that can't hydrate from a session-0 service.
+            public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
+
             public Stream OpenRead(string path)
             {
                 if (!_files.TryGetValue(path, out var e))
                 {
                     throw new FileNotFoundException(path);
+                }
+                if (Unreadable.Contains(path))
+                {
+                    throw new IOException("Access to the cloud file is denied.");
                 }
                 return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
             }

@@ -32,5 +32,39 @@ namespace BackupService.UnitTests.FileSystem
         [Test]
         public void Null_IsNotLockViolation() =>
             FileLock.IsLockViolation(null).Should().BeFalse();
+
+        [Test]
+        public void CloudFileAccessDenied_HResult_IsCloudFileError() =>
+            // 395 = ERROR_CLOUD_FILE_ACCESS_DENIED
+            FileLock.IsCloudFileError(new IOException("x", unchecked((int)0x8007018B))).Should().BeTrue();
+
+        [Test]
+        public void CloudFile_Message_IsCloudFileError() =>
+            FileLock.IsCloudFileError(new IOException("Access to the cloud file is denied.")).Should().BeTrue();
+
+        [Test]
+        public void OtherIOException_IsNotCloudFileError() =>
+            FileLock.IsCloudFileError(new IOException("disk full")).Should().BeFalse();
+
+        [Test]
+        public void LockViolation_IsSkippableReadError_WithLockReason()
+        {
+            FileLock.IsSkippableReadError(new IOException("x", unchecked((int)0x80070020)), out var reason).Should().BeTrue();
+            reason.Should().Contain("locked");
+        }
+
+        [Test]
+        public void CloudFileError_IsSkippableReadError_WithCloudReason()
+        {
+            FileLock.IsSkippableReadError(new IOException("x", unchecked((int)0x8007018B)), out var reason).Should().BeTrue();
+            reason.Should().Contain("cloud file");
+        }
+
+        [Test]
+        public void OtherIOException_IsNotSkippableReadError()
+        {
+            FileLock.IsSkippableReadError(new IOException("disk full"), out var reason).Should().BeFalse();
+            reason.Should().BeEmpty();
+        }
     }
 }
