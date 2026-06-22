@@ -209,7 +209,9 @@ namespace BackupService.Hosting
             return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
         }
 
-        private static bool ServiceExists() => RunSc("query", ServiceName).ExitCode == 0;
+        // Existence checks run sc query repeatedly; don't echo their output (a "1060 does not exist"
+        // line is the expected result once a delete completes and would look like an install error).
+        private static bool ServiceExists() => RunSc(echo: false, "query", ServiceName).ExitCode == 0;
 
         private static void WaitForServiceRemoved()
         {
@@ -220,7 +222,9 @@ namespace BackupService.Hosting
             }
         }
 
-        private static (int ExitCode, string Output) RunSc(params string[] arguments)
+        private static (int ExitCode, string Output) RunSc(params string[] arguments) => RunSc(echo: true, arguments);
+
+        private static (int ExitCode, string Output) RunSc(bool echo, params string[] arguments)
         {
             var startInfo = new ProcessStartInfo("sc.exe")
             {
@@ -238,7 +242,7 @@ namespace BackupService.Hosting
             var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
             process.WaitForExit();
 
-            if (!string.IsNullOrWhiteSpace(output))
+            if (echo && !string.IsNullOrWhiteSpace(output))
             {
                 Console.Write(output);
             }
