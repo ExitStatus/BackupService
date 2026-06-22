@@ -105,6 +105,7 @@ namespace BackupService.Components.Controls
             TargetConnectionId = source.TargetConnectionId,
             FileName = source.FileName,
             IncludeSubFolders = source.IncludeSubFolders,
+            OnlyCopyOnChange = source.OnlyCopyOnChange,
             RetentionMode = source.RetentionMode,
             RetentionCount = source.RetentionCount,
             MaxLevels = source.MaxLevels,
@@ -134,6 +135,9 @@ namespace BackupService.Components.Controls
         public string FileName { get; set; } = string.Empty;
 
         public bool IncludeSubFolders { get; set; }
+
+        /// <summary>When true, only create a new archive when the source content has changed.</summary>
+        public bool OnlyCopyOnChange { get; set; }
 
         public ArchiveRetentionMode RetentionMode { get; set; }
 

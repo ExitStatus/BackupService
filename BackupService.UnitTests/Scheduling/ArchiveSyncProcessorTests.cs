@@ -249,6 +249,54 @@ namespace BackupService.UnitTests.Scheduling
             detail.Should().NotContain("image.png");
         }
 
+        [Test]
+        public async Task OnlyCopyOnChange_FirstRun_CreatesArchive_WithFingerprintComment()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.OnlyCopyOnChange = true;
+
+            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            _fs.GetZipComment(KeepName(RunTime)).Should().NotBeNullOrEmpty(); // fingerprint stored for next time
+        }
+
+        [Test]
+        public async Task OnlyCopyOnChange_SecondRunUnchanged_SkipsArchive()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.OnlyCopyOnChange = true;
+
+            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var zipsAfterFirst = _fs.AllFiles.Count(p => p.EndsWith(".zip"));
+
+            var second = await _sut.CreateArchiveAsync(item, runIndex: 2, RunTime.AddHours(1), _log, CancellationToken.None);
+
+            second.Copied.Should().Be(0);
+            second.Deleted.Should().Be(0);
+            _fs.AllFiles.Count(p => p.EndsWith(".zip")).Should().Be(zipsAfterFirst); // no new archive created
+            _log.Messages.Should().Contain(m => m.Contains("unchanged") && m.Contains("skipping"));
+        }
+
+        [Test]
+        public async Task OnlyCopyOnChange_AfterSourceChanges_CreatesNewArchive()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.OnlyCopyOnChange = true;
+
+            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "CHANGED"); // same path, different content
+            var second = await _sut.CreateArchiveAsync(item, runIndex: 2, RunTime.AddHours(1), _log, CancellationToken.None);
+
+            second.Copied.Should().Be(1);
+            _fs.FileExists(KeepName(RunTime)).Should().BeTrue();
+            _fs.FileExists(KeepName(RunTime.AddHours(1))).Should().BeTrue();
+        }
+
         // ---- Fakes ----
 
         private sealed class CapturingLogger : IOperationLogger
@@ -459,11 +507,12 @@ namespace BackupService.UnitTests.Scheduling
             // Files the next CreateZipFromDirectory call reports as skipped (locked/unreadable).
             public IReadOnlyList<ZipSkippedFile> SkippedFiles { get; set; } = [];
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null)
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null)
             {
                 // Stand in for a real zip — record a file at the destination so the copy can read it,
                 // and return the relative entry names of the source files (top-level or recursive),
-                // honouring the include/exclude predicate so filtering is exercised.
+                // honouring the include/exclude predicate so filtering is exercised. The archive comment is
+                // embedded in the "content" so it survives the stream copy to the target (like a real EOCD).
                 var entries = _files.Keys
                     .Where(f => includeSubfolders
                         ? IsUnder(f, sourceDirectory)
@@ -471,8 +520,18 @@ namespace BackupService.UnitTests.Scheduling
                     .Select(f => Path.GetRelativePath(sourceDirectory, f).Replace('\\', '/'))
                     .Where(e => includeEntry is null || includeEntry(e))
                     .ToList();
-                AddFile(destinationZip, DateTime.UtcNow, "zip");
+                AddFile(destinationZip, DateTime.UtcNow, comment is null ? "zip" : "zip " + comment);
                 return new ZipBuildResult(entries, SkippedFiles);
+            }
+
+            public string? GetZipComment(string path)
+            {
+                if (!_files.TryGetValue(path, out var e))
+                {
+                    return null;
+                }
+                var marker = e.Content.IndexOf(' ');
+                return marker < 0 ? null : e.Content[(marker + 1)..];
             }
 
             private static bool IsUnder(string path, string directory)

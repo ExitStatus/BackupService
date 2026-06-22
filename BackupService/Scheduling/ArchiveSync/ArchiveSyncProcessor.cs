@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.FileSystem;
@@ -96,6 +98,24 @@ namespace BackupService.Scheduling
             // 2. Build the ZIP in a local temp folder, verbose-logging each file added. Include/exclude
             // rules filter which source files go into the archive (empty includes = all files).
             var filter = new BackupFilter(item.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
+
+            // "Only copy on change": fingerprint the source and skip the run when it matches the newest
+            // archive's stored fingerprint (kept in that archive's ZIP comment). The fingerprint is created
+            // even on the first run so it can be stored in the new archive for next time.
+            string? fingerprint = null;
+            if (item.OnlyCopyOnChange)
+            {
+                fingerprint = ComputeSourceFingerprint(sourceDir, item.IncludeSubFolders, filter);
+                var newest = ListArchives(item, target, gfs)
+                    .OrderByDescending(a => a.Timestamp)
+                    .FirstOrDefault();
+                if (newest is not null && string.Equals(target.Fs.GetZipComment(newest.Path), fingerprint, StringComparison.Ordinal))
+                {
+                    await log.AppendAsync($"Source unchanged since last archive '{Path.GetFileName(newest.Path)}' — skipping (no new archive).");
+                    return;
+                }
+            }
+
             string tempZip;
             ZipBuildResult build;
             try
@@ -103,7 +123,8 @@ namespace BackupService.Scheduling
                 tempZip = fileSystem.GetTempFilePath(finalName);
                 build = fileSystem.CreateZipFromDirectory(
                     sourceDir, tempZip, item.IncludeSubFolders,
-                    filter.IsEmpty ? null : filter.IsRelativePathInScope);
+                    filter.IsEmpty ? null : filter.IsRelativePathInScope,
+                    fingerprint);
             }
             catch (Exception ex)
             {
@@ -220,6 +241,64 @@ namespace BackupService.Scheduling
                     StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, ct);
                 }
             }
+        }
+
+        // ---- "Only copy on change" fingerprint ----
+
+        /// <summary>
+        /// Builds a manifest of every archived file's SHA256 (one stable, ordinal-sorted line per file,
+        /// <c>{entry}\t{hash}</c>) into a local temp file, then returns the SHA256 of that manifest — a single
+        /// fingerprint of the whole source content set. The manifest set matches exactly what gets archived
+        /// (same recursion and include/exclude filtering). Runs against the local <paramref name="sourceDir"/>
+        /// (a remote source is already staged locally by this point).
+        /// </summary>
+        private string ComputeSourceFingerprint(string sourceDir, bool includeSubFolders, BackupFilter filter)
+        {
+            var entries = new List<(string Entry, string Path)>();
+            GatherFiles(sourceDir, sourceDir, includeSubFolders, entries);
+
+            var manifestPath = fileSystem.GetTempFilePath("manifest.txt");
+            try
+            {
+                using (var writer = new StreamWriter(fileSystem.OpenWrite(manifestPath), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                {
+                    foreach (var (entry, path) in entries
+                        .Where(e => filter.IsEmpty || filter.IsRelativePathInScope(e.Entry))
+                        .OrderBy(e => e.Entry, StringComparer.Ordinal))
+                    {
+                        writer.Write(entry);
+                        writer.Write('\t');
+                        writer.Write(HashFile(path));
+                        writer.Write('\n');
+                    }
+                }
+                return HashFile(manifestPath);
+            }
+            finally
+            {
+                TryDelete(fileSystem, manifestPath);
+            }
+        }
+
+        private void GatherFiles(string root, string dir, bool includeSubFolders, List<(string Entry, string Path)> into)
+        {
+            foreach (var file in fileSystem.GetFiles(dir))
+            {
+                into.Add((Path.GetRelativePath(root, file).Replace('\\', '/'), file));
+            }
+            if (includeSubFolders)
+            {
+                foreach (var sub in fileSystem.GetDirectories(dir))
+                {
+                    GatherFiles(root, sub, includeSubFolders, into);
+                }
+            }
+        }
+
+        private string HashFile(string path)
+        {
+            using var stream = fileSystem.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream));
         }
 
         // ---- Retention ----

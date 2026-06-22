@@ -285,8 +285,10 @@ namespace BackupService.UnitTests.Scheduling
 
             public string GetTempFilePath(string fileName) => throw new NotSupportedException();
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null) =>
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null) =>
                 throw new NotSupportedException();
+
+            public string? GetZipComment(string path) => throw new NotSupportedException();
 
             private static bool IsUnder(string path, string directory)
             {

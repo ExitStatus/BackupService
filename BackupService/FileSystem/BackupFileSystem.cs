@@ -63,7 +63,7 @@ namespace BackupService.FileSystem
             return Path.Combine(directory, fileName);
         }
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null)
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
             // gets the list of files added — both for the top-level-only case and for verbose logging —
@@ -73,6 +73,10 @@ namespace BackupService.FileSystem
             var skipped = new List<ZipSkippedFile>();
 
             using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
+            if (comment is not null)
+            {
+                zip.Comment = comment; // stored in the EOCD record (the "only copy on change" fingerprint)
+            }
             foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
             {
                 var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/'); // zip-standard separators
@@ -99,6 +103,19 @@ namespace BackupService.FileSystem
             }
 
             return new ZipBuildResult(added, skipped);
+        }
+
+        public string? GetZipComment(string path)
+        {
+            try
+            {
+                using var zip = ZipFile.OpenRead(path);
+                return string.IsNullOrEmpty(zip.Comment) ? null : zip.Comment;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                return null; // not a readable ZIP — treat as "no fingerprint" so the caller rebuilds
+            }
         }
 
         public bool FilesContentEqual(string a, string b)

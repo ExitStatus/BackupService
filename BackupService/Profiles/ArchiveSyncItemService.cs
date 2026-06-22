@@ -25,7 +25,7 @@ namespace BackupService.Profiles
             // Snapshot the original items before mutating so we can describe what changed.
             var oldItems = profile.ArchiveSyncItems.ToDictionary(
                 i => i.Id,
-                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.RetentionMode, i.RetentionCount, i.MaxLevels, FilterSignature(i.Filters)));
+                i => new ItemSnapshot(i.Name, i.SourceFolder, i.TargetFolder, i.FileName, i.IncludeSubFolders, i.OnlyCopyOnChange, i.RetentionMode, i.RetentionCount, i.MaxLevels, FilterSignature(i.Filters)));
 
             // Remove items the user deleted (not present by id in the new set).
             var keptIds = inputs.Where(i => i.Id != 0).Select(i => i.Id).ToHashSet();
@@ -54,6 +54,7 @@ namespace BackupService.Profiles
                     existing.TargetConnectionId = input.TargetConnectionId;
                     existing.FileName = input.FileName;
                     existing.IncludeSubFolders = input.IncludeSubFolders;
+                    existing.OnlyCopyOnChange = input.OnlyCopyOnChange;
                     existing.RetentionMode = input.RetentionMode;
                     existing.RetentionCount = input.RetentionCount;
                     existing.MaxLevels = input.MaxLevels;
@@ -74,6 +75,7 @@ namespace BackupService.Profiles
                 lines.Add($"Target: {item.TargetFolder}");
                 lines.Add($"File name: {item.FileName}");
                 lines.Add($"Include sub-folders: {YesNo(item.IncludeSubFolders)}");
+                lines.Add($"Only copy on change: {YesNo(item.OnlyCopyOnChange)}");
                 lines.Add($"Retention: {RetentionText(item)}");
                 lines.AddRange((item.Filters ?? []).Select(FilterLine));
             }
@@ -125,6 +127,10 @@ namespace BackupService.Profiles
                 {
                     changes.Add($"Archive '{input.Name}' include sub-folders changed from '{YesNo(old.IncludeSubFolders)}' to '{YesNo(input.IncludeSubFolders)}'");
                 }
+                if (old.OnlyCopyOnChange != input.OnlyCopyOnChange)
+                {
+                    changes.Add($"Archive '{input.Name}' only-copy-on-change changed from '{YesNo(old.OnlyCopyOnChange)}' to '{YesNo(input.OnlyCopyOnChange)}'");
+                }
                 if (old.RetentionMode != input.RetentionMode || old.RetentionCount != input.RetentionCount || old.MaxLevels != input.MaxLevels)
                 {
                     changes.Add($"Archive '{input.Name}' retention changed from '{RetentionText(old)}' to '{RetentionText(input)}'");
@@ -147,6 +153,7 @@ namespace BackupService.Profiles
             TargetConnectionId = input.TargetConnectionId,
             FileName = input.FileName,
             IncludeSubFolders = input.IncludeSubFolders,
+            OnlyCopyOnChange = input.OnlyCopyOnChange,
             RetentionMode = input.RetentionMode,
             RetentionCount = input.RetentionCount,
             MaxLevels = input.MaxLevels,
@@ -224,6 +231,7 @@ namespace BackupService.Profiles
             string TargetFolder,
             string FileName,
             bool IncludeSubFolders,
+            bool OnlyCopyOnChange,
             ArchiveRetentionMode RetentionMode,
             int RetentionCount,
             int MaxLevels,

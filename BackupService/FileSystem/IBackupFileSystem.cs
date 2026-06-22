@@ -67,7 +67,16 @@ namespace BackupService.FileSystem
         /// Building is otherwise best-effort: a file that can't be read (e.g. locked by another process)
         /// is skipped rather than aborting the archive. Returns the relative entry names added (for
         /// verbose logging) plus the files skipped and why, so the caller can log/count them.
+        /// <paramref name="comment"/> is stored as the ZIP's archive comment when non-null (used by
+        /// ArchiveSync's "only copy on change" fingerprint).
         /// </summary>
-        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null);
+        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null);
+
+        /// <summary>
+        /// Returns the archive comment of the ZIP at <paramref name="path"/>, or null when there is none or
+        /// the file isn't a readable ZIP. Used to read back the "only copy on change" fingerprint of a
+        /// previously created archive (which may live on a remote target).
+        /// </summary>
+        string? GetZipComment(string path);
     }
 }

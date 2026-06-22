@@ -44,6 +44,14 @@ namespace BackupService.Database
 
         public bool IncludeSubFolders { get; set; }
 
+        /// <summary>
+        /// When true, a new archive is only created when the source content has changed since the most recent
+        /// archive in the target. A SHA256 fingerprint of the source (a manifest of every file's SHA256, then
+        /// hashed) is stored in the created ZIP's comment; a run whose fingerprint matches the newest archive's
+        /// comment is skipped (no new archive, no retention).
+        /// </summary>
+        public bool OnlyCopyOnChange { get; set; }
+
         public ArchiveRetentionMode RetentionMode { get; set; }
 
         /// <summary>Archives kept — total for <see cref="ArchiveRetentionMode.KeepLastN"/>, per level for GFS.</summary>

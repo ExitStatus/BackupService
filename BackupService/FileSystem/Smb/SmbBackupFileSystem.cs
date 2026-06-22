@@ -206,8 +206,87 @@ namespace BackupService.FileSystem.Smb
         public string GetTempFilePath(string fileName) =>
             throw new NotSupportedException("Temp files are local-only; archives are built locally then copied to the remote.");
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null) =>
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null) =>
             throw new NotSupportedException("Zipping from a remote source is not supported.");
+
+        public string? GetZipComment(string path)
+        {
+            // The ZIP archive comment lives in the End-Of-Central-Directory (EOCD) record at the very end of
+            // the file, so read just the tail and parse it (rather than downloading the whole archive). The
+            // EOCD is 22 bytes + an up-to-65535-byte comment, so the last (22 + 65535) bytes always cover it.
+            try
+            {
+                var size = GetFileSize(path);
+                if (size < 22)
+                {
+                    return null;
+                }
+
+                const int maxComment = 65535;
+                var window = (int)Math.Min(size, 22 + maxComment);
+                var tail = ReadTail(path, size - window, window);
+                return ParseEocdComment(tail);
+            }
+            catch (Exception ex) when (ex is IOException or SmbBrowseException)
+            {
+                return null; // unreadable — treat as "no fingerprint" so the caller rebuilds
+            }
+        }
+
+        // Reads <paramref name="count"/> bytes starting at <paramref name="offset"/> (chunked by MaxReadSize).
+        private byte[] ReadTail(string path, long offset, int count)
+        {
+            var status = _store.CreateFile(
+                out var handle, out _, Normalize(path),
+                AccessMask.GENERIC_READ | AccessMask.SYNCHRONIZE, FileAttributes.Normal,
+                ShareAccess.Read | ShareAccess.Write | ShareAccess.Delete,
+                CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
+            Ensure(status, $"open '{path}' to read tail");
+            try
+            {
+                var buffer = new byte[count];
+                var written = 0;
+                var max = (int)_client.MaxReadSize;
+                while (written < count)
+                {
+                    var chunk = Math.Min(max, count - written);
+                    var readStatus = _store.ReadFile(out var data, handle, offset + written, chunk);
+                    if (readStatus == NTStatus.STATUS_END_OF_FILE || data is null || data.Length == 0)
+                    {
+                        break;
+                    }
+                    Ensure(readStatus, $"read '{path}'");
+                    Array.Copy(data, 0, buffer, written, data.Length);
+                    written += data.Length;
+                }
+                return written == count ? buffer : buffer[..written];
+            }
+            finally
+            {
+                _store.CloseFile(handle);
+            }
+        }
+
+        // Finds the EOCD signature (PK\x05\x06) from the end of <paramref name="tail"/> and returns its
+        // UTF-8 comment, or null if the signature/comment can't be read (e.g. ZIP64 or an unexpected layout).
+        private static string? ParseEocdComment(byte[] tail)
+        {
+            // EOCD: signature(4) ... commentLength(2 @ +20) comment(@ +22). Scan backwards for the signature.
+            for (var i = tail.Length - 22; i >= 0; i--)
+            {
+                if (tail[i] == 0x50 && tail[i + 1] == 0x4B && tail[i + 2] == 0x05 && tail[i + 3] == 0x06)
+                {
+                    var commentLength = tail[i + 20] | (tail[i + 21] << 8);
+                    var start = i + 22;
+                    if (commentLength == 0 || start + commentLength > tail.Length)
+                    {
+                        return null;
+                    }
+                    return System.Text.Encoding.UTF8.GetString(tail, start, commentLength);
+                }
+            }
+            return null;
+        }
 
         public void Dispose()
         {
