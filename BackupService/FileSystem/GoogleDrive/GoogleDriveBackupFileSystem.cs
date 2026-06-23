@@ -218,7 +218,17 @@ namespace BackupService.FileSystem.GoogleDrive
                 }
             }
 
-            var update = _drive.Files.Update(new DriveFile { Name = destName }, sourceEntry.Id);
+            // A metadata-only files.update (rename/move) otherwise resets Drive's modifiedTime to "now", which
+            // would lose the source timestamp the crash-safe copy just stamped on the temp via
+            // SetLastWriteTimeUtc. Re-assert it in the same request (appProperties — incl. the exact ticks —
+            // are preserved since they aren't part of this update).
+            var metadata = new DriveFile { Name = destName };
+            if (sourceEntry.WriteTimeUtc > DateTime.MinValue)
+            {
+                metadata.ModifiedTimeRaw = Rfc3339(sourceEntry.WriteTimeUtc);
+            }
+
+            var update = _drive.Files.Update(metadata, sourceEntry.Id);
             update.Fields = EntryFields;
             if (!string.Equals(destParentId, sourceParentId, StringComparison.Ordinal))
             {
