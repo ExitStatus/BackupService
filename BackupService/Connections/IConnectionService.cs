@@ -1,17 +1,22 @@
+using BackupService.Connections.GoogleDrive;
 using BackupService.Database;
 using BackupService.Enumerations;
 
 namespace BackupService.Connections
 {
     /// <summary>
-    /// CRUD for remote-resource connections (SMB, etc.). Mirrors <c>IProfileService</c>: a short-lived
-    /// DbContext per call, an operation log per mutation, and the type fixed after creation.
+    /// CRUD for remote-resource connections (SMB, Google Drive, etc.). Mirrors <c>IProfileService</c>: a
+    /// short-lived DbContext per call, an operation log per mutation, and the type fixed after creation.
     /// </summary>
     public interface IConnectionService
     {
         Task<int> CreateAsync(string name, ConnectionType type, SmbConnectionInput smb, CancellationToken cancellationToken = default);
 
         Task UpdateAsync(int id, string name, SmbConnectionInput smb, CancellationToken cancellationToken = default);
+
+        Task<int> CreateAsync(string name, ConnectionType type, GoogleDriveConnectionInput googleDrive, CancellationToken cancellationToken = default);
+
+        Task UpdateAsync(int id, string name, GoogleDriveConnectionInput googleDrive, CancellationToken cancellationToken = default);
 
         Task<PagedResult<Connection>> GetPageAsync(int pageNumber, int pageSize, ConnectionSortColumn sortColumn, bool descending, CancellationToken cancellationToken = default);
 

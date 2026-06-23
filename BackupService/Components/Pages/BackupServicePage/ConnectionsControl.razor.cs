@@ -66,7 +66,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         }
 
         private static string Endpoint(Connection connection) =>
-            connection.Smb is { } smb ? $@"\\{smb.Host}\{smb.ShareName}" : "—";
+            connection.Smb is { } smb ? $@"\\{smb.Host}\{smb.ShareName}"
+            : connection.GoogleDrive is { } gd ? (string.IsNullOrWhiteSpace(gd.AccountEmail) ? "Google Drive" : gd.AccountEmail)
+            : "—";
 
         private void OpenCreate()
         {

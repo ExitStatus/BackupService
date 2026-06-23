@@ -1,16 +1,19 @@
+using BackupService.Connections.GoogleDrive;
 using BackupService.Database;
+using BackupService.Enumerations;
 using BackupService.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace BackupService.Connections
 {
     /// <summary>
-    /// Default <see cref="IConnectionResolver"/>: reads the connection's SMB settings and decrypts the
-    /// password via <see cref="ISecretProtector"/>.
+    /// Default <see cref="IConnectionResolver"/>: reads a connection's settings and decrypts its secrets via
+    /// <see cref="ISecretProtector"/>.
     /// </summary>
     public sealed class ConnectionResolver(
         IDatabaseContextFactory contextFactory,
-        ISecretProtector secretProtector) : IConnectionResolver
+        ISecretProtector secretProtector,
+        GoogleDriveAppCredentials googleDriveAppCredentials) : IConnectionResolver
     {
         public async Task<SmbConnectionInfo> GetSmbInfoAsync(int connectionId, CancellationToken cancellationToken = default)
         {
@@ -33,6 +36,45 @@ namespace BackupService.Connections
                 settings.Username,
                 password,
                 settings.RootFolder);
+        }
+
+        public async Task<GoogleDriveConnectionInfo> GetGoogleDriveInfoAsync(int connectionId, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var settings = await db.GoogleDriveConnectionSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.ConnectionId == connectionId, cancellationToken)
+                ?? throw new InvalidOperationException($"Connection {connectionId} has no Google Drive settings.");
+
+            var refreshToken = string.IsNullOrEmpty(settings.RefreshTokenEncrypted)
+                ? string.Empty
+                : secretProtector.Unprotect(settings.RefreshTokenEncrypted);
+
+            // A built-in-client connection refreshes against the app's configured client; a custom one uses
+            // its own stored id/secret.
+            var clientId = settings.UsesBuiltInClient ? googleDriveAppCredentials.ClientId ?? string.Empty : settings.ClientId;
+            var clientSecret = settings.UsesBuiltInClient
+                ? googleDriveAppCredentials.ClientSecret ?? string.Empty
+                : string.IsNullOrEmpty(settings.ClientSecretEncrypted) ? string.Empty : secretProtector.Unprotect(settings.ClientSecretEncrypted);
+
+            return new GoogleDriveConnectionInfo(
+                clientId,
+                clientSecret,
+                refreshToken,
+                settings.AccountEmail,
+                settings.RootFolder);
+        }
+
+        public async Task<ConnectionType> GetTypeAsync(int connectionId, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            return await db.Connections
+                .AsNoTracking()
+                .Where(c => c.Id == connectionId)
+                .Select(c => c.Type)
+                .FirstOrDefaultAsync(cancellationToken);
         }
     }
 }

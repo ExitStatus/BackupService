@@ -20,7 +20,7 @@
                     Connection type
                     <Dropdown TValue="ConnectionType"
                               @bind-Value="Input.Type"
-                              Items="Enum.GetValues<ConnectionType>()"
+                              Items="AvailableTypes"
                               DisplayText="t => t.GetDescription()" />
                 </label>
             }
@@ -29,6 +29,9 @@
             {
                 case ConnectionType.Smb:
                     <SmbConnectionEditor @ref="_smbEditor" Model="_smb" ConnectionId="ConnectionId" />
+                    break;
+                case ConnectionType.GoogleDrive:
+                    <GoogleDriveConnectionEditor @ref="_googleDriveEditor" Model="_googleDrive" ConnectionId="ConnectionId" />
                     break;
             }
 

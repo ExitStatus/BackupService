@@ -84,6 +84,14 @@ namespace BackupService
             builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
             builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
             builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
+            builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleDriveConnector, Connections.GoogleDrive.GoogleDriveConnector>();
+            builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleOAuthFlowService, Connections.GoogleDrive.GoogleOAuthFlowService>();
+            // The app's built-in Google OAuth client (so users can authorise Drive with one click). Sourced
+            // from config (GoogleDrive:ClientId/ClientSecret via user-secrets or an environment overlay — never
+            // committed); when unset, the editor falls back to the Advanced "use your own client" fields.
+            builder.Services.AddSingleton(new Connections.GoogleDrive.GoogleDriveAppCredentials(
+                builder.Configuration["GoogleDrive:ClientId"],
+                builder.Configuration["GoogleDrive:ClientSecret"]));
 
             // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
             // The scheduler is a single instance shared across its three roles (singleton,
@@ -155,6 +163,33 @@ namespace BackupService
                 await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 return Results.Redirect("/login");
             });
+
+            // Google Drive OAuth redirect target. Google sends the browser here after consent; we complete
+            // the pending flow (keyed by the unguessable state) and show a close-this-tab page. Anonymous —
+            // it only resolves an in-flight attempt by state and stores nothing itself.
+            app.MapGet("/connections/google/callback",
+                async (HttpContext http, Connections.GoogleDrive.IGoogleOAuthFlowService flow) =>
+                {
+                    var state = http.Request.Query["state"].ToString();
+                    var code = http.Request.Query["code"].ToString();
+                    var error = http.Request.Query["error"].ToString();
+
+                    if (!string.IsNullOrEmpty(state))
+                    {
+                        await flow.CompleteAsync(state, code, error);
+                    }
+
+                    var ok = string.IsNullOrEmpty(error);
+                    var message = ok
+                        ? "Authorization complete. You can close this tab and return to Backup Service."
+                        : "Authorization was cancelled or failed. You can close this tab and try again.";
+                    var html = $"<!doctype html><html><head><meta charset=\"utf-8\"><title>Backup Service</title>" +
+                        "<style>body{font-family:system-ui,sans-serif;background:#1e1e1e;color:#eee;display:flex;" +
+                        "align-items:center;justify-content:center;height:100vh;margin:0}div{max-width:30rem;" +
+                        "text-align:center;padding:2rem}</style></head><body><div><h2>Backup Service</h2>" +
+                        $"<p>{message}</p></div></body></html>";
+                    return Results.Content(html, "text/html");
+                });
 
             app.Run();
             return 0;

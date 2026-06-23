@@ -21,5 +21,8 @@ namespace BackupService.Database
 
         /// <summary>SMB-specific settings; populated when <see cref="Type"/> is <see cref="ConnectionType.Smb"/>.</summary>
         public SmbConnectionSettings? Smb { get; set; }
+
+        /// <summary>Google Drive-specific settings; populated when <see cref="Type"/> is <see cref="ConnectionType.GoogleDrive"/>.</summary>
+        public GoogleDriveConnectionSettings? GoogleDrive { get; set; }
     }
 }

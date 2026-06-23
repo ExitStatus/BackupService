@@ -10,6 +10,9 @@
   <ItemGroup>
     <PackageReference Include="Blazor-ApexCharts" Version="6.1.0" />
     <PackageReference Include="Cronos" Version="0.13.0" />
+    <!-- Google Drive API client for the Google Drive connection type (OAuth 2.0 + Drive v3);
+         cross-platform (netstandard2.0), works on net10.0 and Linux. -->
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.74.0.4135" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

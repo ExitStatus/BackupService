@@ -1,3 +1,4 @@
+using BackupService.Connections.GoogleDrive;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -93,6 +94,95 @@ namespace BackupService.Connections
             await LogUpdatedAsync(oldName, name, oldSettings, settings, passwordChanged, cancellationToken);
         }
 
+        public async Task<int> CreateAsync(string name, ConnectionType type, GoogleDriveConnectionInput googleDrive, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var connection = new Connection
+            {
+                Name = name,
+                Type = type,
+                DateCreated = DateTimeOffset.UtcNow,
+                GoogleDrive = new GoogleDriveConnectionSettings
+                {
+                    UsesBuiltInClient = googleDrive.UseBuiltInClient,
+                    // The built-in client's id/secret come from config at run time; only a custom client stores them.
+                    ClientId = googleDrive.UseBuiltInClient ? string.Empty : googleDrive.ClientId,
+                    ClientSecretEncrypted = googleDrive.UseBuiltInClient ? string.Empty : secretProtector.Protect(googleDrive.ClientSecret ?? string.Empty),
+                    RefreshTokenEncrypted = secretProtector.Protect(googleDrive.RefreshToken ?? string.Empty),
+                    AccountEmail = NullIfBlank(googleDrive.AccountEmail),
+                    RootFolder = NullIfBlank(googleDrive.RootFolder),
+                },
+            };
+
+            db.Connections.Add(connection);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var log = await operationLogFactory.CreateAsync($"Connection created: {name}", cancellationToken: cancellationToken);
+            await log.AppendAsync(DescribeGoogleDrive(name, type, googleDrive).ToArray());
+
+            return connection.Id;
+        }
+
+        public async Task UpdateAsync(int id, string name, GoogleDriveConnectionInput googleDrive, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var connection = await db.Connections
+                .Include(c => c.GoogleDrive)
+                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+            if (connection is null)
+            {
+                return;
+            }
+
+            var oldName = connection.Name;
+            connection.Name = name;
+
+            var settings = connection.GoogleDrive ??= new GoogleDriveConnectionSettings
+            {
+                ConnectionId = connection.Id,
+                ClientId = googleDrive.ClientId,
+                ClientSecretEncrypted = string.Empty,
+                RefreshTokenEncrypted = string.Empty,
+            };
+
+            var oldSettings = (settings.UsesBuiltInClient, settings.ClientId, settings.AccountEmail, settings.RootFolder);
+
+            settings.UsesBuiltInClient = googleDrive.UseBuiltInClient;
+            settings.AccountEmail = NullIfBlank(googleDrive.AccountEmail);
+            settings.RootFolder = NullIfBlank(googleDrive.RootFolder);
+
+            // A blank secret/token on edit means "keep the stored one"; only re-encrypt when a new value is supplied.
+            var secretChanged = false;
+            if (googleDrive.UseBuiltInClient)
+            {
+                // Built-in client: id/secret are sourced from config, so clear any stored custom ones.
+                settings.ClientId = string.Empty;
+                settings.ClientSecretEncrypted = string.Empty;
+            }
+            else
+            {
+                settings.ClientId = googleDrive.ClientId;
+                secretChanged = !string.IsNullOrEmpty(googleDrive.ClientSecret);
+                if (secretChanged)
+                {
+                    settings.ClientSecretEncrypted = secretProtector.Protect(googleDrive.ClientSecret!);
+                }
+            }
+
+            var tokenChanged = !string.IsNullOrEmpty(googleDrive.RefreshToken);
+            if (tokenChanged)
+            {
+                settings.RefreshTokenEncrypted = secretProtector.Protect(googleDrive.RefreshToken!);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            await LogGoogleDriveUpdatedAsync(oldName, name, oldSettings, settings, secretChanged, tokenChanged, cancellationToken);
+        }
+
         public async Task<PagedResult<Connection>> GetPageAsync(int pageNumber, int pageSize, ConnectionSortColumn sortColumn, bool descending, CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1)
@@ -106,7 +196,7 @@ namespace BackupService.Connections
 
             await using var db = contextFactory.CreateDbContext();
 
-            var query = db.Connections.AsNoTracking().Include(c => c.Smb);
+            var query = db.Connections.AsNoTracking().Include(c => c.Smb).Include(c => c.GoogleDrive);
             var totalCount = await query.CountAsync(cancellationToken);
             var skip = (pageNumber - 1) * pageSize;
 
@@ -144,6 +234,7 @@ namespace BackupService.Connections
             return await db.Connections
                 .AsNoTracking()
                 .Include(c => c.Smb)
+                .Include(c => c.GoogleDrive)
                 .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
@@ -238,6 +329,60 @@ namespace BackupService.Connections
             var log = await operationLogFactory.CreateAsync($"Connection updated: {oldName}", cancellationToken: cancellationToken);
             await log.AppendAsync(changes.Count == 0 ? ["No changes detected."] : changes.ToArray());
         }
+
+        private async Task LogGoogleDriveUpdatedAsync(
+            string oldName,
+            string newName,
+            (bool UsesBuiltInClient, string ClientId, string? AccountEmail, string? RootFolder) old,
+            GoogleDriveConnectionSettings now,
+            bool secretChanged,
+            bool tokenChanged,
+            CancellationToken cancellationToken)
+        {
+            var changes = new List<string>();
+
+            if (oldName != newName)
+            {
+                changes.Add($"Name changed from '{oldName}' to '{newName}'");
+            }
+            if (old.UsesBuiltInClient != now.UsesBuiltInClient)
+            {
+                changes.Add($"OAuth client changed to {(now.UsesBuiltInClient ? "built-in" : "custom")}");
+            }
+            if (!now.UsesBuiltInClient && old.ClientId != now.ClientId)
+            {
+                changes.Add($"Client ID changed from '{DisplayText(old.ClientId)}' to '{now.ClientId}'");
+            }
+            if (old.AccountEmail != now.AccountEmail)
+            {
+                changes.Add($"Account changed from '{DisplayText(old.AccountEmail)}' to '{DisplayText(now.AccountEmail)}'");
+            }
+            if (old.RootFolder != now.RootFolder)
+            {
+                changes.Add($"Root folder changed from '{DisplayText(old.RootFolder)}' to '{DisplayText(now.RootFolder)}'");
+            }
+            if (secretChanged)
+            {
+                changes.Add("Client secret changed");
+            }
+            if (tokenChanged)
+            {
+                changes.Add("Authorization refreshed");
+            }
+
+            var log = await operationLogFactory.CreateAsync($"Connection updated: {oldName}", cancellationToken: cancellationToken);
+            await log.AppendAsync(changes.Count == 0 ? ["No changes detected."] : changes.ToArray());
+        }
+
+        // Never logs the client secret or refresh token.
+        private static List<string> DescribeGoogleDrive(string name, ConnectionType type, GoogleDriveConnectionInput googleDrive) =>
+        [
+            $"Name: {name}",
+            $"Type: {type.GetDescription()}",
+            $"OAuth client: {(googleDrive.UseBuiltInClient ? "built-in" : $"custom ({googleDrive.ClientId})")}",
+            $"Account: {DisplayText(googleDrive.AccountEmail)}",
+            $"Root folder: {DisplayText(googleDrive.RootFolder)}",
+        ];
 
         private static List<string> DescribeSmb(string name, ConnectionType type, SmbConnectionInput smb) =>
         [

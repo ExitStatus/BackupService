@@ -1,5 +1,7 @@
 using BackupService.Connections;
+using BackupService.Connections.GoogleDrive;
 using BackupService.Connections.Smb;
+using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
 namespace BackupService.Components.Controls
@@ -67,6 +69,7 @@ namespace BackupService.Components.Controls
         private List<int?> _options = [null];
         private bool _browsing;
         private SmbConnectionInfo? _smbInfo;
+        private GoogleDriveConnectionInfo? _googleDriveInfo;
 
         protected override async Task OnInitializedAsync()
         {
@@ -98,22 +101,37 @@ namespace BackupService.Components.Controls
 
         private async Task BrowseAsync()
         {
-            // Remote: resolve the connection (decrypting its password) so the SMB picker can list it.
-            _smbInfo = ConnectionId is { } id ? await ConnectionResolver.GetSmbInfoAsync(id) : null;
+            _smbInfo = null;
+            _googleDriveInfo = null;
+
+            // Remote: resolve the connection by type (decrypting its secrets) so the right picker can list it.
+            if (ConnectionId is { } id)
+            {
+                switch (await ConnectionResolver.GetTypeAsync(id))
+                {
+                    case ConnectionType.GoogleDrive:
+                        _googleDriveInfo = await ConnectionResolver.GetGoogleDriveInfoAsync(id);
+                        break;
+                    default:
+                        _smbInfo = await ConnectionResolver.GetSmbInfoAsync(id);
+                        break;
+                }
+            }
+
             _browsing = true;
         }
 
         private async Task OnSelected(string path)
         {
             await PathChanged.InvokeAsync(path);
-            _browsing = false;
-            _smbInfo = null;
+            CancelBrowse();
         }
 
         private void CancelBrowse()
         {
             _browsing = false;
             _smbInfo = null;
+            _googleDriveInfo = null;
         }
     }
 }

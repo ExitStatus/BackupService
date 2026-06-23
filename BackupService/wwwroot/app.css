@@ -1745,6 +1745,30 @@ label.check {
     color: var(--danger);
 }
 
+/* Google Drive connection editor */
+.gdrive-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.gdrive-auth-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.gdrive-auth-status {
+    font-size: 0.9rem;
+    color: var(--text-muted, #9aa0a6);
+}
+
+.gdrive-auth-status.ok {
+    color: var(--notify-success);
+}
+
 /* SMB remote folder browser */
 .modal.smb-browser {
     width: 560px;

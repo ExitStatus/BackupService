@@ -1,0 +1,94 @@
+@namespace BackupService.Components.Controls
+
+<div class="gdrive-editor">
+    @if (!HasBuiltInClient)
+    {
+        <p class="help-text">
+            No built-in Google client is configured on this server, so enter your own OAuth client below
+            (type <strong>Web application</strong>, Drive API enabled, with this redirect URI:
+            <code>@RedirectUri</code>).
+        </p>
+    }
+    else
+    {
+        <p class="help-text">Click <strong>Authorize with Google</strong> and sign in to connect a Google Drive account.</p>
+    }
+
+    @if (HasBuiltInClient)
+    {
+        <label class="check">
+            <input type="checkbox" checked="@(!Model.UseBuiltInClient)" @onchange="OnToggleCustomClient" />
+            Use my own OAuth client (advanced)
+        </label>
+    }
+
+    @if (!Model.UseBuiltInClient)
+    {
+        @if (HasBuiltInClient)
+        {
+            <p class="help-text">
+                Create an OAuth client (type <strong>Web application</strong>, Drive API enabled) and add this
+                redirect URI to it: <code>@RedirectUri</code>
+            </p>
+        }
+        <label>
+            Client ID
+            <input type="text" @bind="Model.ClientId" autocomplete="off" />
+            @if (_clientIdError)
+            {
+                <span class="validation-message">The Client ID field is required.</span>
+            }
+        </label>
+
+        <label>
+            Client secret
+            <input type="password" @bind="Model.ClientSecret" autocomplete="new-password"
+                   placeholder="@(ConnectionId is null ? string.Empty : "Leave blank to keep the stored secret")" />
+            @if (_clientSecretError)
+            {
+                <span class="validation-message">The Client secret field is required.</span>
+            }
+        </label>
+    }
+
+    <div class="gdrive-auth-row">
+        <button type="button" class="btn-secondary" @onclick="AuthorizeAsync" disabled="@_busy">
+            @(_authorizing ? "Waiting for Google…" : "Authorize with Google")
+        </button>
+        <span class="gdrive-auth-status @(Model.HasStoredAuth ? "ok" : "")">@AuthStatusText</span>
+    </div>
+    @if (_authUrl is not null)
+    {
+        <p class="help-text">If a tab didn't open, <a href="@_authUrl" target="_blank" rel="noopener">click here to authorize</a>.</p>
+    }
+    @if (_authError)
+    {
+        <span class="validation-message">Authorize with Google to connect an account.</span>
+    }
+
+    <label>
+        Root folder
+        <div class="input-row">
+            <input type="text" @bind="Model.RootFolder" placeholder="(My Drive root)" />
+            <button type="button" class="btn-secondary" @onclick="BrowseAsync" disabled="@_busy">Browse</button>
+        </div>
+    </label>
+
+    <div class="smb-test-row">
+        <button type="button" class="btn-secondary" @onclick="TestAsync" disabled="@_busy">
+            @(_busy ? "Testing…" : "Test connection")
+        </button>
+        @if (_status is not null)
+        {
+            <span class="smb-test-result @(_status.Ok ? "ok" : "fail")">@_status.Message</span>
+        }
+    </div>
+</div>
+
+@if (_showBrowser && _browseInfo is not null)
+{
+    <GoogleDriveFolderBrowserDialog Info="_browseInfo"
+                                    InitialRelativePath="@Model.RootFolder"
+                                    OnSelect="OnFolderSelected"
+                                    OnCancel="() => _showBrowser = false" />
+}

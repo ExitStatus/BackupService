@@ -1,4 +1,5 @@
 using BackupService.Connections;
+using BackupService.Connections.GoogleDrive;
 using BackupService.Database;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -32,7 +33,10 @@ namespace BackupService.UnitTests.Connections
             var factoryMock = new Mock<IDatabaseContextFactory>();
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
 
-            _resolver = new ConnectionResolver(factoryMock.Object, new ReversibleProtector());
+            _resolver = new ConnectionResolver(
+                factoryMock.Object,
+                new ReversibleProtector(),
+                new GoogleDriveAppCredentials("builtin-client-id", "builtin-client-secret"));
         }
 
         [TearDown]
@@ -73,6 +77,71 @@ namespace BackupService.UnitTests.Connections
             info.Username.Should().Be("u");
             info.Password.Should().Be("p@ss");
             info.RootFolder.Should().Be("root/sub");
+        }
+
+        [Test]
+        public async Task GetGoogleDriveInfoAsync_BuiltInClient_FillsClientFromAppConfig_AndDecryptsToken()
+        {
+            int id;
+            await using (var db = new BackupDbContext(_options))
+            {
+                var connection = new Connection
+                {
+                    Name = "GDrive",
+                    DateCreated = DateTimeOffset.UtcNow,
+                    GoogleDrive = new GoogleDriveConnectionSettings
+                    {
+                        UsesBuiltInClient = true,
+                        ClientId = string.Empty,
+                        ClientSecretEncrypted = string.Empty,
+                        RefreshTokenEncrypted = new ReversibleProtector().Protect("the-refresh-token"),
+                        AccountEmail = "me@gmail.com",
+                        RootFolder = "Backups",
+                    },
+                };
+                db.Connections.Add(connection);
+                await db.SaveChangesAsync();
+                id = connection.Id;
+            }
+
+            var info = await _resolver.GetGoogleDriveInfoAsync(id);
+
+            // The built-in client id/secret come from app config, not the (empty) stored ones.
+            info.ClientId.Should().Be("builtin-client-id");
+            info.ClientSecret.Should().Be("builtin-client-secret");
+            info.RefreshToken.Should().Be("the-refresh-token");
+            info.AccountEmail.Should().Be("me@gmail.com");
+            info.RootFolder.Should().Be("Backups");
+        }
+
+        [Test]
+        public async Task GetGoogleDriveInfoAsync_CustomClient_DecryptsStoredClientSecret()
+        {
+            int id;
+            await using (var db = new BackupDbContext(_options))
+            {
+                var connection = new Connection
+                {
+                    Name = "GDrive",
+                    DateCreated = DateTimeOffset.UtcNow,
+                    GoogleDrive = new GoogleDriveConnectionSettings
+                    {
+                        UsesBuiltInClient = false,
+                        ClientId = "custom-id",
+                        ClientSecretEncrypted = new ReversibleProtector().Protect("custom-secret"),
+                        RefreshTokenEncrypted = new ReversibleProtector().Protect("tok"),
+                    },
+                };
+                db.Connections.Add(connection);
+                await db.SaveChangesAsync();
+                id = connection.Id;
+            }
+
+            var info = await _resolver.GetGoogleDriveInfoAsync(id);
+
+            info.ClientId.Should().Be("custom-id");
+            info.ClientSecret.Should().Be("custom-secret");
+            info.RefreshToken.Should().Be("tok");
         }
     }
 }

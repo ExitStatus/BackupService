@@ -10,5 +10,8 @@ namespace BackupService.Enumerations
     {
         [Description("SMB")]
         Smb = 0,
+
+        [Description("Google Drive")]
+        GoogleDrive = 1,
     }
 }

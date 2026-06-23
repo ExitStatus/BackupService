@@ -37,6 +37,8 @@ namespace BackupService.Database
 
         public DbSet<SmbConnectionSettings> SmbConnectionSettings => Set<SmbConnectionSettings>();
 
+        public DbSet<GoogleDriveConnectionSettings> GoogleDriveConnectionSettings => Set<GoogleDriveConnectionSettings>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -63,6 +65,16 @@ namespace BackupService.Database
                 .HasOne(c => c.Smb)
                 .WithOne(s => s.Connection)
                 .HasForeignKey<SmbConnectionSettings>(s => s.ConnectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Google Drive settings are likewise a 1:1 cascade-deleted child of a connection.
+            modelBuilder.Entity<GoogleDriveConnectionSettings>()
+                .HasKey(s => s.ConnectionId);
+
+            modelBuilder.Entity<Connection>()
+                .HasOne(c => c.GoogleDrive)
+                .WithOne(s => s.Connection)
+                .HasForeignKey<GoogleDriveConnectionSettings>(s => s.ConnectionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // A folder pair may point its source and/or target at a connection. Restrict the delete

@@ -1,4 +1,5 @@
 using BackupService.Connections;
+using BackupService.Connections.GoogleDrive;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
@@ -16,6 +17,7 @@ namespace BackupService.UnitTests.Connections
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private ConnectionService _service = null!;
+        private List<string> _loggedMessages = null!;
 
         [SetUp]
         public void SetUp()
@@ -36,7 +38,12 @@ namespace BackupService.UnitTests.Connections
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
 
+            _loggedMessages = [];
             var logger = new Mock<IOperationLogger>();
+            logger
+                .Setup(l => l.AppendAsync(It.IsAny<string[]>()))
+                .Callback<string[]>(messages => _loggedMessages.AddRange(messages))
+                .Returns(Task.CompletedTask);
             var logFactory = new Mock<IOperationLogFactory>();
             logFactory
                 .Setup(f => f.CreateAsync(It.IsAny<string>(), It.IsAny<OperationLogLevel>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
@@ -50,6 +57,9 @@ namespace BackupService.UnitTests.Connections
 
         private static SmbConnectionInput Smb(string password = "secret") =>
             new("fileserver", 445, "Backups", "WORKGROUP", "user", password, "sub/folder");
+
+        private static GoogleDriveConnectionInput GDrive(string? secret = "the-secret", string? token = "the-token", bool useBuiltIn = false) =>
+            new(useBuiltIn, "client-id.apps.googleusercontent.com", secret, token, "user@gmail.com", "Backups");
 
         [Test]
         public async Task CreateAsync_PersistsConnection_WithEncryptedPassword()
@@ -94,6 +104,72 @@ namespace BackupService.UnitTests.Connections
             await using var db = new BackupDbContext(_options);
             var settings = await db.SmbConnectionSettings.SingleAsync();
             new ReversibleProtector().Unprotect(settings.PasswordEncrypted).Should().Be("changed");
+        }
+
+        [Test]
+        public async Task CreateAsync_GoogleDrive_PersistsEncryptedSecretAndToken_AndLogsNoSecret()
+        {
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive("s3cr3t", "r3fr3sh"));
+
+            await using var db = new BackupDbContext(_options);
+            var settings = await db.GoogleDriveConnectionSettings.SingleAsync();
+
+            settings.ConnectionId.Should().Be(id);
+            settings.ClientId.Should().Be("client-id.apps.googleusercontent.com");
+            settings.AccountEmail.Should().Be("user@gmail.com");
+            settings.RootFolder.Should().Be("Backups");
+            settings.ClientSecretEncrypted.Should().NotBe("s3cr3t");
+            settings.RefreshTokenEncrypted.Should().NotBe("r3fr3sh");
+            new ReversibleProtector().Unprotect(settings.ClientSecretEncrypted).Should().Be("s3cr3t");
+            new ReversibleProtector().Unprotect(settings.RefreshTokenEncrypted).Should().Be("r3fr3sh");
+
+            // The operation log must never carry the secret or refresh token.
+            _loggedMessages.Should().NotContain(m => m.Contains("s3cr3t") || m.Contains("r3fr3sh"));
+        }
+
+        [Test]
+        public async Task CreateAsync_GoogleDrive_BuiltInClient_StoresFlag_AndNoClientSecret()
+        {
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive,
+                GDrive(secret: null, token: "r3fr3sh", useBuiltIn: true));
+
+            await using var db = new BackupDbContext(_options);
+            var settings = await db.GoogleDriveConnectionSettings.SingleAsync();
+
+            settings.ConnectionId.Should().Be(id);
+            settings.UsesBuiltInClient.Should().BeTrue();
+            settings.ClientId.Should().BeEmpty();
+            settings.ClientSecretEncrypted.Should().BeEmpty();
+            new ReversibleProtector().Unprotect(settings.RefreshTokenEncrypted).Should().Be("r3fr3sh");
+        }
+
+        [Test]
+        public async Task UpdateAsync_GoogleDrive_WithBlankSecrets_KeepsStored()
+        {
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive("orig-secret", "orig-token"));
+
+            await _service.UpdateAsync(id, "GDrive-renamed", GDrive(secret: null, token: null) with { RootFolder = "Archive" });
+
+            await using var db = new BackupDbContext(_options);
+            var connection = await db.Connections.Include(c => c.GoogleDrive).SingleAsync();
+
+            connection.Name.Should().Be("GDrive-renamed");
+            connection.GoogleDrive!.RootFolder.Should().Be("Archive");
+            new ReversibleProtector().Unprotect(connection.GoogleDrive.ClientSecretEncrypted).Should().Be("orig-secret");
+            new ReversibleProtector().Unprotect(connection.GoogleDrive.RefreshTokenEncrypted).Should().Be("orig-token");
+        }
+
+        [Test]
+        public async Task UpdateAsync_GoogleDrive_WithNewToken_ReEncryptsTokenAndKeepsSecret()
+        {
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive("orig-secret", "orig-token"));
+
+            await _service.UpdateAsync(id, "GDrive", GDrive(secret: null, token: "new-token"));
+
+            await using var db = new BackupDbContext(_options);
+            var settings = await db.GoogleDriveConnectionSettings.SingleAsync();
+            new ReversibleProtector().Unprotect(settings.RefreshTokenEncrypted).Should().Be("new-token");
+            new ReversibleProtector().Unprotect(settings.ClientSecretEncrypted).Should().Be("orig-secret");
         }
 
         [Test]

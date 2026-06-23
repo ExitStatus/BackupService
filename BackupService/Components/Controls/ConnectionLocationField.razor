@@ -52,14 +52,7 @@ else
 
 @if (_browsing)
 {
-    @if (_smbInfo is null)
-    {
-        <FolderBrowserDialog InitialPath="@Path"
-                             AllowCreateFolder="@(AllowCreateFolder && ConnectionId is null)"
-                             OnSelect="OnSelected"
-                             OnCancel="CancelBrowse" />
-    }
-    else
+    @if (_smbInfo is not null)
     {
         <SmbFolderBrowserDialog Info="_smbInfo"
                                 InitialRelativePath="@Path"
@@ -67,5 +60,21 @@ else
                                 AllowCreateFolder="AllowCreateFolder"
                                 OnSelect="OnSelected"
                                 OnCancel="CancelBrowse" />
+    }
+    else if (_googleDriveInfo is not null)
+    {
+        <GoogleDriveFolderBrowserDialog Info="_googleDriveInfo"
+                                        InitialRelativePath="@Path"
+                                        ConfineToRoot="true"
+                                        AllowCreateFolder="AllowCreateFolder"
+                                        OnSelect="OnSelected"
+                                        OnCancel="CancelBrowse" />
+    }
+    else
+    {
+        <FolderBrowserDialog InitialPath="@Path"
+                             AllowCreateFolder="@(AllowCreateFolder && ConnectionId is null)"
+                             OnSelect="OnSelected"
+                             OnCancel="CancelBrowse" />
     }
 }
