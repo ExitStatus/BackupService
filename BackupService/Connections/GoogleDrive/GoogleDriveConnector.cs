@@ -86,6 +86,38 @@ namespace BackupService.Connections.GoogleDrive
             await create.ExecuteAsync(cancellationToken);
         }
 
+        public async Task<StorageSpace?> GetFreeSpaceAsync(GoogleDriveConnectionInfo info, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var drive = GoogleDriveServiceFactory.Create(info);
+
+                var about = drive.About.Get();
+                about.Fields = "storageQuota";
+                var response = await about.ExecuteAsync(cancellationToken);
+
+                var quota = response.StorageQuota;
+                if (quota is null)
+                {
+                    return null;
+                }
+                // No limit ⇒ unlimited (e.g. some Workspace accounts). Usage is total Google usage, which is
+                // what the limit applies to.
+                if (quota.Limit is not { } limit)
+                {
+                    return new StorageSpace(null, null, Unlimited: true);
+                }
+
+                var free = Math.Max(0, limit - (quota.Usage ?? 0));
+                return new StorageSpace(limit, free, Unlimited: false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not read Google Drive storage quota.");
+                return null;
+            }
+        }
+
         // Walks a name-path from My Drive root to a folder id, failing if a segment doesn't exist.
         private static async Task<string> ResolveFolderIdAsync(DriveService drive, string? path, CancellationToken cancellationToken)
         {

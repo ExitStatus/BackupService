@@ -20,5 +20,11 @@ namespace BackupService.Connections.GoogleDrive
 
         /// <summary>Creates the folder at <paramref name="relativePath"/> (its parent must already exist).</summary>
         Task CreateDirectoryAsync(GoogleDriveConnectionInfo info, string relativePath, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Returns the account's total/free storage from its Drive quota, <see cref="StorageSpace.Unlimited"/>
+        /// for an account with no quota limit, or <c>null</c> if it can't be determined. Best-effort — never throws.
+        /// </summary>
+        Task<StorageSpace?> GetFreeSpaceAsync(GoogleDriveConnectionInfo info, CancellationToken cancellationToken = default);
     }
 }

@@ -21,6 +21,7 @@ else
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Name)">Name@(SortIndicator(ConnectionSortColumn.Name))</button></th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Type)">Type@(SortIndicator(ConnectionSortColumn.Type))</button></th>
                 <th>Endpoint</th>
+                <th>Free space</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.DateCreated)">Created@(SortIndicator(ConnectionSortColumn.DateCreated))</button></th>
                 <th class="action-col"></th>
             </tr>
@@ -32,6 +33,27 @@ else
                     <td>@connection.Name</td>
                     <td>@connection.Type.GetDescription()</td>
                     <td>@Endpoint(connection)</td>
+                    <td>
+                        @if (!_spaceLoaded.Contains(connection.Id))
+                        {
+                            <span class="muted">…</span>
+                        }
+                        else if (_space.GetValueOrDefault(connection.Id) is { } space)
+                        {
+                            @if (space.Unlimited)
+                            {
+                                <span>Unlimited</span>
+                            }
+                            else
+                            {
+                                <span title="@($"{ByteSize.Humanize(space.FreeBytes)} free of {ByteSize.Humanize(space.TotalBytes)}")">@($"{ByteSize.Humanize(space.FreeBytes)} free")</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="muted" title="Could not determine free space">—</span>
+                        }
+                    </td>
                     <td>@connection.DateCreated.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
                     <td class="action-col">
                         <div class="row-actions">

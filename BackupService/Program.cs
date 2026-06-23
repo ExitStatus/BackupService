@@ -83,6 +83,7 @@ namespace BackupService
             builder.Services.AddSingleton<Connections.ConnectionSecretMigrator>();
             builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
             builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
+            builder.Services.AddSingleton<Connections.IConnectionSpaceService, Connections.ConnectionSpaceService>();
             builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
             builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleDriveConnector, Connections.GoogleDrive.GoogleDriveConnector>();
             builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleOAuthFlowService, Connections.GoogleDrive.GoogleOAuthFlowService>();

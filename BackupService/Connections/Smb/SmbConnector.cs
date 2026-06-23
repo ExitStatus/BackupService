@@ -72,6 +72,33 @@ namespace BackupService.Connections.Smb
                 return true;
             }), cancellationToken);
 
+        public Task<StorageSpace?> GetFreeSpaceAsync(SmbConnectionInfo info, CancellationToken cancellationToken = default) =>
+            Task.Run<StorageSpace?>(() =>
+            {
+                try
+                {
+                    return RunWithStore<StorageSpace?>(info, (store, _root) =>
+                    {
+                        // Query the tree-connected share's volume for caller-available vs total capacity.
+                        var status = store.GetFileSystemInformation(out var result, FileSystemInformationClass.FileFsFullSizeInformation);
+                        if (status != NTStatus.STATUS_SUCCESS || result is not FileFsFullSizeInformation fs)
+                        {
+                            return null;
+                        }
+
+                        var bytesPerUnit = (long)fs.SectorsPerAllocationUnit * fs.BytesPerSector;
+                        var free = fs.CallerAvailableAllocationUnits * bytesPerUnit;
+                        var total = fs.TotalAllocationUnits * bytesPerUnit;
+                        return new StorageSpace(total, free, Unlimited: false);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Could not read SMB free space for {Host}", info.Host);
+                    return null;
+                }
+            }, cancellationToken);
+
         /// <summary>Connects, logs in, tree-connects the share, runs <paramref name="action"/>, then tears everything down.</summary>
         private T RunWithStore<T>(SmbConnectionInfo info, Func<ISMBFileStore, string, T> action)
         {

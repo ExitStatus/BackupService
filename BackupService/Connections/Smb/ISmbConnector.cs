@@ -20,5 +20,11 @@ namespace BackupService.Connections.Smb
         /// <see cref="SmbBrowseException"/> if it can't be created (e.g. it already exists).
         /// </summary>
         Task CreateDirectoryAsync(SmbConnectionInfo info, string relativePath, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Returns the share volume's total/free capacity, or <c>null</c> if it can't be determined (the
+        /// server was unreachable or didn't report it). Best-effort — never throws.
+        /// </summary>
+        Task<StorageSpace?> GetFreeSpaceAsync(SmbConnectionInfo info, CancellationToken cancellationToken = default);
     }
 }
