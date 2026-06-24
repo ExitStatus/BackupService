@@ -167,6 +167,19 @@ namespace BackupService.Components.Pages.BackupServicePage
             _notification.Show(enabled ? "Profile enabled" : "Profile disabled", NotificationLevel.Success);
         }
 
+        // The Stop button replaces the disabled Run/Edit/Delete buttons while a scheduled backup
+        // (folder pair or archive) is running, so the user can safely cancel an in-progress run.
+        private bool ShowStop(Profile profile) =>
+            IsRunning(profile.Id) && profile.Type is ProfileType.FolderPair or ProfileType.ArchiveSync;
+
+        private void StopRun(Profile profile)
+        {
+            // Cooperative cancel: the run unwinds cleanly (no temp files), is logged as a warning, and
+            // the profile returns to Idle to wait for its next scheduled run.
+            BackupRunner.RequestStop(profile.Id);
+            _notification.Show($"Stopping '{profile.Name}'…", NotificationLevel.Warning);
+        }
+
         private void RunNow(Profile profile)
         {
             // Run on a background task (like the scheduler) so a long backup doesn't block the UI;

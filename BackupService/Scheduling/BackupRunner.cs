@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
@@ -18,6 +19,10 @@ namespace BackupService.Scheduling
         private readonly IProfileStatusService _statusService;
         private readonly ILogger<BackupRunner> _logger;
         private readonly IReadOnlyDictionary<ProfileType, IProfileTypeHandler> _handlers;
+
+        // The cancellation source for each in-progress run, keyed by profile id, so the UI's Stop
+        // button (RequestStop) can cancel a run that's already under way.
+        private readonly ConcurrentDictionary<int, CancellationTokenSource> _running = new();
 
         public BackupRunner(
             IDatabaseContextFactory contextFactory,
@@ -83,15 +88,32 @@ namespace BackupService.Scheduling
             // The handler owns the operation log for the run (one log per run); the runner only
             // tracks status and the last-run timestamp.
             var finalStatus = ProfileStatus.Idle;
+
+            // A linked source so a run can be stopped either by the host shutting down (the passed
+            // token) or by the user's Stop button (RequestStop cancels this source).
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _running[profile.Id] = cts;
             try
             {
-                await handler.HandleAsync(profile, manual, cancellationToken);
+                await handler.HandleAsync(profile, manual, cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                // Stopped on request (Stop button or shutdown): not a failure. The handler already
+                // finished its log as a warning; return the profile to Idle so it waits for its next
+                // scheduled run rather than sticking on Error.
+                finalStatus = ProfileStatus.Idle;
+                _logger.LogInformation("Backup for profile {ProfileId} ({ProfileName}) was cancelled.", profile.Id, profile.Name);
             }
             catch (Exception ex)
             {
                 // The handler's own catch-all also set the status to Error.
                 finalStatus = ProfileStatus.Error;
                 _logger.LogError(ex, "Scheduled backup failed for profile {ProfileId} ({ProfileName}).", profile.Id, profile.Name);
+            }
+            finally
+            {
+                _running.TryRemove(profile.Id, out _);
             }
 
             // Persist DateLastRun BEFORE flipping the status (the grid reloads on the status change,
@@ -107,6 +129,25 @@ namespace BackupService.Scheduling
             }
 
             _statusService.Set(profile.Id, finalStatus);
+        }
+
+        public bool RequestStop(int profileId)
+        {
+            if (!_running.TryGetValue(profileId, out var cts))
+            {
+                return false;
+            }
+
+            try
+            {
+                cts.Cancel();
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run finished between the lookup and the cancel — nothing to stop.
+                return false;
+            }
         }
 
         private async Task StampLastRunAsync(int profileId, CancellationToken cancellationToken)

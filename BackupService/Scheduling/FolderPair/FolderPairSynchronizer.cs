@@ -198,7 +198,7 @@ namespace BackupService.Scheduling
 
                     if (!targetNames.Contains(name))
                     {
-                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
                         {
                             result.Copied++;
                             await log.AppendAsync($"Copied '{sourcePath}' -> '{destPath}'");
@@ -221,7 +221,7 @@ namespace BackupService.Scheduling
 
                     if (sourceTime > destTime)
                     {
-                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
                         {
                             result.Updated++;
                             await log.AppendAsync($"Updated '{destPath}' (source is newer)");
@@ -234,7 +234,7 @@ namespace BackupService.Scheduling
                     else
                     {
                         // Destination is newer — the overwrite behaviour decides.
-                        await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result);
+                        await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result, ct);
                     }
                 }
                 finally
@@ -318,12 +318,12 @@ namespace BackupService.Scheduling
         }
 
         private async Task ApplyOverwriteBehaviourAsync(
-            OverwriteBehaviour behaviour, string source, string dest, DateTime sourceTime, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result)
+            OverwriteBehaviour behaviour, string source, string dest, DateTime sourceTime, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             switch (behaviour)
             {
                 case OverwriteBehaviour.AlwaysOverwrite:
-                    if (await CopyThroughTempAsync(source, dest, targetDir, ctx, log, result))
+                    if (await CopyThroughTempAsync(source, dest, targetDir, ctx, log, result, ct))
                     {
                         result.Updated++;
                         await log.AppendAsync($"Overwrote '{dest}' (destination was newer, always-overwrite)");
@@ -361,7 +361,7 @@ namespace BackupService.Scheduling
         /// removes any existing destination and renames the temp onto it. On any failure the temp is removed
         /// so a partial/temp file is never left behind; the error is logged. Returns success.
         /// </summary>
-        private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result)
+        private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var tempPath = Path.Combine(targetDir, CrashSafeTempName(Path.GetFileName(dest)!));
             try
@@ -371,7 +371,9 @@ namespace BackupService.Scheduling
                 using (var input = ctx.SourceFs.OpenRead(source))
                 using (var output = ctx.TargetFs.OpenWrite(tempPath))
                 {
-                    await input.CopyToAsync(output);
+                    // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch
+                    // below removes the partial temp, so nothing is left behind).
+                    await input.CopyToAsync(output, ct);
                 }
 
                 // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
@@ -385,6 +387,13 @@ namespace BackupService.Scheduling
                 ctx.TargetFs.MoveFile(tempPath, dest, overwrite: false);
                 result.BytesCopied += TrySize(ctx, source);
                 return true;
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopped mid-copy — drop the partial temp and let cancellation unwind the run. Not
+                // counted as an error or warning (it isn't a problem with the file).
+                TryDeleteTemp(ctx, tempPath);
+                throw;
             }
             catch (Exception ex)
             {

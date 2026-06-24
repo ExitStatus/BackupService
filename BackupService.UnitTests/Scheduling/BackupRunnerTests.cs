@@ -178,6 +178,45 @@ namespace BackupService.UnitTests.Scheduling
             (await db.OperationLogs.AnyAsync()).Should().BeFalse();
         }
 
+        [Test]
+        public void RequestStop_WhenNothingRunning_ReturnsFalse()
+        {
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
+
+            runner.RequestStop(123).Should().BeFalse();
+        }
+
+        [Test]
+        public async Task RequestStop_CancelsRunningHandler_AndSettlesToIdle()
+        {
+            var id = SeedProfile();
+            var started = new TaskCompletionSource();
+            var handler = new CapturingHandler
+            {
+                // Block until cancelled, throwing OperationCanceledException like a real stopped run.
+                OnHandleWithToken = async (_, ct) =>
+                {
+                    started.SetResult();
+                    await Task.Delay(Timeout.Infinite, ct);
+                },
+            };
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+
+            var run = runner.RunAsync(id, manual: true);
+            await started.Task; // the run has registered its cancellation source
+
+            runner.RequestStop(id).Should().BeTrue();
+
+            // RunAsync swallows the cancellation (a stop is not a failure) and completes.
+            await run;
+
+            // Cancelled runs go back to Idle (not Error) so the profile waits for its next scheduled run.
+            _statusService.Get(id).Should().Be(ProfileStatus.Idle);
+
+            await using var db = new BackupDbContext(_options);
+            (await db.Profiles.SingleAsync()).DateLastRun.Should().NotBeNull();
+        }
+
         private sealed class CapturingHandler : IProfileTypeHandler
         {
             public ProfileType Type => ProfileType.FolderPair;
@@ -187,6 +226,8 @@ namespace BackupService.UnitTests.Scheduling
             public Profile? Captured { get; private set; }
 
             public Func<Profile, Task>? OnHandle { get; init; }
+
+            public Func<Profile, CancellationToken, Task>? OnHandleWithToken { get; init; }
 
             public bool LastManual { get; private set; }
 
@@ -198,6 +239,10 @@ namespace BackupService.UnitTests.Scheduling
                 if (OnHandle is not null)
                 {
                     await OnHandle(profile);
+                }
+                if (OnHandleWithToken is not null)
+                {
+                    await OnHandleWithToken(profile, cancellationToken);
                 }
             }
         }

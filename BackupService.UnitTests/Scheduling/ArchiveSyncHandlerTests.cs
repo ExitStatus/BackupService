@@ -127,16 +127,42 @@ namespace BackupService.UnitTests.Scheduling
             item.RunCount.Should().Be(0);
         }
 
+        [Test]
+        public async Task HandleAsync_WhenCancelled_WritesWarningSummary_AndDoesNotSetError()
+        {
+            var profile = await SeedAndLoadProfileAsync();
+            var processor = new FakeProcessor(new BackupResult()) { ThrowOnCreate = new OperationCanceledException() };
+
+            var act = () => Handler(processor).HandleAsync(profile, manual: false, CancellationToken.None);
+
+            // Cancellation propagates so the runner can settle the profile back to Idle.
+            await act.Should().ThrowAsync<OperationCanceledException>();
+
+            await using var verify = new BackupDbContext(_options);
+            var log = await verify.OperationLogs.SingleAsync();
+            log.Name.Should().StartWith("Archive Sync Handler was cancelled after");
+            log.Level.Should().Be(OperationLogLevel.Warning);
+
+            // A cancelled run is a warning, not an error — the handler must not flip the profile to Error.
+            _statusService.Get(profile.Id).Should().NotBe(ProfileStatus.Error);
+        }
+
         private sealed class FakeProcessor(BackupResult result) : IArchiveSyncProcessor
         {
             public List<string> ItemNames { get; } = [];
             public List<long> RunIndexes { get; } = [];
+
+            public Exception? ThrowOnCreate { get; init; }
 
             public Task<BackupResult> CreateArchiveAsync(
                 ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken)
             {
                 ItemNames.Add(item.Name);
                 RunIndexes.Add(runIndex);
+                if (ThrowOnCreate is not null)
+                {
+                    throw ThrowOnCreate;
+                }
                 return Task.FromResult(result);
             }
         }

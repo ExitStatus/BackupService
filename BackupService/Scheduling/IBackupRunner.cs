@@ -14,5 +14,14 @@ namespace BackupService.Scheduling
         /// than the schedule) the run's operation log is prefixed with <c>[Manual]</c>.
         /// </summary>
         Task RunAsync(int profileId, bool manual = false, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Requests that an in-progress run for the profile stop (the grid's Stop button). The run
+        /// unwinds cooperatively — any crash-safe temp file is removed, so nothing partial is left
+        /// behind — its operation log is finished as a <c>Warning</c> ("cancelled"), and the profile
+        /// returns to Idle to await its next scheduled run. A no-op (returns false) when the profile
+        /// isn't currently running.
+        /// </summary>
+        bool RequestStop(int profileId);
     }
 }

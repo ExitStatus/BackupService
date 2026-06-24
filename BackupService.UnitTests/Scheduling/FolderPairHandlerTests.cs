@@ -172,13 +172,39 @@ namespace BackupService.UnitTests.Scheduling
                 Times.Once);
         }
 
+        [Test]
+        public async Task HandleAsync_WhenCancelled_WritesWarningSummary_AndDoesNotSetError()
+        {
+            var profile = await SeedAndLoadProfileAsync();
+            var synchronizer = new FakeSynchronizer(new BackupResult()) { ThrowOnSync = new OperationCanceledException() };
+
+            var act = () => Handler(synchronizer).HandleAsync(profile, manual: false, CancellationToken.None);
+
+            // Cancellation propagates so the runner can settle the profile back to Idle.
+            await act.Should().ThrowAsync<OperationCanceledException>();
+
+            await using var verify = new BackupDbContext(_options);
+            var log = await verify.OperationLogs.SingleAsync();
+            log.Name.Should().StartWith("Folder Pairs Handler was cancelled after");
+            log.Level.Should().Be(OperationLogLevel.Warning);
+
+            // A cancelled run is a warning, not an error — the handler must not flip the profile to Error.
+            _statusService.Get(profile.Id).Should().NotBe(ProfileStatus.Error);
+        }
+
         private sealed class FakeSynchronizer(BackupResult result) : IFolderPairSynchronizer
         {
             public List<string> SyncedPairNames { get; } = [];
 
+            public Exception? ThrowOnSync { get; init; }
+
             public Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
             {
                 SyncedPairNames.Add(pair.Name);
+                if (ThrowOnSync is not null)
+                {
+                    throw ThrowOnSync;
+                }
                 return Task.FromResult(result);
             }
 

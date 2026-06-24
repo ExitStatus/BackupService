@@ -35,6 +35,7 @@ namespace BackupService.Scheduling
             var handlerName = $"{prefix}{Type.GetDescription()} Handler"; // e.g. "[Manual] Archive Sync Handler"
             var total = new BackupResult();
             var fatal = false;
+            var cancelled = false;
 
             var log = await operationLogFactory.CreateAsync(
                 $"{handlerName} called with {profile.ArchiveSyncItems.Count} archive(s).",
@@ -62,9 +63,18 @@ namespace BackupService.Scheduling
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // Stopped on request (the Stop button or shutdown). Not a failure — log it as a
+                // warning and leave the profile status alone (the runner returns it to Idle so it
+                // waits for its next scheduled run).
+                cancelled = true;
+                await log.AppendAsync(OperationLogLevel.Warning, "Run cancelled — stopped before completion.");
+                throw;
+            }
             catch (Exception ex)
             {
-                // Catastrophic failure (e.g. cancellation, or something outside an item's own try).
+                // Catastrophic failure (something outside an item's own try).
                 fatal = true;
                 statusService.Set(profile.Id, ProfileStatus.Error);
                 logger.LogError(ex, "ArchiveSyncHandler failed for profile {ProfileId} ({ProfileName}).", profile.Id, profile.Name);
@@ -74,7 +84,8 @@ namespace BackupService.Scheduling
             {
                 stopwatch.Stop();
                 var duration = FormatDuration(stopwatch.Elapsed);
-                var outcome = fatal ? RunOutcome.Failed
+                var outcome = cancelled ? RunOutcome.CompletedWithWarnings
+                    : fatal ? RunOutcome.Failed
                     : total.Errors > 0 ? RunOutcome.CompletedWithErrors
                     : total.Warnings > 0 ? RunOutcome.CompletedWithWarnings
                     : RunOutcome.Success;
@@ -86,13 +97,15 @@ namespace BackupService.Scheduling
                     total, outcome, log.OperationLogId, CancellationToken.None);
 
                 var counts = $"{total.Copied} archive(s) created, {total.Deleted} pruned";
-                var (summary, level) = outcome switch
-                {
-                    RunOutcome.Failed => ($"{handlerName} failed in {duration}", OperationLogLevel.Error),
-                    RunOutcome.CompletedWithErrors => ($"{handlerName} completed with {total.Errors} error(s) in {duration} — {counts}", OperationLogLevel.Error),
-                    RunOutcome.CompletedWithWarnings => ($"{handlerName} completed with {total.Warnings} warning(s) in {duration} — {counts}", OperationLogLevel.Warning),
-                    _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
-                };
+                var (summary, level) = cancelled
+                    ? ($"{handlerName} was cancelled after {duration} — {counts}", OperationLogLevel.Warning)
+                    : outcome switch
+                    {
+                        RunOutcome.Failed => ($"{handlerName} failed in {duration}", OperationLogLevel.Error),
+                        RunOutcome.CompletedWithErrors => ($"{handlerName} completed with {total.Errors} error(s) in {duration} — {counts}", OperationLogLevel.Error),
+                        RunOutcome.CompletedWithWarnings => ($"{handlerName} completed with {total.Warnings} warning(s) in {duration} — {counts}", OperationLogLevel.Warning),
+                        _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
+                    };
                 await log.SetSummaryAsync(summary, level);
             }
         }

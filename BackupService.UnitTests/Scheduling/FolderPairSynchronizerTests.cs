@@ -456,6 +456,22 @@ namespace BackupService.UnitTests.Scheduling
             reported.Should().Be(3); // one report per in-scope source file
         }
 
+        [Test]
+        public async Task CancelledMidCopy_RemovesTempAndPropagatesCancellation()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            using var cts = new CancellationTokenSource();
+            // Cancel while the source is being read, so cancellation lands during the copy (after the
+            // crash-safe temp stream is opened) rather than at the top-of-folder guard.
+            _fs.OpenReadOverride = _ => new CancelOnReadStream("hello", cts);
+
+            var act = () => _sut.SyncAsync(Pair(), _log, cts.Token);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp")); // partial temp swept on cancel
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeFalse();         // the destination was never committed
+        }
+
         // ---- Cross-filesystem (e.g. local source -> SMB target) ----
 
         [Test]
@@ -513,6 +529,23 @@ namespace BackupService.UnitTests.Scheduling
             public void Report(int value) => onReport(value);
         }
 
+        // A read stream that cancels the supplied source the first time it's read, so cancellation is
+        // observed mid-copy (CopyToAsync passes the token to ReadAsync, which then throws).
+        private sealed class CancelOnReadStream(string content, CancellationTokenSource cts) : MemoryStream(Encoding.UTF8.GetBytes(content), writable: false)
+        {
+            private bool _cancelled;
+
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                if (!_cancelled)
+                {
+                    _cancelled = true;
+                    cts.Cancel();
+                }
+                return base.ReadAsync(buffer, cancellationToken);
+            }
+        }
+
         private sealed class CapturingLogger : IOperationLogger
         {
             private readonly List<(OperationLogLevel Level, string Message)> _entries = [];
@@ -563,6 +596,7 @@ namespace BackupService.UnitTests.Scheduling
             public Func<string, bool>? CopyLockedFail { get; set; }   // arg: destination — throws a sharing violation
             public Func<string, bool>? MoveShouldFail { get; set; }   // arg: destination
             public Func<string, bool>? GetFilesShouldFail { get; set; } // arg: directory
+            public Func<string, Stream>? OpenReadOverride { get; set; } // arg: path — supply a custom read stream
 
             public IReadOnlyList<string> AllFiles => _files.Keys.ToList();
 
@@ -645,6 +679,10 @@ namespace BackupService.UnitTests.Scheduling
 
             public Stream OpenRead(string path)
             {
+                if (OpenReadOverride is not null)
+                {
+                    return OpenReadOverride(path);
+                }
                 if (!_files.TryGetValue(path, out var e))
                 {
                     throw new FileNotFoundException(path);
