@@ -23,6 +23,10 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            string? lightroomFolder = null,
+            string? rawFormats = null,
+            string? rawFolderName = null,
             bool handleMissedSync = false,
             CancellationToken cancellationToken = default);
 
@@ -71,6 +75,10 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            string? lightroomFolder = null,
+            string? rawFormats = null,
+            string? rawFolderName = null,
             bool handleMissedSync = false,
             CancellationToken cancellationToken = default);
     }

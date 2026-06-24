@@ -26,6 +26,26 @@ namespace BackupService.Database
         public string? Schedule { get; set; }
 
         /// <summary>
+        /// LightroomArchive only: the local Lightroom catalog folder scanned (recursively) for raw sidecars
+        /// matching each copied file. Null for other profile types.
+        /// </summary>
+        [MaxLength(1024)]
+        public string? LightroomFolder { get; set; }
+
+        /// <summary>
+        /// LightroomArchive only: the comma-separated raw file extensions to match (e.g. <c>.DNG,.ARW</c>).
+        /// </summary>
+        [MaxLength(256)]
+        public string? RawFormats { get; set; }
+
+        /// <summary>
+        /// LightroomArchive only: the name of the sub-folder (beside each copied file) the matching raws are
+        /// copied into (e.g. <c>RAW</c>).
+        /// </summary>
+        [MaxLength(256)]
+        public string? RawFolderName { get; set; }
+
+        /// <summary>
         /// When the next scheduled run should occur (recorded by <c>BackupSchedulerService</c> for scheduled
         /// profiles). Null when not scheduled. Persisted so a missed run can be detected after a restart.
         /// </summary>
@@ -46,5 +66,7 @@ namespace BackupService.Database
         public ICollection<InstantSyncItem> InstantSyncItems { get; set; } = new List<InstantSyncItem>();
 
         public ICollection<ArchiveSyncItem> ArchiveSyncItems { get; set; } = new List<ArchiveSyncItem>();
+
+        public ICollection<LightroomArchiveItem> LightroomArchiveItems { get; set; } = new List<LightroomArchiveItem>();
     }
 }

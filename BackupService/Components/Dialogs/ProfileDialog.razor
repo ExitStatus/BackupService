@@ -1,6 +1,12 @@
 <div class="modal-overlay">
     <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit profile" : "Create profile")">
-        <h2>@DialogTitle</h2>
+        <div class="profile-dialog-header">
+            <h2>@DialogTitle</h2>
+            <div class="profile-enabled-row">
+                <span class="field-label">Enabled</span>
+                <ProfileEnabledControl @bind-Value="Input.Enabled" />
+            </div>
+        </div>
 
         <p class="modal-intro">@IntroText</p>
 
@@ -14,11 +20,8 @@
 
             <label>
                 Description
-                <InputTextArea rows="3" @bind-Value="Input.Description" />
+                <InputText @bind-Value="Input.Description" />
             </label>
-
-            <div class="field-label">Enabled</div>
-            <ProfileEnabledControl @bind-Value="Input.Enabled" />
 
             @if (!IsEdit)
             {
@@ -31,24 +34,36 @@
                 </label>
             }
 
-            <label>
-                Schedule
-                <div class="input-row">
-                    <input type="text" readonly value="@ScheduleText" disabled="@IsInstantSync" />
-                    <button type="button" class="btn-secondary" @onclick="OpenSchedule" disabled="@IsInstantSync">Set schedule…</button>
-                </div>
-            </label>
-
-            @if (!IsInstantSync)
+            @if (!IsWatcherDriven)
             {
-                <label class="check">
-                    <input type="checkbox" @bind="Input.HandleMissedSync" />
+                <label>
+                    Schedule
+                    <div class="input-row">
+                        <input type="text" readonly value="@ScheduleText" />
+                        <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
+                    </div>
+                </label>
+
+                <label class="check" title="@HandleMissedSyncTooltip">
+                    <input type="checkbox" @bind="Input.HandleMissedSync" title="@HandleMissedSyncTooltip" />
                     Handle missed sync
                 </label>
-                <p class="help-text">
-                    If the service was not running at the scheduled time, run this profile immediately when the
-                    service next starts.
-                </p>
+            }
+
+            @if (Input.Type == ProfileType.LightroomArchive)
+            {
+                <ConnectionLocationField Label="Lightroom folder" Grouped="true" LocalOnly="true" @bind-Path="Input.LightroomFolder"
+                                         Error="@(_lightroomFolderError ? "The Lightroom folder field is required." : null)" />
+
+                <label title="@RawFormatsTooltip">
+                    Raw formats
+                    <input type="text" @bind="Input.RawFormats" placeholder=".DNG,.ARW" title="@RawFormatsTooltip" />
+                </label>
+
+                <label title="@RawFolderNameTooltip">
+                    RAW folder name
+                    <input type="text" @bind="Input.RawFolderName" placeholder="RAW" title="@RawFolderNameTooltip" />
+                </label>
             }
 
             @switch (Input.Type)
@@ -61,6 +76,9 @@
                     break;
                 case ProfileType.ArchiveSync:
                     <ArchiveSyncControl @ref="_archiveSyncControl" Items="_archiveSyncItems" />
+                    break;
+                case ProfileType.LightroomArchive:
+                    <LightroomArchiveControl @ref="_lightroomArchiveControl" Items="_lightroomArchiveItems" />
                     break;
             }
 

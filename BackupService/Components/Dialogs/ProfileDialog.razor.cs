@@ -34,16 +34,33 @@ namespace BackupService.Components.Dialogs
         private readonly List<FolderPairModel> _folderPairs = [];
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
         private readonly List<ArchiveSyncItemModel> _archiveSyncItems = [];
+        private readonly List<LightroomArchiveItemModel> _lightroomArchiveItems = [];
         private FolderPairControl? _folderPairControl;
         private InstantSyncControl? _instantSyncControl;
         private ArchiveSyncControl? _archiveSyncControl;
+        private LightroomArchiveControl? _lightroomArchiveControl;
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
         private bool _showSchedule;
+        private bool _lightroomFolderError;
+
+        // Shown as a hover tooltip on the "Handle missed sync" checkbox.
+        private const string HandleMissedSyncTooltip =
+            "If the service was not running at the scheduled time, run this profile immediately when the service next starts.";
+
+        // Shown as a hover tooltip on the LightroomArchive "Raw formats" label/input.
+        private const string RawFormatsTooltip =
+            "Comma-separated raw file extensions to look for. When a file is copied, the Lightroom folder is searched for a file with the same name and one of these extensions.";
+
+        // Shown as a hover tooltip on the LightroomArchive "RAW folder name" label/input.
+        private const string RawFolderNameTooltip =
+            "Matching raw files are copied into a sub-folder of this name beside each copied file.";
 
         private bool IsEdit => ProfileId.HasValue;
 
-        private bool IsInstantSync => Input.Type == ProfileType.InstantSync;
+        // Watcher-driven types (InstantSync, LightroomArchive) aren't scheduled, so the Schedule and
+        // Handle-missed-sync fields are hidden/disabled for them.
+        private bool IsWatcherDriven => Input.Type is ProfileType.InstantSync or ProfileType.LightroomArchive;
 
         private string DialogTitle => IsEdit
             ? $"Edit {Input.Type.GetDescription()} Profile"
@@ -53,15 +70,14 @@ namespace BackupService.Components.Dialogs
         {
             ProfileType.InstantSync => "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce.",
             ProfileType.ArchiveSync => "An archive sync profile creates a timestamped ZIP of each source folder on a schedule and keeps a retained history in the target folder.",
+            ProfileType.LightroomArchive => "A lightroom archive profile watches each source folder like instant sync, and for every copied file also pulls the matching raw originals from the Lightroom folder into a RAW folder beside the copy.",
             _ => "A folder pair profile is a one way copy from the source folder to the target folder for a file oriented backup.",
         };
 
-        // InstantSync profiles are watcher-driven, not scheduled.
-        private string ScheduleText => IsInstantSync
-            ? "Not used for Instant Sync"
-            : _schedule is not null
-                ? _schedule.ToHumanReadable()
-                : ScheduleDefinition.Describe(_existingScheduleCron);
+        // Only shown for scheduled types (watcher-driven types hide the Schedule field entirely).
+        private string ScheduleText => _schedule is not null
+            ? _schedule.ToHumanReadable()
+            : ScheduleDefinition.Describe(_existingScheduleCron);
 
         protected override async Task OnInitializedAsync()
         {
@@ -81,6 +97,9 @@ namespace BackupService.Components.Dialogs
             Input.Type = profile.Type;
             Input.Enabled = profile.Enabled;
             Input.HandleMissedSync = profile.HandleMissedSync;
+            Input.LightroomFolder = profile.LightroomFolder ?? string.Empty;
+            Input.RawFormats = string.IsNullOrWhiteSpace(profile.RawFormats) ? LightroomArchiveSettings.DefaultRawFormats : profile.RawFormats;
+            Input.RawFolderName = string.IsNullOrWhiteSpace(profile.RawFolderName) ? LightroomArchiveSettings.DefaultRawFolderName : profile.RawFolderName;
             _existingScheduleCron = profile.Schedule;
             // Parse the stored cron back into the builder so the schedule shows human-readable
             // and the schedule dialog opens pre-filled.
@@ -144,6 +163,21 @@ namespace BackupService.Components.Dialogs
                     Excludes = FilterModels(item.Filters, FilterDirection.Exclude),
                 });
             }
+
+            foreach (var item in profile.LightroomArchiveItems)
+            {
+                _lightroomArchiveItems.Add(new LightroomArchiveItemModel
+                {
+                    Id = item.Id,
+                    Name = item.Name,
+                    SourceFolder = item.SourceFolder,
+                    TargetFolder = item.TargetFolder,
+                    TargetConnectionId = item.TargetConnectionId,
+                    DebounceMilliseconds = item.DebounceMilliseconds,
+                    IncludeSubFolders = item.IncludeSubFolders,
+                    AllowDeletions = item.AllowDeletions,
+                });
+            }
         }
 
         private void OpenSchedule() => _showSchedule = true;
@@ -160,6 +194,7 @@ namespace BackupService.Components.Dialogs
             {
                 ProfileType.InstantSync => await SubmitInstantSyncAsync(),
                 ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
+                ProfileType.LightroomArchive => await SubmitLightroomArchiveAsync(),
                 _ => await SubmitFolderPairAsync(),
             };
 
@@ -247,6 +282,37 @@ namespace BackupService.Components.Dialogs
             return true;
         }
 
+        private async Task<bool> SubmitLightroomArchiveAsync()
+        {
+            // A Lightroom folder is required for this type; surface the error and abort if missing.
+            _lightroomFolderError = string.IsNullOrWhiteSpace(Input.LightroomFolder);
+            var itemsValid = _lightroomArchiveControl is not null && _lightroomArchiveControl.Validate();
+            if (_lightroomFolderError || !itemsValid)
+            {
+                return false;
+            }
+
+            var items = _lightroomArchiveItems
+                .Select(i => new LightroomArchiveInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions, i.TargetConnectionId))
+                .ToList();
+
+            // LightroomArchive is watcher-driven — never carries a cron.
+            if (ProfileId is { } id)
+            {
+                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron: null, Input.Enabled,
+                    folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
+                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName);
+            }
+            else
+            {
+                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.LightroomArchive, scheduleCron: null, Input.Enabled,
+                    folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
+                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName);
+            }
+
+            return true;
+        }
+
         // Split a parent's filter rows into the per-tab UI lists.
         private static List<FilterEntryModel> FilterModels(IEnumerable<FolderPairFilter> filters, FilterDirection direction) =>
             filters.Where(f => f.Direction == direction)
@@ -277,6 +343,13 @@ namespace BackupService.Components.Dialogs
 
             /// <summary>Run immediately on startup if a scheduled run was missed while the service was down.</summary>
             public bool HandleMissedSync { get; set; }
+
+            // LightroomArchive only — the profile-level Lightroom settings shared by all the profile's items.
+            public string LightroomFolder { get; set; } = string.Empty;
+
+            public string RawFormats { get; set; } = LightroomArchiveSettings.DefaultRawFormats;
+
+            public string RawFolderName { get; set; } = LightroomArchiveSettings.DefaultRawFolderName;
         }
     }
 }

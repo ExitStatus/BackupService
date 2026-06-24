@@ -21,6 +21,8 @@ namespace BackupService.Database
 
         public DbSet<ArchiveSyncItem> ArchiveSyncItems => Set<ArchiveSyncItem>();
 
+        public DbSet<LightroomArchiveItem> LightroomArchiveItems => Set<LightroomArchiveItem>();
+
         public DbSet<FolderPairFilter> FolderPairFilters => Set<FolderPairFilter>();
 
         public DbSet<ArchiveSyncFilter> ArchiveSyncFilters => Set<ArchiveSyncFilter>();
@@ -114,6 +116,13 @@ namespace BackupService.Database
                 .HasOne(a => a.TargetConnection)
                 .WithMany()
                 .HasForeignKey(a => a.TargetConnectionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // LightroomArchive items have a connectable target only (source is local-only); same Restrict.
+            modelBuilder.Entity<LightroomArchiveItem>()
+                .HasOne(l => l.TargetConnection)
+                .WithMany()
+                .HasForeignKey(l => l.TargetConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }

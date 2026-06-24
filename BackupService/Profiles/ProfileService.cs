@@ -17,8 +17,10 @@ namespace BackupService.Profiles
         IFolderPairService folderPairService,
         IInstantSyncItemService instantSyncItemService,
         IArchiveSyncItemService archiveSyncItemService,
+        ILightroomArchiveItemService lightroomArchiveItemService,
         IBackupScheduler scheduler,
         IInstantSyncManager instantSyncManager,
+        ILightroomArchiveManager lightroomArchiveManager,
         IProfileStatusService statusService) : IProfileService
     {
         public async Task CreateAsync(
@@ -30,11 +32,16 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            string? lightroomFolder = null,
+            string? rawFormats = null,
+            string? rawFolderName = null,
             bool handleMissedSync = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
             var archiveItems = archiveSyncItems ?? [];
+            var lightroomItems = lightroomArchiveItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
@@ -58,6 +65,10 @@ namespace BackupService.Profiles
                 case ProfileType.ArchiveSync:
                     archiveSyncItemService.Add(profile, archiveItems);
                     break;
+                case ProfileType.LightroomArchive:
+                    ApplyLightroomSettings(profile, lightroomFolder, rawFormats, rawFolderName);
+                    lightroomArchiveItemService.Add(profile, lightroomItems);
+                    break;
                 default:
                     folderPairService.Add(profile, folderPairs);
                     break;
@@ -66,14 +77,23 @@ namespace BackupService.Profiles
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, handleMissedSync, folderPairs, instantItems, archiveItems, cancellationToken);
+            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, handleMissedSync, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
 
-            // Track the new profile's status (starts Idle), then register it with both drivers — the
-            // scheduler (cron-driven types) and the instant-sync manager (watcher-driven types). Each
-            // is a no-op for the wrong type.
+            // Track the new profile's status (starts Idle), then register it with all drivers — the
+            // scheduler (cron-driven types) and the watcher managers (watcher-driven types). Each is a
+            // no-op for the wrong type.
             statusService.Set(profile.Id, ProfileStatus.Idle);
             await scheduler.SyncAsync(profile.Id, cancellationToken);
             await instantSyncManager.SyncAsync(profile.Id, cancellationToken);
+            await lightroomArchiveManager.SyncAsync(profile.Id, cancellationToken);
+        }
+
+        // Sets the profile-level LightroomArchive settings (the per-item data is owned by the item service).
+        private static void ApplyLightroomSettings(Profile profile, string? lightroomFolder, string? rawFormats, string? rawFolderName)
+        {
+            profile.LightroomFolder = lightroomFolder;
+            profile.RawFormats = rawFormats;
+            profile.RawFolderName = rawFolderName;
         }
 
         private async Task LogProfileCreatedAsync(
@@ -87,6 +107,7 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput> instantSyncItems,
             IReadOnlyList<ArchiveSyncInput> archiveSyncItems,
+            IReadOnlyList<LightroomArchiveInput> lightroomArchiveItems,
             CancellationToken cancellationToken)
         {
             var log = await operationLogFactory.CreateAsync($"Profile created: {name}", profileId: profileId, cancellationToken: cancellationToken);
@@ -103,6 +124,7 @@ namespace BackupService.Profiles
             {
                 ProfileType.InstantSync => instantSyncItemService.DescribeForCreateLog(instantSyncItems),
                 ProfileType.ArchiveSync => archiveSyncItemService.DescribeForCreateLog(archiveSyncItems),
+                ProfileType.LightroomArchive => lightroomArchiveItemService.DescribeForCreateLog(lightroomArchiveItems),
                 _ => folderPairService.DescribeForCreateLog(folderPairs),
             };
             if (itemLines.Count > 0)
@@ -170,6 +192,7 @@ namespace BackupService.Profiles
                 .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
                 .Include(p => p.InstantSyncItems)
                 .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
+                .Include(p => p.LightroomArchiveItems)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         }
 
@@ -215,6 +238,7 @@ namespace BackupService.Profiles
             statusService.Remove(id);
             await scheduler.SyncAsync(id, cancellationToken);
             await instantSyncManager.SyncAsync(id, cancellationToken);
+            await lightroomArchiveManager.SyncAsync(id, cancellationToken);
         }
 
         public async Task SetEnabledAsync(int id, bool enabled, CancellationToken cancellationToken = default)
@@ -236,9 +260,10 @@ namespace BackupService.Profiles
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
 
-            // Enabling/disabling an InstantSync profile starts/stops its watchers.
+            // Enabling/disabling a watcher-driven profile starts/stops its watchers.
             await scheduler.SyncAsync(id, cancellationToken);
             await instantSyncManager.SyncAsync(id, cancellationToken);
+            await lightroomArchiveManager.SyncAsync(id, cancellationToken);
         }
 
         public async Task UpdateAsync(
@@ -250,11 +275,16 @@ namespace BackupService.Profiles
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
+            IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            string? lightroomFolder = null,
+            string? rawFormats = null,
+            string? rawFolderName = null,
             bool handleMissedSync = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
             var archiveItems = archiveSyncItems ?? [];
+            var lightroomItems = lightroomArchiveItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
@@ -262,6 +292,7 @@ namespace BackupService.Profiles
                 .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
                 .Include(p => p.InstantSyncItems)
                 .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
+                .Include(p => p.LightroomArchiveItems)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
             if (profile is null)
@@ -288,6 +319,7 @@ namespace BackupService.Profiles
             {
                 ProfileType.InstantSync => instantSyncItemService.Sync(profile, instantItems),
                 ProfileType.ArchiveSync => archiveSyncItemService.Sync(profile, archiveItems),
+                ProfileType.LightroomArchive => SyncLightroom(profile, lightroomItems, lightroomFolder, rawFormats, rawFolderName),
                 _ => folderPairService.Sync(profile, folderPairs),
             };
 
@@ -299,6 +331,14 @@ namespace BackupService.Profiles
 
             await scheduler.SyncAsync(id, cancellationToken);
             await instantSyncManager.SyncAsync(id, cancellationToken);
+            await lightroomArchiveManager.SyncAsync(id, cancellationToken);
+        }
+
+        // Updates the profile-level Lightroom settings alongside reconciling its items.
+        private IReadOnlyList<string> SyncLightroom(Profile profile, IReadOnlyList<LightroomArchiveInput> items, string? lightroomFolder, string? rawFormats, string? rawFolderName)
+        {
+            ApplyLightroomSettings(profile, lightroomFolder, rawFormats, rawFolderName);
+            return lightroomArchiveItemService.Sync(profile, items);
         }
 
         private async Task LogProfileUpdatedAsync(

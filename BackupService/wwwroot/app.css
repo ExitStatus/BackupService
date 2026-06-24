@@ -1432,6 +1432,32 @@ label.check {
     margin-bottom: 1rem;
 }
 
+/* Profile dialog header: the title on the left and the Enabled toggle right-justified on the same row. */
+.profile-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.profile-dialog-header h2 {
+    margin: 0;
+}
+
+.profile-enabled-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Inside the header the Enabled control sits inline — drop the standalone field spacing. */
+.profile-enabled-row .field-label,
+.profile-enabled-row .profile-enabled,
+.create-profile .profile-enabled-row .profile-enabled {
+    margin-bottom: 0;
+}
+
 .swatch {
     width: 14px;
     height: 14px;

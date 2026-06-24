@@ -12,5 +12,8 @@ namespace BackupService.Enumerations
 
         [Description("Archive Sync")]
         ArchiveSync = 2,
+
+        [Description("Lightroom Archive")]
+        LightroomArchive = 3,
     }
 }

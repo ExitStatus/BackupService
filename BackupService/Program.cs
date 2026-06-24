@@ -63,6 +63,7 @@ namespace BackupService
             builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
             builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
             builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
+            builder.Services.AddSingleton<Profiles.ILightroomArchiveItemService, Profiles.LightroomArchiveItemService>();
             builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
@@ -100,10 +101,12 @@ namespace BackupService
             builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
             builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
             builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
+            builder.Services.AddSingleton<Scheduling.ILightroomArchiveProcessor, Scheduling.LightroomArchiveProcessor>();
             builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
             builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
+            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
             builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
             builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
             builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
@@ -112,6 +115,10 @@ namespace BackupService
             // IInstantSyncManager re-sync API, and the hosted background service).
             builder.Services.AddSingleton<Scheduling.InstantSyncWatcherService>();
             builder.Services.AddSingleton<Scheduling.IInstantSyncManager>(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
+
+            // The lightroom-archive watcher service is likewise shared across its three roles.
+            builder.Services.AddSingleton<Scheduling.LightroomArchiveWatcherService>();
+            builder.Services.AddSingleton<Scheduling.ILightroomArchiveManager>(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
 
             // ApexCharts (Blazor-ApexCharts) for the dashboard charts.
             builder.Services.AddApexCharts();
@@ -123,6 +130,7 @@ namespace BackupService
             // The scheduler and the instant-sync watcher both run as background services.
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
 
             var app = builder.Build();
 

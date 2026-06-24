@@ -1,0 +1,58 @@
+<div class="field-label">Lightroom archive items</div>
+
+@if (Items.Count == 0)
+{
+    <p class="folder-pairs-empty">No lightroom archive items yet.</p>
+}
+else
+{
+    <table class="table folder-pairs-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var (index, item) in PageItems())
+            {
+                <tr>
+                    <td>@item.Name</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Edit lightroom archive item"
+                                    aria-label="Edit lightroom archive item" @onclick="() => Edit(index)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete lightroom archive item"
+                                    aria-label="Delete lightroom archive item" @onclick="() => Delete(index)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (TotalPages > 1)
+    {
+        <div class="pager">
+            <button type="button" class="btn-secondary" @onclick="PreviousPage" disabled="@(_page <= 1)">Previous</button>
+            <span>Page @_page of @TotalPages (@Items.Count total)</span>
+            <button type="button" class="btn-secondary" @onclick="NextPage" disabled="@(_page >= TotalPages)">Next</button>
+        </div>
+    }
+}
+
+<button type="button" class="btn-secondary" @onclick="AddNew">Add lightroom archive item</button>
+
+@if (_error)
+{
+    <span class="validation-message">Add at least one lightroom archive item.</span>
+}
+
+@if (_editing is not null)
+{
+    <LightroomArchiveEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+}

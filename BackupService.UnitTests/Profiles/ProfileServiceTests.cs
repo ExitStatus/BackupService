@@ -41,8 +41,10 @@ namespace BackupService.UnitTests.Profiles
                 new FolderPairService(),
                 new InstantSyncItemService(),
                 new ArchiveSyncItemService(new ReversibleProtector()),
+                new LightroomArchiveItemService(),
                 Mock.Of<IBackupScheduler>(),
                 Mock.Of<IInstantSyncManager>(),
+                Mock.Of<ILightroomArchiveManager>(),
                 new ProfileStatusService());
         }
 
@@ -410,8 +412,10 @@ namespace BackupService.UnitTests.Profiles
                 new FolderPairService(),
                 new InstantSyncItemService(),
                 new ArchiveSyncItemService(new ReversibleProtector()),
+                new LightroomArchiveItemService(),
                 Mock.Of<IBackupScheduler>(),
                 manager.Object,
+                Mock.Of<ILightroomArchiveManager>(),
                 new ProfileStatusService());
 
             await service.CreateAsync(
