@@ -15,7 +15,7 @@ namespace BackupService.Scheduling
     /// </summary>
     public sealed class FolderPairSynchronizer(IEndpointFileSystemFactory endpointFactory) : IFolderPairSynchronizer
     {
-        public async Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken)
+        public async Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
         {
             var result = new BackupResult();
             // Include/exclude rules filter which files are synced (empty includes = all files).
@@ -28,7 +28,7 @@ namespace BackupService.Scheduling
                 try
                 {
                     var ctx = new SyncContext(source.FileSystem, target.FileSystem, pair, filter);
-                    await SyncDirectoryAsync(source.BasePath, target.BasePath, [], ctx, log, result, cancellationToken);
+                    await SyncDirectoryAsync(source.BasePath, target.BasePath, [], ctx, log, result, fileProgress, cancellationToken);
                 }
                 finally
                 {
@@ -43,8 +43,64 @@ namespace BackupService.Scheduling
             return result;
         }
 
+        public async Task<int> CountFilesAsync(FolderPair pair, CancellationToken cancellationToken)
+        {
+            var filter = new BackupFilter(pair.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
+            var source = await endpointFactory.ResolveAsync(pair.SourceConnectionId, pair.SourceFolder, cancellationToken);
+            try
+            {
+                return CountDirectory(source.FileSystem, source.BasePath, [], pair, filter, cancellationToken);
+            }
+            finally
+            {
+                source.Session.Dispose();
+            }
+        }
+
+        // Source-only walk mirroring SyncDirectoryAsync's scoping: counts in-scope files, recursing the same
+        // sub-folders the sync would. An unreadable folder contributes nothing (the sync will log that error).
+        private static int CountDirectory(IBackupFileSystem fs, string dir, IReadOnlyList<string> ancestors, FolderPair pair, BackupFilter filter, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            int count;
+            try
+            {
+                count = fs.GetFiles(dir).Count(p => filter.IsFileInScope(Path.GetFileName(p)!, ancestors));
+            }
+            catch
+            {
+                return 0;
+            }
+
+            if (pair.IncludeSubFolders)
+            {
+                IReadOnlyList<string> dirs;
+                try
+                {
+                    dirs = fs.GetDirectories(dir);
+                }
+                catch
+                {
+                    return count;
+                }
+
+                foreach (var sub in dirs)
+                {
+                    var name = Path.GetFileName(sub)!;
+                    if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
+                    {
+                        continue;
+                    }
+                    count += CountDirectory(fs, sub, [.. ancestors, name], pair, filter, ct);
+                }
+            }
+
+            return count;
+        }
+
         private async Task SyncDirectoryAsync(
-            string sourceDir, string targetDir, IReadOnlyList<string> ancestors, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
+            string sourceDir, string targetDir, IReadOnlyList<string> ancestors, SyncContext ctx, IOperationLogger log, BackupResult result, IProgress<int>? fileProgress, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             var pair = ctx.Pair;
@@ -92,6 +148,37 @@ namespace BackupService.Scheduling
                 return;
             }
 
+            // 3a. Sweep leftover crash-safe temp files from a previously interrupted run (e.g. the machine
+            // hibernated mid-copy). A ".{name}.tmp" that isn't itself a source file is never real backup
+            // content, so remove it regardless of AllowDeletions and exclude it from the rest of this folder.
+            var sourceFileNames = new HashSet<string>(sourceFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
+            if (targetFiles.Any(p => IsCrashSafeTempName(Path.GetFileName(p)!) && !sourceFileNames.Contains(Path.GetFileName(p)!)))
+            {
+                var kept = new List<string>(targetFiles.Count);
+                foreach (var targetPath in targetFiles)
+                {
+                    var name = Path.GetFileName(targetPath)!;
+                    if (!IsCrashSafeTempName(name) || sourceFileNames.Contains(name))
+                    {
+                        kept.Add(targetPath);
+                        continue;
+                    }
+
+                    try
+                    {
+                        ctx.TargetFs.DeleteFile(targetPath);
+                        await log.AppendAsync($"Removed leftover temp file '{targetPath}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        // Best-effort cleanup — never fail the run over a stray temp.
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Could not remove leftover temp file '{targetPath}': {ex.Message}");
+                        kept.Add(targetPath);
+                    }
+                }
+                targetFiles = kept;
+            }
+
             var targetNames = new HashSet<string>(targetFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
 
             // Only files in scope per the include/exclude rules are synced (empty includes = all files).
@@ -99,53 +186,60 @@ namespace BackupService.Scheduling
                 .Where(p => filter.IsFileInScope(Path.GetFileName(p)!, ancestors))
                 .ToList();
 
-            // 4. Copy/update each in-scope source file.
+            // 4. Copy/update each in-scope source file. Each one reports a single unit of progress when done
+            // (via the finally), so the count matches CountFilesAsync's denominator regardless of the outcome.
             foreach (var sourcePath in inScopeSourceFiles)
             {
                 ct.ThrowIfCancellationRequested();
-
-                var name = Path.GetFileName(sourcePath)!;
-                var destPath = Path.Combine(targetDir, name);
-
-                if (!targetNames.Contains(name))
-                {
-                    if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
-                    {
-                        result.Copied++;
-                        await log.AppendAsync($"Copied '{sourcePath}' -> '{destPath}'");
-                    }
-                    continue;
-                }
-
-                DateTime sourceTime, destTime;
                 try
                 {
-                    sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(sourcePath);
-                    destTime = ctx.TargetFs.GetLastWriteTimeUtc(destPath);
-                }
-                catch (Exception ex)
-                {
-                    result.Errors++;
-                    await log.ErrorAsync($"Failed to read timestamps for '{destPath}'", ex);
-                    continue;
-                }
+                    var name = Path.GetFileName(sourcePath)!;
+                    var destPath = Path.Combine(targetDir, name);
 
-                if (sourceTime > destTime)
-                {
-                    if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
+                    if (!targetNames.Contains(name))
                     {
-                        result.Updated++;
-                        await log.AppendAsync($"Updated '{destPath}' (source is newer)");
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
+                        {
+                            result.Copied++;
+                            await log.AppendAsync($"Copied '{sourcePath}' -> '{destPath}'");
+                        }
+                        continue;
+                    }
+
+                    DateTime sourceTime, destTime;
+                    try
+                    {
+                        sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(sourcePath);
+                        destTime = ctx.TargetFs.GetLastWriteTimeUtc(destPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Errors++;
+                        await log.ErrorAsync($"Failed to read timestamps for '{destPath}'", ex);
+                        continue;
+                    }
+
+                    if (sourceTime > destTime)
+                    {
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result))
+                        {
+                            result.Updated++;
+                            await log.AppendAsync($"Updated '{destPath}' (source is newer)");
+                        }
+                    }
+                    else if (sourceTime == destTime)
+                    {
+                        // Same timestamp — no change, nothing logged.
+                    }
+                    else
+                    {
+                        // Destination is newer — the overwrite behaviour decides.
+                        await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result);
                     }
                 }
-                else if (sourceTime == destTime)
+                finally
                 {
-                    // Same timestamp — no change, nothing logged.
-                }
-                else
-                {
-                    // Destination is newer — the overwrite behaviour decides.
-                    await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result);
+                    fileProgress?.Report(1);
                 }
             }
 
@@ -201,7 +295,7 @@ namespace BackupService.Scheduling
                     {
                         continue;
                     }
-                    await SyncDirectoryAsync(sourceSub, Path.Combine(targetDir, name), [.. ancestors, name], ctx, log, result, ct);
+                    await SyncDirectoryAsync(sourceSub, Path.Combine(targetDir, name), [.. ancestors, name], ctx, log, result, fileProgress, ct);
                 }
 
                 if (pair.AllowDeletions)
@@ -269,7 +363,7 @@ namespace BackupService.Scheduling
         /// </summary>
         private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result)
         {
-            var tempPath = Path.Combine(targetDir, "." + Path.GetFileName(dest) + ".tmp");
+            var tempPath = Path.Combine(targetDir, CrashSafeTempName(Path.GetFileName(dest)!));
             try
             {
                 var sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(source);
@@ -330,6 +424,13 @@ namespace BackupService.Scheduling
                 return 0;
             }
         }
+
+        // The crash-safe copy writes each file to a deterministic dot-prefixed temp before renaming it into
+        // place ("report.pdf" -> ".report.pdf.tmp"). Centralised so the writer and the leftover-sweep agree.
+        private static string CrashSafeTempName(string fileName) => $".{fileName}.tmp";
+
+        private static bool IsCrashSafeTempName(string fileName) =>
+            fileName.Length > 5 && fileName[0] == '.' && fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
 
         private static void TryDeleteTemp(SyncContext ctx, string tempPath)
         {

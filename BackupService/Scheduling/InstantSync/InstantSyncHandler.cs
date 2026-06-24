@@ -47,10 +47,32 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
+                    // Pre-count files (best-effort) so the grid can show a "Running - {percent}%" progress.
+                    var totalFiles = 0;
                     foreach (var item in profile.InstantSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunItemAsync(item, log, total, cancellationToken);
+                        try
+                        {
+                            totalFiles += await synchronizer.CountFilesAsync(ToPair(item), cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch
+                        {
+                            // Best-effort — uncounted files just won't move the bar.
+                        }
+                    }
+
+                    statusService.SetProgress(profile.Id, 0);
+                    var progress = new ProfileProgressReporter(statusService, profile.Id, totalFiles);
+
+                    foreach (var item in profile.InstantSyncItems)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await RunItemAsync(item, log, total, progress, cancellationToken);
                     }
                 }
             }
@@ -89,26 +111,29 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunItemAsync(InstantSyncItem item, IOperationLogger log, BackupResult total, CancellationToken cancellationToken)
+        // Maps an instant-sync item onto a transient folder pair for the synchroniser. Source-authoritative
+        // → always overwrite. Shared by the file pre-count and the run so they scope identically.
+        private static FolderPair ToPair(InstantSyncItem item) => new()
+        {
+            Name = item.Name,
+            SourceFolder = item.SourceFolder,
+            TargetFolder = item.TargetFolder,
+            SourceConnectionId = item.SourceConnectionId,
+            TargetConnectionId = item.TargetConnectionId,
+            AllowDeletions = item.AllowDeletions,
+            IncludeSubFolders = item.IncludeSubFolders,
+            OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
+        };
+
+        private async Task RunItemAsync(InstantSyncItem item, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
         {
             await log.AppendAsync($"Instant sync '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
 
-            // Reuse the folder-pair sync engine for the full reconcile. Source-authoritative → always overwrite.
-            var pair = new FolderPair
-            {
-                Name = item.Name,
-                SourceFolder = item.SourceFolder,
-                TargetFolder = item.TargetFolder,
-                SourceConnectionId = item.SourceConnectionId,
-                TargetConnectionId = item.TargetConnectionId,
-                AllowDeletions = item.AllowDeletions,
-                IncludeSubFolders = item.IncludeSubFolders,
-                OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
-            };
+            var pair = ToPair(item);
 
             try
             {
-                total.Add(await synchronizer.SyncAsync(pair, log, cancellationToken));
+                total.Add(await synchronizer.SyncAsync(pair, log, cancellationToken, progress));
             }
             catch (OperationCanceledException)
             {

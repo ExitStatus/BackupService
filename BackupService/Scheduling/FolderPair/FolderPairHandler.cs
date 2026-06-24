@@ -49,10 +49,34 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
+                    // Pre-count the files to process so the grid can show a "Running - {percent}%" progress.
+                    // Counting is best-effort: a failure (e.g. an unreachable source) leaves it out of the
+                    // total — the sync itself reports the real error.
+                    var totalFiles = 0;
                     foreach (var pair in profile.FolderPairs)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunPairAsync(pair, log, total, cancellationToken);
+                        try
+                        {
+                            totalFiles += await synchronizer.CountFilesAsync(pair, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch
+                        {
+                            // Best-effort — uncounted files just won't move the bar.
+                        }
+                    }
+
+                    statusService.SetProgress(profile.Id, 0);
+                    var progress = new ProfileProgressReporter(statusService, profile.Id, totalFiles);
+
+                    foreach (var pair in profile.FolderPairs)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await RunPairAsync(pair, log, total, progress, cancellationToken);
                     }
                 }
             }
@@ -91,7 +115,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunPairAsync(FolderPair pair, IOperationLogger log, BackupResult total, CancellationToken cancellationToken)
+        private async Task RunPairAsync(FolderPair pair, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
         {
             await SetPairStatusAsync(pair.Id, FolderPairStatus.Running, lastRunStatus: null, cancellationToken);
             await log.AppendAsync($"Folder pair '{pair.Name}': {pair.SourceFolder} -> {pair.TargetFolder}");
@@ -99,7 +123,7 @@ namespace BackupService.Scheduling
             BackupResult result;
             try
             {
-                result = await synchronizer.SyncAsync(pair, log, cancellationToken);
+                result = await synchronizer.SyncAsync(pair, log, cancellationToken, progress);
             }
             catch (OperationCanceledException)
             {

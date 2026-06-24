@@ -90,5 +90,72 @@ namespace BackupService.UnitTests.Profiles
 
             service.TryBeginRun(5).Should().BeTrue();
         }
+
+        [Test]
+        public void GetProgress_DefaultsToNull()
+        {
+            new ProfileStatusService().GetProgress(5).Should().BeNull();
+        }
+
+        [Test]
+        public void SetProgress_StoresValueAndRaisesProgressChanged()
+        {
+            var service = new ProfileStatusService();
+            int? raisedFor = null;
+            service.ProgressChanged += id => raisedFor = id;
+
+            service.SetProgress(5, 42);
+
+            service.GetProgress(5).Should().Be(42);
+            raisedFor.Should().Be(5);
+        }
+
+        [Test]
+        public void SetProgress_ClampsTo0To100()
+        {
+            var service = new ProfileStatusService();
+
+            service.SetProgress(5, -10);
+            service.GetProgress(5).Should().Be(0);
+
+            service.SetProgress(5, 150);
+            service.GetProgress(5).Should().Be(100);
+        }
+
+        [Test]
+        public void SetProgress_OnlyRaisesWhenTheIntegerValueChanges()
+        {
+            var service = new ProfileStatusService();
+            var raised = 0;
+            service.ProgressChanged += _ => raised++;
+
+            service.SetProgress(5, 30);
+            service.SetProgress(5, 30); // same value — no event
+            service.SetProgress(5, 31);
+
+            raised.Should().Be(2);
+        }
+
+        [Test]
+        public void Set_ToNonRunning_ClearsProgress()
+        {
+            var service = new ProfileStatusService();
+            service.SetProgress(5, 55);
+
+            service.Set(5, ProfileStatus.Idle);
+
+            service.GetProgress(5).Should().BeNull();
+        }
+
+        [Test]
+        public void Set_ToRunning_LeavesProgressUntouched()
+        {
+            var service = new ProfileStatusService();
+            service.SetProgress(5, 55);
+
+            service.Set(5, ProfileStatus.Running);
+
+            service.GetProgress(5).Should().Be(55);
+        }
     }
 }

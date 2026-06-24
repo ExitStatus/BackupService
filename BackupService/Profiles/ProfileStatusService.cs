@@ -10,10 +10,13 @@ namespace BackupService.Profiles
     public sealed class ProfileStatusService : IProfileStatusService
     {
         private readonly ConcurrentDictionary<int, ProfileStatus> _statuses = new();
+        private readonly ConcurrentDictionary<int, int> _progress = new();
         private readonly ConcurrentDictionary<int, byte> _locked = new();
         private readonly object _runLock = new();
 
         public event Action<int>? Changed;
+
+        public event Action<int>? ProgressChanged;
 
         public ProfileStatus Get(int profileId) =>
             _statuses.TryGetValue(profileId, out var status) ? status : ProfileStatus.Idle;
@@ -21,7 +24,27 @@ namespace BackupService.Profiles
         public void Set(int profileId, ProfileStatus status)
         {
             _statuses[profileId] = status;
+            // A finished/failed run is no longer making progress — drop any stale percent.
+            if (status != ProfileStatus.Running)
+            {
+                _progress.TryRemove(profileId, out _);
+            }
             Changed?.Invoke(profileId);
+        }
+
+        public int? GetProgress(int profileId) =>
+            _progress.TryGetValue(profileId, out var percent) ? percent : null;
+
+        public void SetProgress(int profileId, int percent)
+        {
+            percent = Math.Clamp(percent, 0, 100);
+            // Only notify when the integer percent actually changes (caps UI churn at ~100 updates per run).
+            if (_progress.TryGetValue(profileId, out var existing) && existing == percent)
+            {
+                return;
+            }
+            _progress[profileId] = percent;
+            ProgressChanged?.Invoke(profileId);
         }
 
         public bool IsRunning(int profileId) => Get(profileId) == ProfileStatus.Running;

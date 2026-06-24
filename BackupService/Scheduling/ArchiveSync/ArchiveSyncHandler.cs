@@ -49,10 +49,16 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
+                    // Archiving is one opaque build per item, so progress is per-item (items done / total).
+                    var totalItems = profile.ArchiveSyncItems.Count;
+                    statusService.SetProgress(profile.Id, 0);
+                    var completed = 0;
                     foreach (var item in profile.ArchiveSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         await RunItemAsync(item, log, total, cancellationToken);
+                        completed++;
+                        statusService.SetProgress(profile.Id, completed * 100 / totalItems);
                     }
                 }
             }

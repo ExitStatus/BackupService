@@ -11,6 +11,17 @@ namespace BackupService.Scheduling
     /// </summary>
     public interface IFolderPairSynchronizer
     {
-        Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken);
+        /// <summary>
+        /// Synchronises the pair. <paramref name="fileProgress"/>, when supplied, is reported <c>1</c> for each
+        /// in-scope source file after it's handled (copied/updated/skipped) — pair it with
+        /// <see cref="CountFilesAsync"/> for a percentage.
+        /// </summary>
+        Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null);
+
+        /// <summary>
+        /// Counts the in-scope source files the sync would process (same include/exclude + IncludeSubFolders
+        /// rules as <see cref="SyncAsync"/>), via a cheap source-only walk — the denominator for progress.
+        /// </summary>
+        Task<int> CountFilesAsync(FolderPair pair, CancellationToken cancellationToken);
     }
 }

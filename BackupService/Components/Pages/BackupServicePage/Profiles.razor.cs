@@ -33,6 +33,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         protected override Task OnInitializedAsync()
         {
             StatusService.Changed += OnStatusChanged;
+            StatusService.ProgressChanged += OnProgressChanged;
             return LoadAsync(_page);
         }
 
@@ -51,9 +52,20 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
+        private void OnProgressChanged(int profileId)
+        {
+            // A percent tick updates just the Status cell (which reads the live service) — no DB reload,
+            // so the grid doesn't flicker or lose its sort/scroll position.
+            if (_profiles?.Items.Any(p => p.Id == profileId) == true)
+            {
+                InvokeAsync(StateHasChanged);
+            }
+        }
+
         public void Dispose()
         {
             StatusService.Changed -= OnStatusChanged;
+            StatusService.ProgressChanged -= OnProgressChanged;
 
             // Release any lock held by an open dialog so it can't leak if we're torn down.
             UnlockEditing();
@@ -199,6 +211,17 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
 
             await LoadAsync(_page);
+        }
+
+        // The live Status cell text: a running profile shows its progress percent when known.
+        private string StatusText(int profileId)
+        {
+            var status = StatusService.Get(profileId);
+            if (status == ProfileStatus.Running)
+            {
+                return StatusService.GetProgress(profileId) is { } percent ? $"Running - {percent}%" : "Running";
+            }
+            return DescribeStatus(status);
         }
 
         private static string DescribeStatus(ProfileStatus status) => status switch

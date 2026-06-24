@@ -32,6 +32,22 @@ namespace BackupService.Profiles
         /// <summary>Raised (with the affected profile id) whenever a status changes.</summary>
         event Action<int>? Changed;
 
+        /// <summary>The current run progress (0–100), or null when not running / not yet known.</summary>
+        int? GetProgress(int profileId);
+
+        /// <summary>
+        /// Records a running profile's progress percentage (clamped 0–100). Raises
+        /// <see cref="ProgressChanged"/> only when the integer value actually changes, so a run pushes at
+        /// most ~100 cheap UI updates. Cleared automatically when the profile leaves Running.
+        /// </summary>
+        void SetProgress(int profileId, int percent);
+
+        /// <summary>
+        /// Raised (with the affected profile id) when a running profile's percent changes. Distinct from
+        /// <see cref="Changed"/> so the grid can update just the cell without reloading the page.
+        /// </summary>
+        event Action<int>? ProgressChanged;
+
         /// <summary>
         /// Marks a profile as locked because an admin has it open in a dialog (edit or
         /// delete-confirmation). A locked profile's scheduled run is skipped.

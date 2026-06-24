@@ -185,6 +185,33 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task LeftoverTemp_FromInterruptedRun_IsSweptAtStart()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\.b.txt.tmp", T1, "partial"); // leftover temp whose source file is gone
+
+            var result = await Run(Pair()); // AllowDeletions off — the sweep runs regardless
+
+            _fs.FileExists(@"C:\dst\.b.txt.tmp").Should().BeFalse(); // swept
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeTrue();       // normal copy still happens
+            result.Copied.Should().Be(1);
+            _log.Messages.Should().Contain(m => m.Contains("Removed leftover temp") && m.Contains(".b.txt.tmp"));
+        }
+
+        [Test]
+        public async Task GenuineSourceFile_MatchingTempPattern_IsNotSwept()
+        {
+            // A real source file that happens to match the temp pattern must be backed up, not deleted.
+            _fs.AddFile(@"C:\src\.config.tmp", T1, "real");
+            _fs.AddFile(@"C:\dst\.config.tmp", T1, "real");
+
+            await Run(Pair());
+
+            _fs.FileExists(@"C:\dst\.config.tmp").Should().BeTrue(); // preserved (it's a source file)
+            _log.Messages.Should().NotContain(m => m.Contains("Removed leftover temp"));
+        }
+
+        [Test]
         public async Task IncludeSubFolders_RecursesAndCopiesNestedFiles()
         {
             _fs.AddFile(@"C:\src\top.txt", T1, "t");
@@ -396,6 +423,39 @@ namespace BackupService.UnitTests.Scheduling
             result.Deleted.Should().Be(1);
         }
 
+        // ---- Progress ----
+
+        [Test]
+        public async Task CountFilesAsync_CountsInScopeFiles_RespectingSubfoldersAndFilters()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\src\b.dat", T1, "b");
+            _fs.AddFile(@"C:\src\sub\c.txt", T1, "c");
+
+            (await _sut.CountFilesAsync(Pair(includeSubFolders: false), CancellationToken.None)).Should().Be(2); // top-level only
+            (await _sut.CountFilesAsync(Pair(includeSubFolders: true), CancellationToken.None)).Should().Be(3);  // includes nested
+
+            var filtered = Pair(includeSubFolders: true);
+            filtered.Filters.Add(Filter(FilterDirection.Include, FilterKind.File, "*.txt"));
+            (await _sut.CountFilesAsync(filtered, CancellationToken.None)).Should().Be(2); // a.txt + sub/c.txt
+        }
+
+        [Test]
+        public async Task SyncAsync_ReportsProgressOncePerInScopeFile_RegardlessOfCopyOrSkip()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");          // copied
+            _fs.AddFile(@"C:\src\b.txt", T1, "b");          // skipped (equal timestamp at dest)
+            _fs.AddFile(@"C:\dst\b.txt", T1, "b");
+            _fs.AddFile(@"C:\src\sub\c.txt", T1, "c");      // copied (nested)
+
+            var reported = 0;
+            var progress = new CapturingProgress(value => reported += value);
+
+            await _sut.SyncAsync(Pair(includeSubFolders: true), _log, CancellationToken.None, progress);
+
+            reported.Should().Be(3); // one report per in-scope source file
+        }
+
         // ---- Cross-filesystem (e.g. local source -> SMB target) ----
 
         [Test]
@@ -446,6 +506,11 @@ namespace BackupService.UnitTests.Scheduling
         {
             public static readonly NoopDisposable Instance = new();
             public void Dispose() { }
+        }
+
+        private sealed class CapturingProgress(Action<int> onReport) : IProgress<int>
+        {
+            public void Report(int value) => onReport(value);
         }
 
         private sealed class CapturingLogger : IOperationLogger
