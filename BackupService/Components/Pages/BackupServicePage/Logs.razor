@@ -72,7 +72,7 @@ else
                     <td class="level-col">
                         <span class="log-level log-level-@log.Level.ToString().ToLowerInvariant()">@log.Level.GetDescription()</span>
                     </td>
-                    <td class="time-col">@log.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="time-col">@log.TimestampUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
                     <td class="profile-col">
                         @if (log.Profile is not null)
                         {
@@ -128,7 +128,7 @@ else
                                     {
                                         <div class="log-terminal" role="log" aria-label="Log output">
                                             <Virtualize Items="filtered" Context="detail" ItemSize="LineHeight">
-                                                <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
+                                                <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.TimestampUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
                                             </Virtualize>
                                         </div>
                                     }

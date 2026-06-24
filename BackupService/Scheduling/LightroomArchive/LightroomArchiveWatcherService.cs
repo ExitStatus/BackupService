@@ -21,6 +21,7 @@ namespace BackupService.Scheduling
         IDatabaseContextFactory contextFactory,
         ILightroomArchiveProcessor processor,
         IOperationLogFactory operationLogFactory,
+        IBackupRunRecorder runRecorder,
         ILogger<LightroomArchiveWatcherService> logger) : BackgroundService, ILightroomArchiveManager
     {
         private readonly Dictionary<int, List<ItemWatcher>> _watchers = new();
@@ -105,7 +106,7 @@ namespace BackupService.Scheduling
             {
                 try
                 {
-                    list.Add(new ItemWatcher(item, settings, profile.Id, processor, operationLogFactory, logger, _stoppingToken));
+                    list.Add(new ItemWatcher(item, settings, profile.Id, processor, operationLogFactory, runRecorder, logger, _stoppingToken));
                 }
                 catch (Exception ex)
                 {
@@ -176,6 +177,7 @@ namespace BackupService.Scheduling
             private readonly int _profileId;
             private readonly ILightroomArchiveProcessor _processor;
             private readonly IOperationLogFactory _logFactory;
+            private readonly IBackupRunRecorder _runRecorder;
             private readonly ILogger _logger;
             private readonly CancellationToken _stoppingToken;
 
@@ -195,6 +197,7 @@ namespace BackupService.Scheduling
                 int profileId,
                 ILightroomArchiveProcessor processor,
                 IOperationLogFactory logFactory,
+                IBackupRunRecorder runRecorder,
                 ILogger logger,
                 CancellationToken stoppingToken)
             {
@@ -203,6 +206,7 @@ namespace BackupService.Scheduling
                 _profileId = profileId;
                 _processor = processor;
                 _logFactory = logFactory;
+                _runRecorder = runRecorder;
                 _logger = logger;
                 _stoppingToken = stoppingToken;
                 _debounce = TimeSpan.FromMilliseconds(Math.Max(0, item.DebounceMilliseconds));
@@ -335,6 +339,7 @@ namespace BackupService.Scheduling
 
             private async Task ProcessFlushAsync(HashSet<string> changes, HashSet<string> deletes)
             {
+                var startedUtc = DateTimeOffset.UtcNow;
                 var stopwatch = Stopwatch.StartNew();
                 var changeCount = changes.Count + deletes.Count;
 
@@ -357,16 +362,25 @@ namespace BackupService.Scheduling
                 catch (Exception ex)
                 {
                     await log.ErrorAsync($"Lightroom archive '{_item.Name}' failed", ex);
+                    await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
                     await log.SetSummaryAsync($"Lightroom Archive '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
                     return;
                 }
 
+                // No real work (a no-op flush) — leave no log and no run row.
                 if (!log.WasCreated)
                 {
                     return;
                 }
 
                 stopwatch.Stop();
+
+                // Record the run before the summary write (whose ILogWatcher.Notify the dashboard refreshes on).
+                var outcome = result.Errors > 0 ? RunOutcome.CompletedWithErrors
+                    : result.Warnings > 0 ? RunOutcome.CompletedWithWarnings
+                    : RunOutcome.Success;
+                await RecordRunAsync(startedUtc, stopwatch, result, outcome, log.OperationLogId);
+
                 var duration = FormatDuration(stopwatch.Elapsed);
                 var counts = $"{result.Copied} copied, {result.Updated} updated, {result.Deleted} deleted";
                 await log.SetSummaryAsync(
@@ -374,6 +388,22 @@ namespace BackupService.Scheduling
                         ? $"Lightroom Archive '{_item.Name}' synced {changeCount} change(s) in {duration} — {counts}"
                         : $"Lightroom Archive '{_item.Name}' completed with {result.Errors} error(s) in {duration} — {counts}",
                     result.Errors == 0 ? OperationLogLevel.Info : OperationLogLevel.Error);
+            }
+
+            // Records one BackupRun row for a flush that did real work, so live lightroom-archive activity
+            // shows in the dashboard's Recent Runs (a no-op flush writes nothing and is never recorded).
+            private async Task RecordRunAsync(DateTimeOffset startedUtc, Stopwatch stopwatch, BackupResult result, RunOutcome outcome, int operationLogId)
+            {
+                try
+                {
+                    await _runRecorder.RecordAsync(
+                        _profileId, ProfileType.LightroomArchive, manual: false, startedUtc, stopwatch.Elapsed.TotalMilliseconds,
+                        result, outcome, operationLogId == 0 ? null : operationLogId, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not record lightroom archive run for item '{Item}' (profile {ProfileId}).", _item.Name, _profileId);
+                }
             }
 
             private static string FormatDuration(TimeSpan elapsed) =>

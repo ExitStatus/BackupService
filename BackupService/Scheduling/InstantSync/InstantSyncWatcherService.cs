@@ -22,6 +22,7 @@ namespace BackupService.Scheduling
         IInstantSyncProcessor processor,
         IFolderPairSynchronizer synchronizer,
         IOperationLogFactory operationLogFactory,
+        IBackupRunRecorder runRecorder,
         ILogger<InstantSyncWatcherService> logger) : BackgroundService, IInstantSyncManager
     {
         private readonly Dictionary<int, List<ItemWatcher>> _watchers = new();
@@ -115,7 +116,7 @@ namespace BackupService.Scheduling
 
                 try
                 {
-                    list.Add(new ItemWatcher(item, profile.Id, processor, synchronizer, operationLogFactory, logger, _stoppingToken));
+                    list.Add(new ItemWatcher(item, profile.Id, processor, synchronizer, operationLogFactory, runRecorder, logger, _stoppingToken));
                 }
                 catch (Exception ex)
                 {
@@ -186,6 +187,7 @@ namespace BackupService.Scheduling
             private readonly IInstantSyncProcessor _processor;
             private readonly IFolderPairSynchronizer _synchronizer;
             private readonly IOperationLogFactory _logFactory;
+            private readonly IBackupRunRecorder _runRecorder;
             private readonly ILogger _logger;
             private readonly CancellationToken _stoppingToken;
 
@@ -205,6 +207,7 @@ namespace BackupService.Scheduling
                 IInstantSyncProcessor processor,
                 IFolderPairSynchronizer synchronizer,
                 IOperationLogFactory logFactory,
+                IBackupRunRecorder runRecorder,
                 ILogger logger,
                 CancellationToken stoppingToken)
             {
@@ -213,6 +216,7 @@ namespace BackupService.Scheduling
                 _processor = processor;
                 _synchronizer = synchronizer;
                 _logFactory = logFactory;
+                _runRecorder = runRecorder;
                 _logger = logger;
                 _stoppingToken = stoppingToken;
                 // Guard against a zero/negative debounce (timer requires a non-negative due time).
@@ -350,6 +354,7 @@ namespace BackupService.Scheduling
 
             private async Task ProcessFlushAsync(HashSet<string> changes, HashSet<string> deletes)
             {
+                var startedUtc = DateTimeOffset.UtcNow;
                 var stopwatch = Stopwatch.StartNew();
                 var changeCount = changes.Count + deletes.Count;
 
@@ -378,18 +383,27 @@ namespace BackupService.Scheduling
                 catch (Exception ex)
                 {
                     await log.ErrorAsync($"Instant sync '{_item.Name}' failed", ex);
+                    await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
                     await log.SetSummaryAsync($"Instant Sync '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
                     return;
                 }
 
                 // Nothing was actually copied/deleted and no folders/errors were written — no log exists,
-                // so there is nothing to summarise. Leave no entry for a no-op flush.
+                // so there is nothing to summarise. Leave no entry for a no-op flush (and no run row).
                 if (!log.WasCreated)
                 {
                     return;
                 }
 
                 stopwatch.Stop();
+
+                // Record the run before the summary write (whose ILogWatcher.Notify the dashboard refreshes
+                // on) so the new row is visible when the dashboard reloads.
+                var outcome = result.Errors > 0 ? RunOutcome.CompletedWithErrors
+                    : result.Warnings > 0 ? RunOutcome.CompletedWithWarnings
+                    : RunOutcome.Success;
+                await RecordRunAsync(startedUtc, stopwatch, result, outcome, log.OperationLogId);
+
                 var duration = FormatDuration(stopwatch.Elapsed);
                 var counts = $"{result.Copied} copied, {result.Deleted} deleted";
                 await log.SetSummaryAsync(
@@ -397,6 +411,22 @@ namespace BackupService.Scheduling
                         ? $"Instant Sync '{_item.Name}' synced {changeCount} change(s) in {duration} — {counts}"
                         : $"Instant Sync '{_item.Name}' completed with {result.Errors} error(s) in {duration} — {counts}",
                     result.Errors == 0 ? OperationLogLevel.Info : OperationLogLevel.Error);
+            }
+
+            // Records one BackupRun row for a flush that did real work, so live instant-sync activity shows
+            // in the dashboard's Recent Runs (a no-op flush writes nothing and is never recorded).
+            private async Task RecordRunAsync(DateTimeOffset startedUtc, Stopwatch stopwatch, BackupResult result, RunOutcome outcome, int operationLogId)
+            {
+                try
+                {
+                    await _runRecorder.RecordAsync(
+                        _profileId, ProfileType.InstantSync, manual: false, startedUtc, stopwatch.Elapsed.TotalMilliseconds,
+                        result, outcome, operationLogId == 0 ? null : operationLogId, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not record instant sync run for item '{Item}' (profile {ProfileId}).", _item.Name, _profileId);
+                }
             }
 
             // Full reconcile of the item via the connection-aware folder-pair engine (used when the target
