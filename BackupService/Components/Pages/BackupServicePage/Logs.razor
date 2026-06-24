@@ -109,13 +109,16 @@ else
                                                         @onclick="() => ClearDetailFilter(log.Id)">&times;</button>
                                             }
                                         </div>
-                                        <div class="filter-level">
-                                            <Dropdown TValue="OperationLogLevel?"
-                                                      Value="DetailLevel(log.Id)"
-                                                      ValueChanged="level => OnDetailLevelChanged(log.Id, level)"
-                                                      Items="LevelOptions"
-                                                      DisplayText="LevelLabel" />
-                                        </div>
+                                        <label class="filter-check">
+                                            <input type="checkbox" checked="@DetailWarningChecked(log.Id)"
+                                                   @onchange="e => OnDetailWarningChanged(log.Id, e)" />
+                                            <span>Warning (@WarningCount(log.Id))</span>
+                                        </label>
+                                        <label class="filter-check">
+                                            <input type="checkbox" checked="@DetailErrorChecked(log.Id)"
+                                                   @onchange="e => OnDetailErrorChanged(log.Id, e)" />
+                                            <span>Error (@ErrorCount(log.Id))</span>
+                                        </label>
                                     </div>
                                     @if (filtered.Count == 0)
                                     {

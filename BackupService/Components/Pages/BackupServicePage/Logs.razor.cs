@@ -59,24 +59,50 @@ namespace BackupService.Components.Pages.BackupServicePage
         private readonly HashSet<int> _expanded = [];
         private readonly Dictionary<int, List<OperationLogDetail>> _details = [];
 
-        // Per-expanded-log filters for the detail (terminal) view: a free-text line filter and a
-        // level filter, both keyed by log id (each expanded log keeps its own).
+        // Per-expanded-log filters for the detail (terminal) view: a free-text line filter, plus
+        // Warning/Error level toggles. All keyed by log id (each expanded log keeps its own). The two
+        // level sets hold the log ids whose Warning / Error checkbox is currently ticked; both unticked
+        // means no level filter (every line shown).
         private readonly Dictionary<int, string> _detailFilters = [];
-        private readonly Dictionary<int, OperationLogLevel?> _detailLevels = [];
+        private readonly HashSet<int> _detailWarning = [];
+        private readonly HashSet<int> _detailError = [];
 
         private string DetailFilterText(int logId) => _detailFilters.GetValueOrDefault(logId, string.Empty);
 
-        private OperationLogLevel? DetailLevel(int logId) => _detailLevels.GetValueOrDefault(logId);
+        private bool DetailWarningChecked(int logId) => _detailWarning.Contains(logId);
+
+        private bool DetailErrorChecked(int logId) => _detailError.Contains(logId);
+
+        // The number of cached lines at each level, shown beside the checkbox label.
+        private int WarningCount(int logId) => DetailLevelCount(logId, OperationLogLevel.Warning);
+
+        private int ErrorCount(int logId) => DetailLevelCount(logId, OperationLogLevel.Error);
+
+        private int DetailLevelCount(int logId, OperationLogLevel level) =>
+            _details.TryGetValue(logId, out var all) ? all.Count(d => d.Level == level) : 0;
 
         private void OnDetailFilterChanged(int logId, ChangeEventArgs e) =>
             _detailFilters[logId] = e.Value?.ToString() ?? string.Empty;
 
         private void ClearDetailFilter(int logId) => _detailFilters[logId] = string.Empty;
 
-        private void OnDetailLevelChanged(int logId, OperationLogLevel? level) =>
-            _detailLevels[logId] = level;
+        private void OnDetailWarningChanged(int logId, ChangeEventArgs e) => Toggle(_detailWarning, logId, e.Value is true);
 
-        /// <summary>The cached lines for a log, narrowed by its text and level detail filters.</summary>
+        private void OnDetailErrorChanged(int logId, ChangeEventArgs e) => Toggle(_detailError, logId, e.Value is true);
+
+        private static void Toggle(HashSet<int> set, int logId, bool on)
+        {
+            if (on)
+            {
+                set.Add(logId);
+            }
+            else
+            {
+                set.Remove(logId);
+            }
+        }
+
+        /// <summary>The cached lines for a log, narrowed by its text filter and Warning/Error toggles.</summary>
         private List<OperationLogDetail> FilteredDetails(int logId)
         {
             if (!_details.TryGetValue(logId, out var all))
@@ -92,9 +118,15 @@ namespace BackupService.Components.Pages.BackupServicePage
                 query = query.Where(d => d.Message.Contains(text.Trim(), StringComparison.OrdinalIgnoreCase));
             }
 
-            if (_detailLevels.GetValueOrDefault(logId) is { } level)
+            // Warning/Error toggles are additive: with either ticked, show only those levels; with
+            // neither ticked, show every level.
+            var warning = _detailWarning.Contains(logId);
+            var error = _detailError.Contains(logId);
+            if (warning || error)
             {
-                query = query.Where(d => d.Level == level);
+                query = query.Where(d =>
+                    (warning && d.Level == OperationLogLevel.Warning) ||
+                    (error && d.Level == OperationLogLevel.Error));
             }
 
             return query.ToList();

@@ -1301,6 +1301,21 @@ label.check {
     margin-top: 0;
 }
 
+/* Warning/Error toggles: keep the checkbox and its label aligned, and centred against the text
+   filter (the parent row already centres its items, this aligns the checkbox to its own label). */
+.log-detail-filter .filter-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.log-detail-filter .filter-check input[type="checkbox"] {
+    margin: 0;
+}
+
 /* Terminal output: monospace lines [timestamp] message, capped at ~20 lines then scrolls.
    Lines don't wrap (like a real terminal) — long messages scroll horizontally. */
 .log-terminal {
