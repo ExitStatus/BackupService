@@ -38,6 +38,9 @@ namespace BackupService.Profiles
             int pageSize,
             ProfileSortColumn sortColumn,
             bool descending,
+            ProfileType? type = null,
+            string? filter = null,
+            bool? enabled = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -49,6 +52,12 @@ namespace BackupService.Profiles
         /// All profiles as lightweight id+name summaries (name-ascending), for pickers/filters.
         /// </summary>
         Task<IReadOnlyList<ProfileSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// The number of profiles of each <see cref="ProfileType"/> (types with none are omitted). Used by the
+        /// Profiles page to decide which "Arrange by Type" tabs to show.
+        /// </summary>
+        Task<IReadOnlyDictionary<ProfileType, int>> GetCountsByTypeAsync(CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Deletes a profile (and its folder pairs, via cascade). No-op if it doesn't exist.

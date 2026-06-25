@@ -569,12 +569,53 @@ namespace BackupService.UnitTests.Profiles
             page.Items.Should().ContainSingle().Which.Name.Should().Be("C");
         }
 
+        [Test]
+        public async Task GetPageAsync_FiltersByType()
+        {
+            await SeedTypedProfilesAsync(
+                ("FP1", ProfileType.FolderPair),
+                ("FP2", ProfileType.FolderPair),
+                ("Live", ProfileType.InstantSync),
+                ("Zip", ProfileType.ArchiveSync));
+
+            var folderPairs = await _service.GetPageAsync(1, 10, ProfileSortColumn.Name, descending: false, ProfileType.FolderPair);
+
+            folderPairs.TotalCount.Should().Be(2);
+            folderPairs.Items.Select(p => p.Name).Should().BeEquivalentTo(["FP1", "FP2"]);
+        }
+
+        [Test]
+        public async Task GetCountsByTypeAsync_ReturnsPerTypeCountsAndOmitsTypesWithNone()
+        {
+            await SeedTypedProfilesAsync(
+                ("FP1", ProfileType.FolderPair),
+                ("FP2", ProfileType.FolderPair),
+                ("Live", ProfileType.InstantSync));
+
+            var counts = await _service.GetCountsByTypeAsync();
+
+            counts[ProfileType.FolderPair].Should().Be(2);
+            counts[ProfileType.InstantSync].Should().Be(1);
+            counts.ContainsKey(ProfileType.ArchiveSync).Should().BeFalse();
+            counts.ContainsKey(ProfileType.LightroomArchive).Should().BeFalse();
+        }
+
         private async Task SeedProfilesAsync(params string[] names)
         {
             await using var context = new BackupDbContext(_options);
             foreach (var name in names)
             {
                 context.Profiles.Add(new Profile { Name = name, DateCreated = DateTimeOffset.UtcNow });
+            }
+            await context.SaveChangesAsync();
+        }
+
+        private async Task SeedTypedProfilesAsync(params (string Name, ProfileType Type)[] profiles)
+        {
+            await using var context = new BackupDbContext(_options);
+            foreach (var (name, type) in profiles)
+            {
+                context.Profiles.Add(new Profile { Name = name, Type = type, DateCreated = DateTimeOffset.UtcNow });
             }
             await context.SaveChangesAsync();
         }

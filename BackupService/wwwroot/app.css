@@ -680,6 +680,27 @@ label.check {
     margin-bottom: 1rem;
 }
 
+/* The right-hand group in a content header (e.g. the "Arrange by Type" checkbox + Create button). */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* A checkbox label sitting inline in a header row — drop the stacked-form bottom margin, tighten the
+   checkbox-to-text gap, and centre it against the adjacent button. Selector matches label.check's
+   specificity (and comes later) so its margin-bottom/gap are actually overridden. */
+label.header-check {
+    margin-bottom: 0;
+    white-space: nowrap;
+    gap: 0.3rem;
+    line-height: 1;
+}
+
+label.header-check input {
+    margin: 0;
+}
+
 /* Dashboard */
 .dashboard-period {
     flex: 0 0 auto;
@@ -839,12 +860,16 @@ label.check {
 }
 
 .filter-bar .filter-level,
-.filter-bar .filter-profile {
+.filter-bar .filter-profile,
+.filter-bar .filter-ptype,
+.filter-bar .filter-enabled {
     width: 12rem;
 }
 
 .filter-bar .filter-level .dropdown,
-.filter-bar .filter-profile .dropdown {
+.filter-bar .filter-profile .dropdown,
+.filter-bar .filter-ptype .dropdown,
+.filter-bar .filter-enabled .dropdown {
     margin-top: 0;
 }
 

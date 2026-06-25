@@ -249,6 +249,63 @@ namespace BackupService.Connections
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<IReadOnlyDictionary<int, int>> GetProfileUsageCountsAsync(CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            // Gather (connectionId, profileId) references from every child entity that can point at a connection,
+            // then count the distinct profiles per connection. LightroomArchiveItem is target-only.
+            var pairs = new List<(int ConnectionId, int ProfileId)>();
+
+            void AddRef(int? source, int? target, int profileId)
+            {
+                if (source is { } s)
+                {
+                    pairs.Add((s, profileId));
+                }
+                if (target is { } t)
+                {
+                    pairs.Add((t, profileId));
+                }
+            }
+
+            foreach (var fp in await db.FolderPairs.AsNoTracking()
+                .Where(fp => fp.SourceConnectionId != null || fp.TargetConnectionId != null)
+                .Select(fp => new { fp.ProfileId, fp.SourceConnectionId, fp.TargetConnectionId })
+                .ToListAsync(cancellationToken))
+            {
+                AddRef(fp.SourceConnectionId, fp.TargetConnectionId, fp.ProfileId);
+            }
+
+            foreach (var i in await db.InstantSyncItems.AsNoTracking()
+                .Where(i => i.SourceConnectionId != null || i.TargetConnectionId != null)
+                .Select(i => new { i.ProfileId, i.SourceConnectionId, i.TargetConnectionId })
+                .ToListAsync(cancellationToken))
+            {
+                AddRef(i.SourceConnectionId, i.TargetConnectionId, i.ProfileId);
+            }
+
+            foreach (var a in await db.ArchiveSyncItems.AsNoTracking()
+                .Where(a => a.SourceConnectionId != null || a.TargetConnectionId != null)
+                .Select(a => new { a.ProfileId, a.SourceConnectionId, a.TargetConnectionId })
+                .ToListAsync(cancellationToken))
+            {
+                AddRef(a.SourceConnectionId, a.TargetConnectionId, a.ProfileId);
+            }
+
+            foreach (var l in await db.LightroomArchiveItems.AsNoTracking()
+                .Where(l => l.TargetConnectionId != null)
+                .Select(l => new { l.ProfileId, l.TargetConnectionId })
+                .ToListAsync(cancellationToken))
+            {
+                AddRef(null, l.TargetConnectionId, l.ProfileId);
+            }
+
+            return pairs
+                .GroupBy(p => p.ConnectionId)
+                .ToDictionary(g => g.Key, g => g.Select(p => p.ProfileId).Distinct().Count());
+        }
+
         public async Task<ConnectionDeleteResult> DeleteAsync(int id, CancellationToken cancellationToken = default)
         {
             await using var db = contextFactory.CreateDbContext();

@@ -24,6 +24,12 @@ namespace BackupService.Connections
 
         Task<IReadOnlyList<ConnectionSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Returns, keyed by connection id, the number of distinct profiles that reference each connection as a
+        /// source or target (across every backup-entry type). Connections with no references are omitted.
+        /// </summary>
+        Task<IReadOnlyDictionary<int, int>> GetProfileUsageCountsAsync(CancellationToken cancellationToken = default);
+
         Task<ConnectionDeleteResult> DeleteAsync(int id, CancellationToken cancellationToken = default);
     }
 }

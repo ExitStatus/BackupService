@@ -1,25 +1,74 @@
 <div class="content-header">
     <h1>Backup Profiles</h1>
-    <button @onclick="OpenCreate">Create Profile</button>
+    <div class="header-actions">
+        <label class="check header-check">
+            <input type="checkbox" checked="@_arrangeByType" @onchange="ToggleArrangeByTypeAsync" /> Arrange by Type
+        </label>
+        <button @onclick="OpenCreate">Create Profile</button>
+    </div>
 </div>
 
-@if (_profiles is null)
+@if (!_initialised)
 {
     <p>Loading…</p>
 }
-else if (_profiles.TotalCount == 0)
+else if (!HasAnyProfiles)
 {
     <p>No backup profiles yet. Click <strong>Create Profile</strong> to add one.</p>
 }
 else
 {
+    @if (_arrangeByType)
+    {
+        <TabBar Items="TabItems()" SelectedKey="@_activeType.ToString()" SelectedKeyChanged="SelectTypeAsync" />
+    }
+
+    <div class="filter-bar">
+        <div class="filter-clearable">
+            <input type="text" class="filter-input" placeholder="Filter by name…"
+                   value="@_filterText" @oninput="OnFilterTextChanged" />
+            @if (!string.IsNullOrEmpty(_filterText))
+            {
+                <button type="button" class="filter-clear" title="Clear filter" aria-label="Clear filter"
+                        @onclick="ClearFilterText">&times;</button>
+            }
+        </div>
+        @if (!_arrangeByType)
+        {
+            <div class="filter-ptype">
+                <Dropdown TValue="ProfileType?"
+                          Value="_filterType"
+                          ValueChanged="OnFilterTypeChanged"
+                          Items="TypeOptions"
+                          DisplayText="TypeLabel" />
+            </div>
+        }
+        <div class="filter-enabled">
+            <Dropdown TValue="bool?"
+                      Value="_filterEnabled"
+                      ValueChanged="OnFilterEnabledChanged"
+                      Items="EnabledOptions"
+                      DisplayText="EnabledLabel" />
+        </div>
+        <button type="button" class="btn-secondary" @onclick="ClearFilters" disabled="@(!HasActiveFilter)">Clear</button>
+    </div>
+
+    @if (_profiles!.TotalCount == 0)
+    {
+        <p>No profiles match the filter.</p>
+    }
+    else
+    {
     <table class="table">
         <thead>
             <tr>
                 <th class="enabled-col">Enabled</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Name)">Name@(SortIndicator(ProfileSortColumn.Name))</button></th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Description)">Description@(SortIndicator(ProfileSortColumn.Description))</button></th>
-                <th>Type</th>
+                @if (!_arrangeByType)
+                {
+                    <th>Type</th>
+                }
                 <th>Schedule</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.DateLastRun)">Date last run@(SortIndicator(ProfileSortColumn.DateLastRun))</button></th>
                 <th>Status</th>
@@ -27,7 +76,7 @@ else
             </tr>
         </thead>
         <tbody>
-            @foreach (var profile in _profiles.Items)
+            @foreach (var profile in _profiles!.Items)
             {
                 <tr>
                     <td class="enabled-col">
@@ -36,7 +85,10 @@ else
                     </td>
                     <td>@profile.Name</td>
                     <td>@profile.Description</td>
-                    <td>@profile.Type.GetDescription()</td>
+                    @if (!_arrangeByType)
+                    {
+                        <td>@profile.Type.GetDescription()</td>
+                    }
                     <td>@ScheduleDefinition.Describe(profile.Schedule)</td>
                     <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
                     <td>@StatusText(profile.Id)</td>
@@ -75,10 +127,11 @@ else
     </table>
 
     <div class="pager">
-        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_profiles.PageNumber <= 1)">Previous</button>
-        <span>Page @_profiles.PageNumber of @_profiles.TotalPages (@_profiles.TotalCount total)</span>
-        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_profiles.PageNumber >= _profiles.TotalPages)">Next</button>
+        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_profiles!.PageNumber <= 1)">Previous</button>
+        <span>Page @_profiles!.PageNumber of @_profiles.TotalPages (@_profiles.TotalCount total)</span>
+        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_profiles!.PageNumber >= _profiles.TotalPages)">Next</button>
     </div>
+    }
 }
 
 @if (_showDialog)

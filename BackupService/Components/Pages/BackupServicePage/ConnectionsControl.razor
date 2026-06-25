@@ -20,6 +20,7 @@ else
             <tr>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Name)">Name@(SortIndicator(ConnectionSortColumn.Name))</button></th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.Type)">Type@(SortIndicator(ConnectionSortColumn.Type))</button></th>
+                <th>Profiles</th>
                 <th>Endpoint</th>
                 <th>Free space</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.DateCreated)">Created@(SortIndicator(ConnectionSortColumn.DateCreated))</button></th>
@@ -32,6 +33,20 @@ else
                 <tr>
                     <td>@connection.Name</td>
                     <td>@connection.Type.GetDescription()</td>
+                    <td>
+                        @if (!_usageLoaded)
+                        {
+                            <span class="muted">…</span>
+                        }
+                        else if (ProfileCount(connection.Id) is var count && count == 0)
+                        {
+                            <span class="muted">Unused</span>
+                        }
+                        else
+                        {
+                            @count
+                        }
+                    </td>
                     <td>@Endpoint(connection)</td>
                     <td>
                         @if (!_spaceLoaded.Contains(connection.Id))

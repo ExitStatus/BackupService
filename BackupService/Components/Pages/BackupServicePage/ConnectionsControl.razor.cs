@@ -26,6 +26,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _descending;
         private PagedResult<Connection>? _connections;
 
+        // Distinct profile count per connection id (omitted = 0 = "Unused"), loaded asynchronously after the
+        // grid renders so the list shows immediately. _usageLoaded gates the placeholder vs the value.
+        private IReadOnlyDictionary<int, int> _profileUsage = new Dictionary<int, int>();
+        private bool _usageLoaded;
+
         // Free-space is loaded asynchronously per row (each is a remote round-trip). _spaceLoaded marks a row
         // as resolved (the value may legitimately be null = "couldn't determine"); _generation discards results
         // from a superseded page/sort; _spaceCts cancels in-flight queries on reload/dispose.
@@ -41,6 +46,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             _connections = await ConnectionService.GetPageAsync(page, PageSize, _sortColumn, _descending);
             _page = _connections.PageNumber;
             StartSpaceLoad();
+            StartUsageLoad();
         }
 
         // Kicks off a background free-space query for every connection on the current page.
@@ -94,6 +100,46 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
+        // Loads the per-connection profile-usage counts in the background (one query for all rows) so the grid
+        // doesn't wait on it. Reuses the space-load generation/token so a superseded page/sort is discarded.
+        private void StartUsageLoad()
+        {
+            _usageLoaded = false;
+            _profileUsage = new Dictionary<int, int>();
+
+            var generation = _generation;
+            var token = _spaceCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                IReadOnlyDictionary<int, int> usage;
+                try
+                {
+                    usage = await ConnectionService.GetProfileUsageCountsAsync(token);
+                }
+                catch
+                {
+                    return; // best-effort — leaves the placeholder
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                await InvokeAsync(() =>
+                {
+                    if (generation != _generation)
+                    {
+                        return; // a newer page/sort superseded this result
+                    }
+                    _profileUsage = usage;
+                    _usageLoaded = true;
+                    StateHasChanged();
+                });
+            }, token);
+        }
+
         public void Dispose()
         {
             _spaceCts.Cancel();
@@ -133,6 +179,8 @@ namespace BackupService.Components.Pages.BackupServicePage
                 await LoadAsync(_page + 1);
             }
         }
+
+        private int ProfileCount(int connectionId) => _profileUsage.GetValueOrDefault(connectionId);
 
         private static string Endpoint(Connection connection) =>
             connection.Smb is { } smb ? $@"\\{smb.Host}\{smb.ShareName}"

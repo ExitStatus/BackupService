@@ -138,6 +138,9 @@ namespace BackupService.Profiles
             int pageSize,
             ProfileSortColumn sortColumn,
             bool descending,
+            ProfileType? type = null,
+            string? filter = null,
+            bool? enabled = null,
             CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1)
@@ -152,6 +155,21 @@ namespace BackupService.Profiles
             await using var db = contextFactory.CreateDbContext();
 
             var query = db.Profiles.AsNoTracking();
+            if (type is { } t)
+            {
+                query = query.Where(p => p.Type == t);
+            }
+            if (enabled is { } en)
+            {
+                query = query.Where(p => p.Enabled == en);
+            }
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                // LIKE is case-insensitive for ASCII in SQLite; matches the name or the description.
+                var like = $"%{filter.Trim()}%";
+                query = query.Where(p => EF.Functions.Like(p.Name, like)
+                    || (p.Description != null && EF.Functions.Like(p.Description, like)));
+            }
             var totalCount = await query.CountAsync(cancellationToken);
             var skip = (pageNumber - 1) * pageSize;
 
@@ -205,6 +223,19 @@ namespace BackupService.Profiles
                 .OrderBy(p => p.Name)
                 .Select(p => new ProfileSummary(p.Id, p.Name))
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<IReadOnlyDictionary<ProfileType, int>> GetCountsByTypeAsync(CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var counts = await db.Profiles
+                .AsNoTracking()
+                .GroupBy(p => p.Type)
+                .Select(g => new { Type = g.Key, Count = g.Count() })
+                .ToListAsync(cancellationToken);
+
+            return counts.ToDictionary(c => c.Type, c => c.Count);
         }
 
         public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
