@@ -64,16 +64,16 @@ namespace BackupService.FileSystem
             return Path.Combine(directory, fileName);
         }
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true)
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true, Action<string>? onEntryProcessed = null)
         {
             // Encrypted archives need a ZIP writer that supports encryption (the BCL can't), so route them
             // through SharpZipLib; the common unencrypted path stays on System.IO.Compression unchanged.
             return string.IsNullOrEmpty(password)
-                ? CreatePlainZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel)
-                : CreateEncryptedZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, password, useAesEncryption);
+                ? CreatePlainZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, onEntryProcessed)
+                : CreateEncryptedZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, password, useAesEncryption, onEntryProcessed);
         }
 
-        private static ZipBuildResult CreatePlainZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel)
+        private static ZipBuildResult CreatePlainZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, Action<string>? onEntryProcessed)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
             // gets the list of files added — both for the top-level-only case and for verbose logging —
@@ -110,6 +110,7 @@ namespace BackupService.FileSystem
                 {
                     skipped.Add(new ZipSkippedFile(entryName, ex.Message));
                 }
+                onEntryProcessed?.Invoke(entryName);
             }
 
             return new ZipBuildResult(added, skipped);
@@ -117,7 +118,7 @@ namespace BackupService.FileSystem
 
         // Encrypted counterpart of CreatePlainZip (SharpZipLib): same per-entry skip-on-locked, includeEntry
         // filtering, comment and timestamps, but each entry is encrypted (AES-256, else legacy ZipCrypto).
-        private static ZipBuildResult CreateEncryptedZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, string password, bool useAesEncryption)
+        private static ZipBuildResult CreateEncryptedZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, string password, bool useAesEncryption, Action<string>? onEntryProcessed)
         {
             var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
             var added = new List<string>();
@@ -162,6 +163,7 @@ namespace BackupService.FileSystem
                 {
                     skipped.Add(new ZipSkippedFile(entryName, ex.Message));
                 }
+                onEntryProcessed?.Invoke(entryName);
             }
 
             zip.Finish();

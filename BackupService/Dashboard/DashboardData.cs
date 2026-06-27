@@ -47,6 +47,7 @@ namespace BackupService.Dashboard
     /// <summary>A row in the recent-runs table.</summary>
     public sealed record RecentRun(
         int Id,
+        RunKind Kind,
         string ProfileName,
         ProfileType Type,
         DateTimeOffset StartedUtc,

@@ -154,11 +154,14 @@ namespace BackupService.UnitTests.Scheduling
 
             public Exception? ThrowOnCreate { get; init; }
 
+            public List<IProgress<double>?> Progresses { get; } = [];
+
             public Task<BackupResult> CreateArchiveAsync(
-                ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken)
+                ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
             {
                 ItemNames.Add(item.Name);
                 RunIndexes.Add(runIndex);
+                Progresses.Add(progress);
                 if (ThrowOnCreate is not null)
                 {
                     throw ThrowOnCreate;

@@ -578,6 +578,30 @@ table.folder-pairs-table tbody tr:last-child td {
     color: var(--text-muted);
 }
 
+/* Scheduled-task step list. */
+.step-order-col {
+    width: 2.5rem;
+    text-align: center;
+}
+
+.step-name {
+    font-weight: 600;
+}
+
+.step-command {
+    margin: 0.15rem 0 0;
+    word-break: break-all;
+}
+
+.ps-script {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--font-mono, ui-monospace, "Cascadia Code", Consolas, monospace);
+    resize: vertical;
+    white-space: pre;
+    overflow-wrap: normal;
+}
+
 /* Checkboxes must not inherit the full-width input rule. */
 input[type="checkbox"] {
     width: auto;

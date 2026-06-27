@@ -1,0 +1,59 @@
+<div class="modal-overlay">
+    <div class="modal create-profile" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit scheduled task" : "Create scheduled task")">
+        <div class="profile-dialog-header">
+            <h2>@DialogTitle</h2>
+            <div class="profile-enabled-row">
+                <span class="field-label">Enabled</span>
+                <ProfileEnabledControl @bind-Value="Input.Enabled" />
+            </div>
+        </div>
+
+        <p class="modal-intro">
+            A scheduled task runs one or more commands in order on a schedule. Output (stdout/stderr) is
+            captured into the run log; the run stops at the first step that fails.
+        </p>
+
+        <EditForm Model="Input" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+
+            <label>
+                Name
+                <InputText @bind-Value="Input.Name" />
+            </label>
+
+            <label>
+                Description
+                <InputText @bind-Value="Input.Description" />
+            </label>
+
+            <label>
+                Schedule
+                <div class="input-row">
+                    <input type="text" readonly value="@ScheduleText" />
+                    <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
+                </div>
+            </label>
+
+            <label class="check" title="@HandleMissedSyncTooltip">
+                <input type="checkbox" @bind="Input.HandleMissedSync" title="@HandleMissedSyncTooltip" />
+                Handle missed sync
+            </label>
+
+            <ScheduledTaskStepsControl @ref="_stepsControl" Items="_steps" />
+
+            <ValidationSummary />
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+                <button type="submit">@(IsEdit ? "Save" : "Create")</button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@if (_showSchedule)
+{
+    <ScheduleDialog Initial="_schedule"
+                    OnApply="OnScheduleApplied"
+                    OnCancel="() => _showSchedule = false" />
+}

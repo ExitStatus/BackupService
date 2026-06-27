@@ -1,0 +1,96 @@
+<div class="content-header">
+    <h1>Scheduled Tasks</h1>
+    <button @onclick="OpenCreate">Create Scheduled Task</button>
+</div>
+
+@if (_tasks is null)
+{
+    <p>Loading…</p>
+}
+else if (_tasks.TotalCount == 0)
+{
+    <p>No scheduled tasks yet. Click <strong>Create Scheduled Task</strong> to add one.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th class="enabled-col">Enabled</th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ScheduledTaskSortColumn.Name)">Name@(SortIndicator(ScheduledTaskSortColumn.Name))</button></th>
+                <th>Description</th>
+                <th>Schedule</th>
+                <th>Steps</th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ScheduledTaskSortColumn.DateLastRun)">Date last run@(SortIndicator(ScheduledTaskSortColumn.DateLastRun))</button></th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(ScheduledTaskSortColumn.DateNextRun)">Next run@(SortIndicator(ScheduledTaskSortColumn.DateNextRun))</button></th>
+                <th>Status</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var task in _tasks!.Items)
+            {
+                <tr>
+                    <td class="enabled-col">
+                        <ProfileEnabledControl Value="task.Enabled"
+                                               ValueChanged="enabled => ToggleEnabledAsync(task, enabled)" />
+                    </td>
+                    <td>@task.Name</td>
+                    <td>@task.Description</td>
+                    <td>@ScheduleDefinition.Describe(task.Schedule)</td>
+                    <td>@task.Steps.Count</td>
+                    <td>@(task.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
+                    <td>@(task.DateNextRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</td>
+                    <td>@StatusText(task.Id)</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            @if (IsRunning(task.Id))
+                            {
+                                <button type="button" class="icon-btn" title="Stop the running task"
+                                        aria-label="Stop task" @onclick="() => StopRun(task)">
+                                    <img src="Icons/stop.png" width="24" height="24" alt="Stop" />
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="icon-btn" title="Run now"
+                                        aria-label="Run task now" @onclick="() => RunNow(task)">
+                                    <img src="Icons/play.png" width="24" height="24" alt="Run now" />
+                                </button>
+                                <button type="button" class="icon-btn" title="Edit task"
+                                        aria-label="Edit task" @onclick="() => OpenEdit(task.Id)">
+                                    <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                                </button>
+                                <button type="button" class="icon-btn" title="Delete task"
+                                        aria-label="Delete task" @onclick="() => OpenDelete(task)">
+                                    <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                                </button>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="pager">
+        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_tasks!.PageNumber <= 1)">Previous</button>
+        <span>Page @_tasks!.PageNumber of @_tasks.TotalPages (@_tasks.TotalCount total)</span>
+        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_tasks!.PageNumber >= _tasks.TotalPages)">Next</button>
+    </div>
+}
+
+@if (_showDialog)
+{
+    <ScheduledTaskDialog TaskId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" />
+}
+
+@if (_deleteTarget is not null)
+{
+    <ConfirmDialog Title="Delete scheduled task"
+                   Message="@($"Delete the scheduled task \"{_deleteTarget.Name}\"? This cannot be undone.")"
+                   OnConfirm="ConfirmDeleteAsync"
+                   OnCancel="CancelDelete" />
+}
+
+<Notification @ref="_notification" />

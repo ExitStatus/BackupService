@@ -50,14 +50,18 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
-                    // Archiving is one opaque build per item, so progress is per-item (items done / total).
+                    // Each item contributes an equal slice of the run; within a slice the processor reports a
+                    // 0..1 completion fraction (75% files-zipped, 25% bytes-copied) so progress is granular.
                     var totalItems = profile.ArchiveSyncItems.Count;
                     statusService.SetProgress(profile.Id, 0);
                     var completed = 0;
                     foreach (var item in profile.ArchiveSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunItemAsync(item, log, total, cancellationToken);
+                        var itemIndex = completed; // captured for the closure below
+                        var itemProgress = new DelegateProgress(fraction =>
+                            statusService.SetProgress(profile.Id, (int)((itemIndex + Math.Clamp(fraction, 0, 1)) * 100 / totalItems)));
+                        await RunItemAsync(item, log, total, itemProgress, cancellationToken);
                         completed++;
                         statusService.SetProgress(profile.Id, completed * 100 / totalItems);
                     }
@@ -110,7 +114,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunItemAsync(ArchiveSyncItem item, IOperationLogger log, BackupResult total, CancellationToken cancellationToken)
+        private async Task RunItemAsync(ArchiveSyncItem item, IOperationLogger log, BackupResult total, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await log.AppendAsync($"Archive '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
 
@@ -119,7 +123,7 @@ namespace BackupService.Scheduling
             BackupResult result;
             try
             {
-                result = await processor.CreateArchiveAsync(item, runIndex, DateTime.Now, log, cancellationToken);
+                result = await processor.CreateArchiveAsync(item, runIndex, DateTime.Now, log, cancellationToken, progress);
             }
             catch (OperationCanceledException)
             {
@@ -161,5 +165,15 @@ namespace BackupService.Scheduling
             elapsed.TotalSeconds >= 1
                 ? $"{elapsed.TotalSeconds:0.##}s"
                 : $"{elapsed.TotalMilliseconds:0}ms";
+
+        /// <summary>
+        /// A synchronous <see cref="IProgress{T}"/> that invokes the handler inline (unlike
+        /// <see cref="Progress{T}"/>, which posts to a captured context — there's none in a background
+        /// service, so reports would run out of order on the thread pool).
+        /// </summary>
+        private sealed class DelegateProgress(Action<double> report) : IProgress<double>
+        {
+            public void Report(double value) => report(value);
+        }
     }
 }

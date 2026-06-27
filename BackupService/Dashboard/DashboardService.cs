@@ -40,7 +40,10 @@ namespace BackupService.Dashboard
                 .Take(MaxRows)
                 .Select(r => new RunRow(
                     r.Id,
-                    r.Profile != null ? r.Profile.Name : "(deleted profile)",
+                    r.Kind,
+                    r.Kind == RunKind.ScheduledTask
+                        ? (r.ScheduledTask != null ? r.ScheduledTask.Name : "(deleted task)")
+                        : (r.Profile != null ? r.Profile.Name : "(deleted profile)"),
                     r.Type,
                     r.StartedUtc,
                     r.DurationMs,
@@ -155,12 +158,13 @@ namespace BackupService.Dashboard
                 .ToList();
 
         private static RecentRun ToRecentRun(RunRow r) => new(
-            r.Id, r.ProfileName, r.Type, r.StartedUtc, r.DurationMs, r.Outcome,
+            r.Id, r.Kind, r.ProfileName, r.Type, r.StartedUtc, r.DurationMs, r.Outcome,
             r.Copied, r.Updated, r.Deleted, r.Errors, r.Warnings, r.Manual, r.OperationLogId);
 
         // In-memory projection of a run row (kept minimal for the aggregation above).
         private sealed record RunRow(
             int Id,
+            RunKind Kind,
             string ProfileName,
             ProfileType Type,
             DateTimeOffset StartedUtc,

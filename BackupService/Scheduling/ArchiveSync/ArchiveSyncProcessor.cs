@@ -24,8 +24,11 @@ namespace BackupService.Scheduling
     {
         private const string TimestampFormat = "yyyy-MM-dd_HHmmss";
 
+        // Progress split: building the zip drives the first 75%, copying it to the target the final 25%.
+        private const double ZipPhaseShare = 0.75;
+
         public async Task<BackupResult> CreateArchiveAsync(
-            ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken)
+            ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
         {
             var result = new BackupResult();
 
@@ -71,7 +74,7 @@ namespace BackupService.Scheduling
 
                 try
                 {
-                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, cancellationToken);
+                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, progress, cancellationToken);
                 }
                 finally
                 {
@@ -79,6 +82,7 @@ namespace BackupService.Scheduling
                     {
                         TryDeleteDirectory(stagingDir);
                     }
+                    progress?.Report(1.0); // item finished (success, skip or error) — snap to complete
                 }
             }
             finally
@@ -90,7 +94,7 @@ namespace BackupService.Scheduling
         }
 
         private async Task BuildAndStoreAsync(
-            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, CancellationToken cancellationToken)
+            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, IProgress<double>? progress, CancellationToken cancellationToken)
         {
             var gfs = item.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon;
             var stamp = timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture);
@@ -141,6 +145,10 @@ namespace BackupService.Scheduling
                 }
             }
 
+            // Total files that will go into the archive, so the zip phase can report "added of total".
+            var totalFiles = CountInScopeFiles(sourceDir, item.IncludeSubFolders, filter);
+            var zipped = 0;
+
             string tempZip;
             ZipBuildResult build;
             try
@@ -152,7 +160,13 @@ namespace BackupService.Scheduling
                     fingerprint,
                     item.CompressionLevel.ToCompressionLevel(),
                     password,
-                    useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256);
+                    useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256,
+                    onEntryProcessed: _ =>
+                    {
+                        zipped++;
+                        // First 75% of the item's progress = files added to the zip.
+                        progress?.Report(totalFiles > 0 ? ZipPhaseShare * zipped / totalFiles : ZipPhaseShare);
+                    });
             }
             catch (Exception ex)
             {
@@ -188,7 +202,7 @@ namespace BackupService.Scheduling
             }
 
             var destPath = Path.Combine(target.Base, finalName);
-            var copied = await CopyThroughTempAsync(tempZip, destPath, target, log, result);
+            var copied = await CopyThroughTempAsync(tempZip, destPath, target, log, result, progress, cancellationToken);
             TryDelete(fileSystem, tempZip); // best-effort cleanup of the local temp build, copied or not
 
             if (!copied)
@@ -315,6 +329,17 @@ namespace BackupService.Scheduling
             {
                 TryDelete(fileSystem, manifestPath);
             }
+        }
+
+        /// <summary>
+        /// Counts the source files that will go into the archive (same recursion + include/exclude filtering
+        /// as the zip build), so the zip phase can report progress as "added of total".
+        /// </summary>
+        private int CountInScopeFiles(string sourceDir, bool includeSubFolders, BackupFilter filter)
+        {
+            var entries = new List<(string Entry, string Path)>();
+            GatherFiles(sourceDir, sourceDir, includeSubFolders, entries);
+            return filter.IsEmpty ? entries.Count : entries.Count(e => filter.IsRelativePathInScope(e.Entry));
         }
 
         private void GatherFiles(string root, string dir, bool includeSubFolders, List<(string Entry, string Path)> into)
@@ -536,16 +561,31 @@ namespace BackupService.Scheduling
         }
 
         /// <summary>Copies the locally-built zip into the target (possibly a different filesystem) crash-safe.</summary>
-        private async Task<bool> CopyThroughTempAsync(string localZip, string dest, Target target, IOperationLogger log, BackupResult result)
+        private async Task<bool> CopyThroughTempAsync(string localZip, string dest, Target target, IOperationLogger log, BackupResult result, IProgress<double>? progress, CancellationToken cancellationToken)
         {
             var targetDir = Path.GetDirectoryName(dest)!;
             var tempPath = Path.Combine(targetDir, "." + Path.GetFileName(dest) + ".tmp");
             try
             {
+                long totalBytes;
+                try { totalBytes = fileSystem.GetFileSize(localZip); }
+                catch { totalBytes = 0; } // size for progress only — a read failure just means no granularity
+
                 using (var input = fileSystem.OpenRead(localZip))
                 using (var output = target.Fs.OpenWrite(tempPath))
                 {
-                    await input.CopyToAsync(output);
+                    // Manual buffered copy so the final 25% of progress tracks bytes written to the target.
+                    var buffer = new byte[81920];
+                    long copiedBytes = 0;
+                    int read;
+                    while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+                    {
+                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                        copiedBytes += read;
+                        progress?.Report(totalBytes > 0
+                            ? ZipPhaseShare + (1 - ZipPhaseShare) * copiedBytes / totalBytes
+                            : 1.0);
+                    }
                 }
 
                 if (target.Fs.FileExists(dest))

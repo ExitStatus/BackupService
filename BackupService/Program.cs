@@ -120,6 +120,16 @@ namespace BackupService
             builder.Services.AddSingleton<Scheduling.LightroomArchiveWatcherService>();
             builder.Services.AddSingleton<Scheduling.ILightroomArchiveManager>(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
 
+            // Scheduled tasks: a parallel stack to backups (run OS commands on a cron schedule). The
+            // scheduler is shared across its three roles like the backup scheduler.
+            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStatusService, ScheduledTasks.ScheduledTaskStatusService>();
+            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStepService, ScheduledTasks.ScheduledTaskStepService>();
+            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskService, ScheduledTasks.ScheduledTaskService>();
+            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IProcessRunner, Scheduling.ScheduledTasks.ProcessRunner>();
+            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskRunner, Scheduling.ScheduledTasks.ScheduledTaskRunner>();
+            builder.Services.AddSingleton<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>();
+            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskScheduler>(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
+
             // ApexCharts (Blazor-ApexCharts) for the dashboard charts.
             builder.Services.AddApexCharts();
 
@@ -131,6 +141,7 @@ namespace BackupService
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
 
             var app = builder.Build();
 
@@ -153,6 +164,16 @@ namespace BackupService
                          .GetSummariesAsync().GetAwaiter().GetResult())
             {
                 statusService.Set(summary.Id, Enumerations.ProfileStatus.Idle);
+            }
+
+            // Likewise every scheduled task starts Idle in its own (separate) in-memory status tracker.
+            var taskStatusService = app.Services.GetRequiredService<ScheduledTasks.IScheduledTaskStatusService>();
+            using (var db = app.Services.GetRequiredService<IDatabaseContextFactory>().CreateDbContext())
+            {
+                foreach (var taskId in db.ScheduledTasks.Select(t => t.Id).ToList())
+                {
+                    taskStatusService.Set(taskId, Enumerations.ProfileStatus.Idle);
+                }
             }
 
             app.UseAuthentication();

@@ -75,6 +75,32 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task ReportsProgress_FilesZippedTo75ThenBytesCopiedTo100()
+        {
+            _fs.AddFile(@"C:\src\a.txt", RunTime, "data");
+            _fs.AddFile(@"C:\src\b.txt", RunTime, "data");
+            _fs.AddFile(@"C:\src\c.txt", RunTime, "data");
+            _fs.AddFile(@"C:\src\d.txt", RunTime, "data");
+
+            var reports = new List<double>();
+            var progress = new SyncProgress(reports.Add);
+
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), runIndex: 1, RunTime, _log, CancellationToken.None, progress);
+
+            result.Copied.Should().Be(1);
+            reports.Should().NotBeEmpty();
+            reports.Should().BeInAscendingOrder();                                 // monotonic
+            reports.Should().Contain(v => v > 0 && v < 0.75);                       // intermediate zip progress
+            reports.Should().Contain(v => Math.Abs(v - 0.75) < 1e-9);              // end of the zip phase (all files added)
+            reports.Max().Should().BeApproximately(1.0, 1e-9);                      // bytes copied takes it to 100%
+        }
+
+        private sealed class SyncProgress(Action<double> report) : IProgress<double>
+        {
+            public void Report(double value) => report(value);
+        }
+
+        [Test]
         public async Task RemoteTarget_WritesArchiveToTheTargetFilesystem_NotLocal()
         {
             // Local source/build filesystem, separate remote target filesystem.
@@ -582,7 +608,7 @@ namespace BackupService.UnitTests.Scheduling
             public string? LastPassword { get; private set; }
             public bool LastUseAesEncryption { get; private set; }
 
-            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true)
+            public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true, Action<string>? onEntryProcessed = null)
             {
                 LastCompressionLevel = compressionLevel;
                 LastPassword = password;
@@ -599,6 +625,10 @@ namespace BackupService.UnitTests.Scheduling
                     .Where(e => includeEntry is null || includeEntry(e))
                     .ToList();
                 AddFile(destinationZip, DateTime.UtcNow, comment is null ? "zip" : "zip " + comment);
+                foreach (var entry in entries)
+                {
+                    onEntryProcessed?.Invoke(entry); // drive the per-file progress callback
+                }
                 return new ZipBuildResult(entries, SkippedFiles);
             }
 

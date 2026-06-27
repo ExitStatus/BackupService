@@ -73,8 +73,10 @@ namespace BackupService.FileSystem
         /// ArchiveSync's "only copy on change" fingerprint). <paramref name="compressionLevel"/> sets how hard
         /// each entry is compressed. When <paramref name="password"/> is non-empty the archive is encrypted
         /// (AES-256 when <paramref name="useAesEncryption"/>, otherwise legacy ZipCrypto).
+        /// <paramref name="onEntryProcessed"/>, when supplied, is invoked once per in-scope source file after it
+        /// is added (or skipped), with its entry name — for progress reporting during a large archive build.
         /// </summary>
-        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true);
+        ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true, Action<string>? onEntryProcessed = null);
 
         /// <summary>
         /// Returns the archive comment of the ZIP at <paramref name="path"/>, or null when there is none or

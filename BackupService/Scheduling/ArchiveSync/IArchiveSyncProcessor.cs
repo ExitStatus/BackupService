@@ -18,12 +18,15 @@ namespace BackupService.Scheduling
         /// stamped into the archive's file name. Operations performed are logged to
         /// <paramref name="log"/>; the returned <see cref="BackupResult"/> carries the counts
         /// (<c>Copied</c> = archives created, <c>Deleted</c> = archives pruned).
+        /// <paramref name="progress"/>, when supplied, reports this item's completion fraction (0..1):
+        /// the first 75% tracks files added to the zip, the final 25% tracks bytes copied to the target.
         /// </summary>
         Task<BackupResult> CreateArchiveAsync(
             ArchiveSyncItem item,
             long runIndex,
             DateTime timestamp,
             IOperationLogger log,
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken,
+            IProgress<double>? progress = null);
     }
 }

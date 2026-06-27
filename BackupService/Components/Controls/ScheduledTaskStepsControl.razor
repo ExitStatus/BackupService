@@ -1,0 +1,60 @@
+<div class="field-label">Steps (run in order)</div>
+
+@if (Items.Count == 0)
+{
+    <p class="folder-pairs-empty">No steps yet.</p>
+}
+else
+{
+    <table class="table folder-pairs-table">
+        <thead>
+            <tr>
+                <th class="step-order-col">#</th>
+                <th>Step</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var index = i;
+                var item = Items[index];
+                <tr>
+                    <td class="step-order-col">@(index + 1)</td>
+                    <td>
+                        <div class="step-name">@(string.IsNullOrWhiteSpace(item.Name) ? "(unnamed step)" : item.Name)</div>
+                        <div class="step-command help-text">@CommandPreview(item)</div>
+                    </td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Move up" aria-label="Move step up"
+                                    disabled="@(index == 0)" @onclick="() => MoveUp(index)">▲</button>
+                            <button type="button" class="icon-btn" title="Move down" aria-label="Move step down"
+                                    disabled="@(index == Items.Count - 1)" @onclick="() => MoveDown(index)">▼</button>
+                            <button type="button" class="icon-btn" title="Edit step" aria-label="Edit step"
+                                    @onclick="() => Edit(index)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete step" aria-label="Delete step"
+                                    @onclick="() => Delete(index)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<button type="button" class="btn-secondary" @onclick="AddNew">Add step</button>
+
+@if (_error)
+{
+    <span class="validation-message">Add at least one step.</span>
+}
+
+@if (_editing is not null)
+{
+    <ScheduledTaskStepEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+}

@@ -24,6 +24,7 @@ namespace BackupService.Scheduling
 
             db.BackupRuns.Add(new BackupRun
             {
+                Kind = RunKind.Backup,
                 ProfileId = profileId,
                 Type = type,
                 Manual = manual,
@@ -36,6 +37,31 @@ namespace BackupService.Scheduling
                 Errors = counts.Errors,
                 Warnings = counts.Warnings,
                 BytesCopied = counts.BytesCopied,
+                OperationLogId = operationLogId,
+            });
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task RecordScheduledTaskAsync(
+            int scheduledTaskId,
+            bool manual,
+            DateTimeOffset startedUtc,
+            double durationMs,
+            RunOutcome outcome,
+            int? operationLogId,
+            CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            db.BackupRuns.Add(new BackupRun
+            {
+                Kind = RunKind.ScheduledTask,
+                ScheduledTaskId = scheduledTaskId,
+                Manual = manual,
+                StartedUtc = startedUtc,
+                DurationMs = (long)Math.Round(durationMs),
+                Outcome = outcome,
                 OperationLogId = operationLogId,
             });
 

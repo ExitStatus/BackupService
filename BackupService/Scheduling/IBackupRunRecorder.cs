@@ -19,5 +19,18 @@ namespace BackupService.Scheduling
             RunOutcome outcome,
             int? operationLogId,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Records one run row for a scheduled-task run (<see cref="RunKind.ScheduledTask"/>). Scheduled
+        /// tasks have no file counts, so the count columns are left zero.
+        /// </summary>
+        Task RecordScheduledTaskAsync(
+            int scheduledTaskId,
+            bool manual,
+            DateTimeOffset startedUtc,
+            double durationMs,
+            RunOutcome outcome,
+            int? operationLogId,
+            CancellationToken cancellationToken = default);
     }
 }

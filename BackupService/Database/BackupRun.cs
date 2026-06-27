@@ -3,21 +3,30 @@ using BackupService.Enumerations;
 namespace BackupService.Database
 {
     /// <summary>
-    /// One discrete backup run (a scheduled or manual "Run now" run routed through
-    /// <c>BackupRunner</c>), recorded once per run by each handler so the dashboard has structured
-    /// statistics. Continuous InstantSync watcher flushes are not runs and are not recorded here.
-    /// Deleting the owning <see cref="Profile"/> cascade-deletes its run history (required FK).
+    /// One discrete run, recorded once per run for the dashboard. Covers both a backup run (a scheduled
+    /// or manual "Run now" run routed through <c>BackupRunner</c>) and a scheduled-task run (routed
+    /// through <c>ScheduledTaskRunner</c>); <see cref="Kind"/> distinguishes them. Continuous InstantSync
+    /// watcher flushes are not runs and are not recorded here. Deleting the owning <see cref="Profile"/>
+    /// or <see cref="ScheduledTask"/> cascade-deletes its run history.
     /// </summary>
     public class BackupRun
     {
         public int Id { get; set; }
 
-        /// <summary>The profile this run belongs to. Cascade-deleted with the profile.</summary>
-        public int ProfileId { get; set; }
+        /// <summary>What kind of run this is (backup vs scheduled task).</summary>
+        public RunKind Kind { get; set; }
+
+        /// <summary>The profile this run belongs to (null for a scheduled-task run). Cascade-deleted with the profile.</summary>
+        public int? ProfileId { get; set; }
 
         public Profile? Profile { get; set; }
 
-        /// <summary>Denormalised profile type, so runs can be grouped by type directly.</summary>
+        /// <summary>The scheduled task this run belongs to (null for a backup run). Cascade-deleted with the task.</summary>
+        public int? ScheduledTaskId { get; set; }
+
+        public ScheduledTask? ScheduledTask { get; set; }
+
+        /// <summary>Denormalised profile type, so runs can be grouped by type directly. Unused for a scheduled-task run.</summary>
         public ProfileType Type { get; set; }
 
         /// <summary>When the run started (UTC).</summary>

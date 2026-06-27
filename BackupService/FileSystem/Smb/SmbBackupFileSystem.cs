@@ -206,7 +206,7 @@ namespace BackupService.FileSystem.Smb
         public string GetTempFilePath(string fileName) =>
             throw new NotSupportedException("Temp files are local-only; archives are built locally then copied to the remote.");
 
-        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true) =>
+        public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, System.IO.Compression.CompressionLevel compressionLevel = System.IO.Compression.CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true, Action<string>? onEntryProcessed = null) =>
             throw new NotSupportedException("Zipping from a remote source is not supported.");
 
         public string? GetZipComment(string path)

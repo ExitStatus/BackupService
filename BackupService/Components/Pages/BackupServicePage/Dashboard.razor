@@ -147,7 +147,7 @@ else
                                     <span class="run-manual">manual</span>
                                 }
                             </td>
-                            <td>@run.Type.GetDescription()</td>
+                            <td>@(run.Kind == RunKind.ScheduledTask ? "Scheduled Task" : run.Type.GetDescription())</td>
                             <td>@run.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                             <td>@FormatDuration(run.DurationMs)</td>
                             <td><span class="log-level @OutcomeClass(run.Outcome)">@run.Outcome.GetDescription()</span></td>

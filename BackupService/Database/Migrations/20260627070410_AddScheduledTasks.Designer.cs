@@ -3,6 +3,7 @@ using System;
 using BackupService.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BackupService.Database.Migrations
 {
     [DbContext(typeof(BackupDbContext))]
-    partial class BackupDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260627070410_AddScheduledTasks")]
+    partial class AddScheduledTasks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
@@ -672,11 +675,9 @@ namespace BackupService.Database.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Command")
+                        .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .HasMaxLength(256)
@@ -690,9 +691,6 @@ namespace BackupService.Database.Migrations
 
                     b.Property<int>("ScheduledTaskId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("Script")
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("WorkingDirectory")
                         .HasMaxLength(1024)

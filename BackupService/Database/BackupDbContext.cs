@@ -35,6 +35,10 @@ namespace BackupService.Database
 
         public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
 
+        public DbSet<ScheduledTask> ScheduledTasks => Set<ScheduledTask>();
+
+        public DbSet<ScheduledTaskStep> ScheduledTaskSteps => Set<ScheduledTaskStep>();
+
         public DbSet<Connection> Connections => Set<Connection>();
 
         public DbSet<SmbConnectionSettings> SmbConnectionSettings => Set<SmbConnectionSettings>();
@@ -56,6 +60,27 @@ namespace BackupService.Database
                 .HasOne(l => l.Profile)
                 .WithMany()
                 .HasForeignKey(l => l.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A scheduled task's ordered steps cascade-delete with it.
+            modelBuilder.Entity<ScheduledTask>()
+                .HasMany(t => t.Steps)
+                .WithOne(s => s.ScheduledTask)
+                .HasForeignKey(s => s.ScheduledTaskId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A run row belongs to either a profile or a scheduled task (both FKs nullable). Both are
+            // cascade — set explicitly because, for a nullable FK, EF would otherwise default to ClientSetNull.
+            modelBuilder.Entity<BackupRun>()
+                .HasOne(r => r.Profile)
+                .WithMany()
+                .HasForeignKey(r => r.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<BackupRun>()
+                .HasOne(r => r.ScheduledTask)
+                .WithMany()
+                .HasForeignKey(r => r.ScheduledTaskId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // SMB settings are a 1:1 child of a connection, keyed by the connection id and

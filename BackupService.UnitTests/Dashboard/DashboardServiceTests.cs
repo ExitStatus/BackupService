@@ -176,6 +176,42 @@ namespace BackupService.UnitTests.Dashboard
         }
 
         [Test]
+        public async Task GetAsync_IncludesScheduledTaskRuns_NamedFromTheTask_AndKindScheduledTask()
+        {
+            var now = DateTimeOffset.UtcNow;
+
+            int taskId;
+            using (var db = new BackupDbContext(_options))
+            {
+                var task = new ScheduledTask { Name = "Nightly maintenance", DateCreated = now };
+                db.ScheduledTasks.Add(task);
+                db.SaveChanges();
+                taskId = task.Id;
+
+                db.BackupRuns.Add(new BackupRun
+                {
+                    Kind = RunKind.ScheduledTask,
+                    ScheduledTaskId = taskId,
+                    Outcome = RunOutcome.Success,
+                    DurationMs = 1500,
+                    StartedUtc = now.AddMinutes(-15),
+                });
+                db.SaveChanges();
+            }
+
+            var data = await _service.GetAsync(days: 7);
+
+            data.RunsInPeriod.Should().Be(1);
+            // No file/byte stats from a task run.
+            data.FilesSyncedInPeriod.Should().Be(0);
+            data.BytesCopiedInPeriod.Should().Be(0);
+
+            var run = data.RecentRuns.Single();
+            run.Kind.Should().Be(RunKind.ScheduledTask);
+            run.ProfileName.Should().Be("Nightly maintenance");
+        }
+
+        [Test]
         public async Task GetAsync_FiltersByPeriod()
         {
             var now = DateTimeOffset.UtcNow;

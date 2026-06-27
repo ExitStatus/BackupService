@@ -1,0 +1,72 @@
+<div class="modal-overlay">
+    <div class="modal folder-pair-edit" role="dialog" aria-modal="true" aria-label="Scheduled task step">
+        <h2>Step</h2>
+
+        <label>
+            Name (optional)
+            <input type="text" @bind="Model.Name" placeholder="e.g. Mirror photos" />
+        </label>
+
+        <label>
+            Type
+            <Dropdown TValue="ScheduledTaskStepKind"
+                      @bind-Value="Model.Kind"
+                      Items="Enum.GetValues<ScheduledTaskStepKind>()"
+                      DisplayText="k => k.GetDescription()" />
+        </label>
+
+        @if (Model.Kind == ScheduledTaskStepKind.PowerShell)
+        {
+            <label>
+                PowerShell script
+                <textarea rows="6" class="ps-script" @bind="Model.Script"
+                          placeholder="Get-ChildItem C:\Data | Measure-Object"></textarea>
+                @if (_scriptError)
+                {
+                    <span class="validation-message">The script is required.</span>
+                }
+            </label>
+            <p class="help-text">
+                The script is written to a temporary <code>.ps1</code> file and run with
+                <code>pwsh</code> (if installed) or Windows <code>powershell</code>.
+            </p>
+        }
+        else
+        {
+            <label class="check">
+                <input type="checkbox" @bind="Model.RunViaShell" />
+                Run via shell
+            </label>
+            <p class="help-text">
+                When enabled, the command below is a single command line run through the system shell
+                (<code>cmd.exe /c</code> on Windows), so you can use pipes, redirection and built-ins.
+            </p>
+
+            <label>
+                @(Model.RunViaShell ? "Command line" : "Executable")
+                <input type="text" @bind="Model.Command"
+                       placeholder="@(Model.RunViaShell ? "robocopy C:\\a D:\\b /MIR" : "C:\\Tools\\backup.exe")" />
+                @if (_commandError)
+                {
+                    <span class="validation-message">The @(Model.RunViaShell ? "command line" : "executable") is required.</span>
+                }
+            </label>
+
+            @if (!Model.RunViaShell)
+            {
+                <label>
+                    Arguments (optional)
+                    <input type="text" @bind="Model.Arguments" placeholder="--full /log" />
+                </label>
+            }
+        }
+
+        <ConnectionLocationField Label="Working directory (optional)" Grouped="true" LocalOnly="true"
+                                 @bind-Path="WorkingDirectoryValue" />
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="SaveAsync">Save</button>
+        </div>
+    </div>
+</div>
