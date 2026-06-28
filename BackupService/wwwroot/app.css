@@ -192,6 +192,26 @@ h3:focus {
     margin-top: 8px;
 }
 
+/* Options panel rows: a label/description on the left, a toggle on the right. */
+.option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.option-row span {
+    display: flex;
+    flex-direction: column;
+}
+
+.option-row small {
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+}
+
 /* Buttons */
 button,
 .btn {

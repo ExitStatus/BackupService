@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-BackupService-758110aa-479a-45c2-8874-e787c3e8c688</UserSecretsId>
+    <!-- Embedded into BackupService.exe (the apphost); the system-tray icon reads it back via ExtractIconEx. -->
+    <ApplicationIcon>wwwroot\Icons\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,7 +20,6 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
     <!-- SMB client (SMB2/3) for the Connections feature; netstandard2.0, works on net10.0. -->
     <PackageReference Include="SMBLibrary" Version="1.5.7" />
     <!-- ZIP writer with encryption (AES-256 / ZipCrypto) for password-protected ArchiveSync archives —

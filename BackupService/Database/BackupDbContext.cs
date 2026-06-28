@@ -33,6 +33,8 @@ namespace BackupService.Database
 
         public DbSet<LogRetentionSettings> LogRetentionSettings => Set<LogRetentionSettings>();
 
+        public DbSet<AppOptions> AppOptions => Set<AppOptions>();
+
         public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
 
         public DbSet<ScheduledTask> ScheduledTasks => Set<ScheduledTask>();

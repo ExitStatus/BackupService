@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using BackupService.Components.Pages.Authentication
 @using BackupService.Components.Pages.Logging
+@using BackupService.Components.Pages.Options
 
 <PageTitle>Settings</PageTitle>
 
@@ -17,6 +18,10 @@
 
             case "logging":
                 <LoggingPanel />
+                break;
+
+            case "options":
+                <OptionsPanel />
                 break;
 
             default:

@@ -3,6 +3,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.Logging;
+using BackupService.Notifications;
 using BackupService.Profiles;
 
 namespace BackupService.Scheduling
@@ -20,7 +21,8 @@ namespace BackupService.Scheduling
         IFolderPairSynchronizer synchronizer,
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
-        ILogger<InstantSyncHandler> logger) : IProfileTypeHandler
+        ILogger<InstantSyncHandler> logger,
+        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.InstantSync;
 
@@ -108,6 +110,9 @@ namespace BackupService.Scheduling
                     _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
                 };
                 await log.SetSummaryAsync(summary, level);
+
+                // Desktop notification for the completed manual reconcile (no-op unless on Windows + enabled).
+                notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
             }
         }
 

@@ -1,0 +1,45 @@
+<h1>Options</h1>
+
+<div class="card">
+    <p>
+        Desktop integration for the running application. These apply on Windows; on other platforms they are
+        saved but have no effect.
+    </p>
+
+    @if (_model is null)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <label class="option-row">
+            <span>
+                Start application when Windows starts
+                <small>Launches Backup Service in the background when you sign in.</small>
+            </span>
+            <ToggleButton @bind-Value="_model.StartWithWindows" />
+        </label>
+
+        <label class="option-row">
+            <span>
+                Show tray icon
+                <small>Shows a system tray icon while the application is running.</small>
+            </span>
+            <ToggleButton @bind-Value="_model.ShowTrayIcon" />
+        </label>
+
+        <label class="option-row">
+            <span>
+                Allow notifications
+                <small>Shows a notification when a backup or scheduled task completes (uses the tray icon).</small>
+            </span>
+            <ToggleButton @bind-Value="_model.AllowNotifications" />
+        </label>
+
+        <div class="modal-actions">
+            <button type="button" @onclick="SaveAsync">Save</button>
+        </div>
+    }
+</div>
+
+<Notification @ref="_notification" />

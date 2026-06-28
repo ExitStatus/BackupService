@@ -4,6 +4,7 @@ using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.FileSystem;
 using BackupService.Logging;
+using BackupService.Notifications;
 using BackupService.Profiles;
 
 namespace BackupService.Scheduling
@@ -21,7 +22,8 @@ namespace BackupService.Scheduling
         IBackupFileSystem localFileSystem,
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
-        ILogger<LightroomArchiveHandler> logger) : IProfileTypeHandler
+        ILogger<LightroomArchiveHandler> logger,
+        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.LightroomArchive;
 
@@ -94,6 +96,9 @@ namespace BackupService.Scheduling
                     _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
                 };
                 await log.SetSummaryAsync(summary, level);
+
+                // Desktop notification for the completed manual reconcile (no-op unless on Windows + enabled).
+                notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
             }
         }
 

@@ -3,6 +3,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.Logging;
+using BackupService.Notifications;
 using BackupService.Profiles;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,7 +23,8 @@ namespace BackupService.Scheduling
         IDatabaseContextFactory contextFactory,
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
-        ILogger<ArchiveSyncHandler> logger) : IProfileTypeHandler
+        ILogger<ArchiveSyncHandler> logger,
+        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.ArchiveSync;
 
@@ -111,6 +113,13 @@ namespace BackupService.Scheduling
                         _ => ($"{handlerName} ran successfully in {duration} — {counts}", OperationLogLevel.Info),
                     };
                 await log.SetSummaryAsync(summary, level);
+
+                // Desktop notification for the completed run (a no-op unless on Windows with notifications on).
+                // A cancelled run isn't a completion, so it's skipped.
+                if (!cancelled)
+                {
+                    notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
+                }
             }
         }
 

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
+using BackupService.Notifications;
 using BackupService.ScheduledTasks;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,7 +22,8 @@ namespace BackupService.Scheduling.ScheduledTasks
         IScheduledTaskStatusService statusService,
         IProcessRunner processRunner,
         IBackupRunRecorder runRecorder,
-        ILogger<ScheduledTaskRunner> logger) : IScheduledTaskRunner
+        ILogger<ScheduledTaskRunner> logger,
+        IRunCompletionNotifier? notifier = null) : IScheduledTaskRunner
     {
         // The cancellation source for each in-progress run, keyed by task id, so the UI's Stop button
         // (RequestStop) can cancel a run that's already under way.
@@ -219,6 +221,13 @@ namespace BackupService.Scheduling.ScheduledTasks
                             ? ($"{name} failed at {failedLabel} in {duration} — {ran}", OperationLogLevel.Error)
                             : ($"{name} ran successfully in {duration} — {steps.Count} step(s)", OperationLogLevel.Info);
                 await log.SetSummaryAsync(summary, level);
+
+                // Desktop notification for the completed run (a no-op unless on Windows with notifications on).
+                // A cancelled run isn't a completion, so it's skipped.
+                if (!cancelled)
+                {
+                    notifier?.NotifyTaskCompleted(task.Name, outcome);
+                }
             }
 
             return outcome;

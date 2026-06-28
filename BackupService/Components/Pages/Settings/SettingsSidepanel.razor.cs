@@ -19,6 +19,7 @@ namespace BackupService.Components.Pages.Settings
         [
             new NavItem("authentication", "Authentication", "Icons/key.png"),
             new NavItem("logging", "Logging", "Icons/log-options.png"),
+            new NavItem("options", "Options", "Icons/cog.png"),
         ];
 
         protected override async Task OnInitializedAsync()

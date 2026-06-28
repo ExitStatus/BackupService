@@ -14,215 +14,292 @@ namespace BackupService
     {
         public static int Main(string[] args)
         {
-            // Service install/uninstall commands run and exit without starting the host.
-            if (args.Contains("--install"))
+            var mode = ApplicationModeParser.Parse(args, out var isWorker);
+
+            // -stop signals a running background instance to shut down, then exits.
+            if (mode == ApplicationMode.Stop)
             {
-                return WindowsServiceInstaller.Install(args);
-            }
-            if (args.Contains("--uninstall"))
-            {
-                return WindowsServiceInstaller.Uninstall();
+                return BackgroundProcessManager.RequestStop();
             }
 
-            var builder = WebApplication.CreateBuilder(args);
+            // -background/-bg relaunches this exe as a detached --worker child (the background host), then exits.
+            if (mode == ApplicationMode.Background)
+            {
+                return BackgroundProcessManager.LaunchDetached();
+            }
 
-            // Allow the host to run under the Windows Service Control Manager,
-            // while still behaving normally when launched from the console.
-            builder.Host.UseWindowsService();
+            // Foreground (no args) or the detached --worker child: run the web host + workers in this process.
 
-            // Entity Framework Core, backed by a single SQLite database. The
-            // context is not registered directly; code resolves the factory and
-            // creates a short-lived context per unit of work.
-            builder.Services.AddSingleton<IDatabaseContextFactory, DatabaseContextFactory>();
+            // TEMPORARY: bring a database in the old machine-wide location across to the per-user folder.
+            BackupDatabaseLocation.MigrateFromLegacyLocationIfNeeded();
 
-            // Cookie authentication for the single admin account. The session
-            // expires after 30 minutes of inactivity (sliding renewal).
-            builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-                .AddCookie(options =>
+            // Only one instance may run per user — refuse a second launch cleanly rather than failing to bind the port.
+            using var instanceLock = BackgroundProcessManager.TryAcquireSingleInstance();
+            if (instanceLock is null)
+            {
+                Console.Error.WriteLine("Backup Service is already running.");
+                return 1;
+            }
+
+            // The detached worker has no terminal: capture its console (and ILogger) output to daily rolling log files
+            // beside the user's database, with 14-day retention. Foreground runs leave the console on the terminal.
+            DailyRollingLogWriter? logWriter = null;
+            if (isWorker)
+            {
+                logWriter = DailyRollingLogWriter.Start(
+                    Path.Combine(BackupDatabaseLocation.GetDataDirectory(), "logs"), retentionDays: 14);
+                Console.SetOut(logWriter);
+                Console.SetError(logWriter);
+            }
+
+            try
+            {
+                var builder = WebApplication.CreateBuilder(new WebApplicationOptions
                 {
-                    options.LoginPath = "/login";
-                    options.AccessDeniedPath = "/login";
-                    options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
-                    options.SlidingExpiration = true;
+                    Args = args,
+                    // Without the old UseWindowsService() the content root would default to the current working
+                    // directory; pin it to the exe directory so appsettings.json / the Kestrel binding are found
+                    // regardless of where the exe is launched from (matters for -background and future autostart).
+                    ContentRootPath = AppContext.BaseDirectory,
                 });
 
-            // Pages are protected with [Authorize] (applied to every page via
-            // Components/Pages/_Imports.razor) and enforced by AuthorizeRouteView;
-            // the login page opts out with [AllowAnonymous]. A global fallback
-            // policy is intentionally NOT used: it applies at the Blazor endpoint
-            // level and would also block the /login route, causing a redirect loop.
-            builder.Services.AddAuthorization();
+                // Entity Framework Core, backed by a single SQLite database. The
+                // context is not registered directly; code resolves the factory and
+                // creates a short-lived context per unit of work.
+                builder.Services.AddSingleton<IDatabaseContextFactory, DatabaseContextFactory>();
 
-            builder.Services.AddCascadingAuthenticationState();
-            builder.Services.AddSingleton<IAdminCredentialService, AdminCredentialService>();
-            builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
-            builder.Services.AddSingleton<FileSystem.IFolderBrowser, FileSystem.FolderBrowser>();
-            builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
-            builder.Services.AddSingleton<FileSystem.IEndpointFileSystemFactory, FileSystem.EndpointFileSystemFactory>();
-            builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
-            builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
-            builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
-            builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
-            builder.Services.AddSingleton<Profiles.ILightroomArchiveItemService, Profiles.LightroomArchiveItemService>();
-            builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
-            builder.Services.AddSingleton(TimeProvider.System);
-            builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
-            builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
-            builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
-            builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
-            builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
-
-            // Connections (remote resources, e.g. SMB shares). SMB passwords are encrypted at rest via
-            // ASP.NET Core Data Protection (cross-platform). The key ring is persisted under the app's data
-            // directory with a fixed application name so secrets stay decryptable across restarts.
-            builder.Services.AddDataProtection()
-                .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(Database.BackupDatabaseLocation.GetDataDirectory(), "keys")))
-                .SetApplicationName("BackupService");
-            builder.Services.AddSingleton<Security.ISecretProtector, Security.DataProtectionSecretProtector>();
-            // Reads legacy (DPAPI) passwords for the one-time startup migration to Data Protection.
-            builder.Services.AddSingleton<Security.ILegacySecretReader, Security.DpapiLegacySecretReader>();
-            builder.Services.AddSingleton<Connections.ConnectionSecretMigrator>();
-            builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
-            builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
-            builder.Services.AddSingleton<Connections.IConnectionSpaceService, Connections.ConnectionSpaceService>();
-            builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
-            builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleDriveConnector, Connections.GoogleDrive.GoogleDriveConnector>();
-            builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleOAuthFlowService, Connections.GoogleDrive.GoogleOAuthFlowService>();
-            // The app's built-in Google OAuth client (so users can authorise Drive with one click). Sourced
-            // from config (GoogleDrive:ClientId/ClientSecret via user-secrets or an environment overlay — never
-            // committed); when unset, the editor falls back to the Advanced "use your own client" fields.
-            builder.Services.AddSingleton(new Connections.GoogleDrive.GoogleDriveAppCredentials(
-                builder.Configuration["GoogleDrive:ClientId"],
-                builder.Configuration["GoogleDrive:ClientSecret"]));
-
-            // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
-            // The scheduler is a single instance shared across its three roles (singleton,
-            // IBackupScheduler re-sync API, and the hosted background service).
-            builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
-            builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
-            builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
-            builder.Services.AddSingleton<Scheduling.ILightroomArchiveProcessor, Scheduling.LightroomArchiveProcessor>();
-            builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
-            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
-            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
-            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
-            builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
-            builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
-            builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
-            builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
-
-            // The instant-sync watcher service is shared across its three roles (singleton,
-            // IInstantSyncManager re-sync API, and the hosted background service).
-            builder.Services.AddSingleton<Scheduling.InstantSyncWatcherService>();
-            builder.Services.AddSingleton<Scheduling.IInstantSyncManager>(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
-
-            // The lightroom-archive watcher service is likewise shared across its three roles.
-            builder.Services.AddSingleton<Scheduling.LightroomArchiveWatcherService>();
-            builder.Services.AddSingleton<Scheduling.ILightroomArchiveManager>(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
-
-            // Scheduled tasks: a parallel stack to backups (run OS commands on a cron schedule). The
-            // scheduler is shared across its three roles like the backup scheduler.
-            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStatusService, ScheduledTasks.ScheduledTaskStatusService>();
-            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStepService, ScheduledTasks.ScheduledTaskStepService>();
-            builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskService, ScheduledTasks.ScheduledTaskService>();
-            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IProcessRunner, Scheduling.ScheduledTasks.ProcessRunner>();
-            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskRunner, Scheduling.ScheduledTasks.ScheduledTaskRunner>();
-            builder.Services.AddSingleton<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>();
-            builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskScheduler>(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
-
-            // ApexCharts (Blazor-ApexCharts) for the dashboard charts.
-            builder.Services.AddApexCharts();
-
-            // Blazor Server (interactive server-side rendering).
-            builder.Services.AddRazorComponents()
-                .AddInteractiveServerComponents();
-
-            // The scheduler and the instant-sync watcher both run as background services.
-            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
-            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
-            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
-            builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
-
-            var app = builder.Build();
-
-            // Apply any pending EF Core migrations on startup.
-            using (var db = app.Services.GetRequiredService<IDatabaseContextFactory>().CreateDbContext())
-            {
-                db.Database.Migrate();
-            }
-
-            // Migrate any legacy (DPAPI) SMB passwords to the cross-platform Data Protection format.
-            app.Services.GetRequiredService<Connections.ConnectionSecretMigrator>().Migrate();
-
-            // Ensure the default admin credential exists.
-            app.Services.GetRequiredService<IAdminCredentialService>()
-                .EnsureSeededAsync().GetAwaiter().GetResult();
-
-            // Every profile starts Idle in the in-memory status tracker (status is not persisted).
-            var statusService = app.Services.GetRequiredService<Profiles.IProfileStatusService>();
-            foreach (var summary in app.Services.GetRequiredService<Profiles.IProfileService>()
-                         .GetSummariesAsync().GetAwaiter().GetResult())
-            {
-                statusService.Set(summary.Id, Enumerations.ProfileStatus.Idle);
-            }
-
-            // Likewise every scheduled task starts Idle in its own (separate) in-memory status tracker.
-            var taskStatusService = app.Services.GetRequiredService<ScheduledTasks.IScheduledTaskStatusService>();
-            using (var db = app.Services.GetRequiredService<IDatabaseContextFactory>().CreateDbContext())
-            {
-                foreach (var taskId in db.ScheduledTasks.Select(t => t.Id).ToList())
-                {
-                    taskStatusService.Set(taskId, Enumerations.ProfileStatus.Idle);
-                }
-            }
-
-            app.UseAuthentication();
-            app.UseAuthorization();
-            app.UseAntiforgery();
-
-            // Fingerprinted static assets (referenced via @Assets["app.css"] in App.razor)
-            // so CSS/JS changes bust the browser cache automatically.
-            app.MapStaticAssets();
-
-            app.MapRazorComponents<App>()
-                .AddInteractiveServerRenderMode();
-
-            // Sign the admin out and return to the login page.
-            app.MapPost("/logout", async (HttpContext http) =>
-            {
-                await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-                return Results.Redirect("/login");
-            });
-
-            // Google Drive OAuth redirect target. Google sends the browser here after consent; we complete
-            // the pending flow (keyed by the unguessable state) and show a close-this-tab page. Anonymous —
-            // it only resolves an in-flight attempt by state and stores nothing itself.
-            app.MapGet("/connections/google/callback",
-                async (HttpContext http, Connections.GoogleDrive.IGoogleOAuthFlowService flow) =>
-                {
-                    var state = http.Request.Query["state"].ToString();
-                    var code = http.Request.Query["code"].ToString();
-                    var error = http.Request.Query["error"].ToString();
-
-                    if (!string.IsNullOrEmpty(state))
+                // Cookie authentication for the single admin account. The session
+                // expires after 30 minutes of inactivity (sliding renewal).
+                builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                    .AddCookie(options =>
                     {
-                        await flow.CompleteAsync(state, code, error);
-                    }
+                        options.LoginPath = "/login";
+                        options.AccessDeniedPath = "/login";
+                        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+                        options.SlidingExpiration = true;
+                    });
 
-                    var ok = string.IsNullOrEmpty(error);
-                    var message = ok
-                        ? "Authorization complete. You can close this tab and return to Backup Service."
-                        : "Authorization was cancelled or failed. You can close this tab and try again.";
-                    var html = $"<!doctype html><html><head><meta charset=\"utf-8\"><title>Backup Service</title>" +
-                        "<style>body{font-family:system-ui,sans-serif;background:#1e1e1e;color:#eee;display:flex;" +
-                        "align-items:center;justify-content:center;height:100vh;margin:0}div{max-width:30rem;" +
-                        "text-align:center;padding:2rem}</style></head><body><div><h2>Backup Service</h2>" +
-                        $"<p>{message}</p></div></body></html>";
-                    return Results.Content(html, "text/html");
+                // Pages are protected with [Authorize] (applied to every page via
+                // Components/Pages/_Imports.razor) and enforced by AuthorizeRouteView;
+                // the login page opts out with [AllowAnonymous]. A global fallback
+                // policy is intentionally NOT used: it applies at the Blazor endpoint
+                // level and would also block the /login route, causing a redirect loop.
+                builder.Services.AddAuthorization();
+
+                builder.Services.AddCascadingAuthenticationState();
+                builder.Services.AddSingleton<IAdminCredentialService, AdminCredentialService>();
+                builder.Services.AddSingleton<IAuthenticationHistoryService, AuthenticationHistoryService>();
+                builder.Services.AddSingleton<FileSystem.IFolderBrowser, FileSystem.FolderBrowser>();
+                builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
+                builder.Services.AddSingleton<FileSystem.IEndpointFileSystemFactory, FileSystem.EndpointFileSystemFactory>();
+                builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
+                builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
+                builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
+                builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
+                builder.Services.AddSingleton<Profiles.ILightroomArchiveItemService, Profiles.LightroomArchiveItemService>();
+                builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
+                builder.Services.AddSingleton(TimeProvider.System);
+                builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
+                builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
+                builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
+                builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
+                builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
+                builder.Services.AddSingleton<Options.IAppOptionsService, Options.AppOptionsService>();
+
+                // Desktop integration (Settings → Options): autostart + system-tray icon/notifications. These are
+                // Windows-only — off Windows the settings persist but a no-op startup manager / null notifier run.
+                if (OperatingSystem.IsWindows())
+                {
+                    AddWindowsDesktopIntegration(builder.Services);
+                }
+                else
+                {
+                    builder.Services.AddSingleton<Hosting.IStartupManager, Hosting.NoopStartupManager>();
+                    builder.Services.AddSingleton<Notifications.IRunCompletionNotifier, Notifications.NullRunCompletionNotifier>();
+                }
+
+                // Connections (remote resources, e.g. SMB shares). SMB passwords are encrypted at rest via
+                // ASP.NET Core Data Protection (cross-platform). The key ring is persisted under the app's data
+                // directory with a fixed application name so secrets stay decryptable across restarts.
+                builder.Services.AddDataProtection()
+                    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(BackupDatabaseLocation.GetDataDirectory(), "keys")))
+                    .SetApplicationName("BackupService");
+                builder.Services.AddSingleton<Security.ISecretProtector, Security.DataProtectionSecretProtector>();
+                // Reads legacy (DPAPI) passwords for the one-time startup migration to Data Protection.
+                builder.Services.AddSingleton<Security.ILegacySecretReader, Security.DpapiLegacySecretReader>();
+                builder.Services.AddSingleton<Connections.ConnectionSecretMigrator>();
+                builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
+                builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
+                builder.Services.AddSingleton<Connections.IConnectionSpaceService, Connections.ConnectionSpaceService>();
+                builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
+                builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleDriveConnector, Connections.GoogleDrive.GoogleDriveConnector>();
+                builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleOAuthFlowService, Connections.GoogleDrive.GoogleOAuthFlowService>();
+                // The app's built-in Google OAuth client (so users can authorise Drive with one click). Sourced
+                // from config (GoogleDrive:ClientId/ClientSecret via user-secrets or an environment overlay — never
+                // committed); when unset, the editor falls back to the Advanced "use your own client" fields.
+                builder.Services.AddSingleton(new Connections.GoogleDrive.GoogleDriveAppCredentials(
+                    builder.Configuration["GoogleDrive:ClientId"],
+                    builder.Configuration["GoogleDrive:ClientSecret"]));
+
+                // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
+                // The scheduler is a single instance shared across its three roles (singleton,
+                // IBackupScheduler re-sync API, and the hosted background service).
+                builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
+                builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
+                builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
+                builder.Services.AddSingleton<Scheduling.ILightroomArchiveProcessor, Scheduling.LightroomArchiveProcessor>();
+                builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
+                builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
+                builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
+                builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
+
+                // The instant-sync watcher service is shared across its three roles (singleton,
+                // IInstantSyncManager re-sync API, and the hosted background service).
+                builder.Services.AddSingleton<Scheduling.InstantSyncWatcherService>();
+                builder.Services.AddSingleton<Scheduling.IInstantSyncManager>(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
+
+                // The lightroom-archive watcher service is likewise shared across its three roles.
+                builder.Services.AddSingleton<Scheduling.LightroomArchiveWatcherService>();
+                builder.Services.AddSingleton<Scheduling.ILightroomArchiveManager>(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
+
+                // Scheduled tasks: a parallel stack to backups (run OS commands on a cron schedule). The
+                // scheduler is shared across its three roles like the backup scheduler.
+                builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStatusService, ScheduledTasks.ScheduledTaskStatusService>();
+                builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskStepService, ScheduledTasks.ScheduledTaskStepService>();
+                builder.Services.AddSingleton<ScheduledTasks.IScheduledTaskService, ScheduledTasks.ScheduledTaskService>();
+                builder.Services.AddSingleton<Scheduling.ScheduledTasks.IProcessRunner, Scheduling.ScheduledTasks.ProcessRunner>();
+                builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskRunner, Scheduling.ScheduledTasks.ScheduledTaskRunner>();
+                builder.Services.AddSingleton<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>();
+                builder.Services.AddSingleton<Scheduling.ScheduledTasks.IScheduledTaskScheduler>(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
+
+                // ApexCharts (Blazor-ApexCharts) for the dashboard charts.
+                builder.Services.AddApexCharts();
+
+                // Blazor Server (interactive server-side rendering).
+                builder.Services.AddRazorComponents()
+                    .AddInteractiveServerComponents();
+
+                // The scheduler and the instant-sync watcher both run as background services.
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.InstantSyncWatcherService>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
+
+                var app = builder.Build();
+
+                // A -stop from another process triggers a graceful shutdown; record our PID so -stop can await us.
+                BackgroundProcessManager.RegisterStopSignal(app.Lifetime);
+                BackgroundProcessManager.WritePid();
+
+                // Apply any pending EF Core migrations on startup.
+                using (var db = app.Services.GetRequiredService<IDatabaseContextFactory>().CreateDbContext())
+                {
+                    db.Database.Migrate();
+                }
+
+                // Migrate any legacy (DPAPI) SMB passwords to the cross-platform Data Protection format.
+                app.Services.GetRequiredService<Connections.ConnectionSecretMigrator>().Migrate();
+
+                // Ensure the default admin credential exists.
+                app.Services.GetRequiredService<IAdminCredentialService>()
+                    .EnsureSeededAsync().GetAwaiter().GetResult();
+
+                // Every profile starts Idle in the in-memory status tracker (status is not persisted).
+                var statusService = app.Services.GetRequiredService<Profiles.IProfileStatusService>();
+                foreach (var summary in app.Services.GetRequiredService<Profiles.IProfileService>()
+                             .GetSummariesAsync().GetAwaiter().GetResult())
+                {
+                    statusService.Set(summary.Id, Enumerations.ProfileStatus.Idle);
+                }
+
+                // Likewise every scheduled task starts Idle in its own (separate) in-memory status tracker.
+                var taskStatusService = app.Services.GetRequiredService<ScheduledTasks.IScheduledTaskStatusService>();
+                using (var db = app.Services.GetRequiredService<IDatabaseContextFactory>().CreateDbContext())
+                {
+                    foreach (var taskId in db.ScheduledTasks.Select(t => t.Id).ToList())
+                    {
+                        taskStatusService.Set(taskId, Enumerations.ProfileStatus.Idle);
+                    }
+                }
+
+                // Reconcile the "start with Windows" autostart entry with the saved option, so the registered
+                // command tracks the current exe path after a redeploy (a no-op off Windows).
+                var appOptions = app.Services.GetRequiredService<Options.IAppOptionsService>()
+                    .GetSettingsAsync().GetAwaiter().GetResult();
+                app.Services.GetRequiredService<Hosting.IStartupManager>().Apply(appOptions.StartWithWindows);
+
+                app.UseAuthentication();
+                app.UseAuthorization();
+                app.UseAntiforgery();
+
+                // Fingerprinted static assets (referenced via @Assets["app.css"] in App.razor)
+                // so CSS/JS changes bust the browser cache automatically.
+                app.MapStaticAssets();
+
+                app.MapRazorComponents<App>()
+                    .AddInteractiveServerRenderMode();
+
+                // Sign the admin out and return to the login page.
+                app.MapPost("/logout", async (HttpContext http) =>
+                {
+                    await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    return Results.Redirect("/login");
                 });
 
-            app.Run();
-            return 0;
+                // Google Drive OAuth redirect target. Google sends the browser here after consent; we complete
+                // the pending flow (keyed by the unguessable state) and show a close-this-tab page. Anonymous —
+                // it only resolves an in-flight attempt by state and stores nothing itself.
+                app.MapGet("/connections/google/callback",
+                    async (HttpContext http, Connections.GoogleDrive.IGoogleOAuthFlowService flow) =>
+                    {
+                        var state = http.Request.Query["state"].ToString();
+                        var code = http.Request.Query["code"].ToString();
+                        var error = http.Request.Query["error"].ToString();
+
+                        if (!string.IsNullOrEmpty(state))
+                        {
+                            await flow.CompleteAsync(state, code, error);
+                        }
+
+                        var ok = string.IsNullOrEmpty(error);
+                        var message = ok
+                            ? "Authorization complete. You can close this tab and return to Backup Service."
+                            : "Authorization was cancelled or failed. You can close this tab and try again.";
+                        var html = $"<!doctype html><html><head><meta charset=\"utf-8\"><title>Backup Service</title>" +
+                            "<style>body{font-family:system-ui,sans-serif;background:#1e1e1e;color:#eee;display:flex;" +
+                            "align-items:center;justify-content:center;height:100vh;margin:0}div{max-width:30rem;" +
+                            "text-align:center;padding:2rem}</style></head><body><div><h2>Backup Service</h2>" +
+                            $"<p>{message}</p></div></body></html>";
+                        return Results.Content(html, "text/html");
+                    });
+
+                app.Run();
+                return 0;
+            }
+            finally
+            {
+                BackgroundProcessManager.DeletePid();
+                logWriter?.Dispose();
+            }
+
+            // The tray service uses Win32 APIs; isolating its registration in a Windows-guarded local function
+            // keeps the platform analyzer (CA1416) happy at the call site above.
+            [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+            static void AddWindowsDesktopIntegration(IServiceCollection services)
+            {
+                // The resolver lambdas defer to the same WindowsTrayService instance for all three roles; the
+                // analyzer can't see they only run under the OperatingSystem.IsWindows() guard, so suppress here.
+#pragma warning disable CA1416
+                services.AddSingleton<Hosting.IStartupManager, Hosting.WindowsStartupManager>();
+                services.AddSingleton<Notifications.WindowsTrayService>();
+                services.AddSingleton<Notifications.IRunCompletionNotifier>(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
+                services.AddHostedService(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
+#pragma warning restore CA1416
+            }
         }
     }
 }
