@@ -49,11 +49,6 @@ namespace BackupService
                 Console.SetError(logWriter);
             }
 
-            // TEMPORARY: bring a database in the old machine-wide location across to the per-user folder. Runs after
-            // the console redirection above so its messages land in the worker's log file, and before the host opens
-            // the database below.
-            BackupDatabaseLocation.MigrateFromLegacyLocationIfNeeded();
-
             try
             {
                 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
