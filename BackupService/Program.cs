@@ -30,9 +30,6 @@ namespace BackupService
 
             // Foreground (no args) or the detached --worker child: run the web host + workers in this process.
 
-            // TEMPORARY: bring a database in the old machine-wide location across to the per-user folder.
-            BackupDatabaseLocation.MigrateFromLegacyLocationIfNeeded();
-
             // Only one instance may run per user — refuse a second launch cleanly rather than failing to bind the port.
             using var instanceLock = BackgroundProcessManager.TryAcquireSingleInstance();
             if (instanceLock is null)
@@ -51,6 +48,11 @@ namespace BackupService
                 Console.SetOut(logWriter);
                 Console.SetError(logWriter);
             }
+
+            // TEMPORARY: bring a database in the old machine-wide location across to the per-user folder. Runs after
+            // the console redirection above so its messages land in the worker's log file, and before the host opens
+            // the database below.
+            BackupDatabaseLocation.MigrateFromLegacyLocationIfNeeded();
 
             try
             {

@@ -45,9 +45,11 @@ namespace BackupService.Database
         /// <summary>
         /// TEMPORARY one-shot migration: the Windows-service build kept the database machine-wide under
         /// <c>%ProgramData%\BackupService</c>. On the first deployed run after switching to the per-user model, if the
-        /// per-user database doesn't exist yet but the old machine-wide one does, move it (and its <c>-wal</c>/<c>-shm</c>
-        /// sidecars) into the current user's data directory. Best effort and idempotent — once moved, the legacy file
-        /// is gone, so only the first user to start claims it and later users start with a fresh database.
+        /// per-user database doesn't exist yet but the old machine-wide one does, copy it (and its <c>-wal</c>/<c>-shm</c>
+        /// sidecars) into the current user's data directory. We <b>copy</b> rather than move because the legacy file was
+        /// created by the old LocalSystem service, so a normal user typically can't delete it out of ProgramData — a
+        /// move would fail. A best-effort delete of the legacy copy is attempted afterwards (ignored if denied). Best
+        /// effort and idempotent (skipped once a per-user database exists).
         ///
         /// Safe to delete once every deployment has migrated.
         /// </summary>
@@ -78,13 +80,26 @@ namespace BackupService.Database
                     return; // No legacy database to bring across.
                 }
 
-                // Move the database and its WAL/SHM sidecars (any open handle would be on the old service, now stopped).
+                // Copy the database and its WAL/SHM sidecars (any open handle would be on the old service, now stopped).
                 foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
                 {
                     var source = legacyDatabase + suffix;
                     if (File.Exists(source))
                     {
-                        File.Move(source, targetDatabase + suffix, overwrite: false);
+                        File.Copy(source, targetDatabase + suffix, overwrite: false);
+                    }
+                }
+
+                // Best-effort cleanup of the legacy copy — ignored if the service-created file can't be deleted.
+                foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+                {
+                    try
+                    {
+                        File.Delete(legacyDatabase + suffix);
+                    }
+                    catch
+                    {
+                        // Leaving the old machine-wide file in place is harmless.
                     }
                 }
 
