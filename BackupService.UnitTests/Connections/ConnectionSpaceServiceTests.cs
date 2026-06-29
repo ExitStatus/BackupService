@@ -1,6 +1,7 @@
 using BackupService.Connections;
 using BackupService.Connections.GoogleDrive;
 using BackupService.Connections.Smb;
+using BackupService.Connections.Usb;
 using BackupService.Enumerations;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,6 +15,7 @@ namespace BackupService.UnitTests.Connections
         private Mock<IConnectionResolver> _resolver = null!;
         private Mock<ISmbConnector> _smb = null!;
         private Mock<IGoogleDriveConnector> _googleDrive = null!;
+        private Mock<IUsbConnector> _usb = null!;
         private ConnectionSpaceService _service = null!;
 
         [SetUp]
@@ -22,7 +24,8 @@ namespace BackupService.UnitTests.Connections
             _resolver = new Mock<IConnectionResolver>();
             _smb = new Mock<ISmbConnector>();
             _googleDrive = new Mock<IGoogleDriveConnector>();
-            _service = new ConnectionSpaceService(_resolver.Object, _smb.Object, _googleDrive.Object, NullLogger<ConnectionSpaceService>.Instance);
+            _usb = new Mock<IUsbConnector>();
+            _service = new ConnectionSpaceService(_resolver.Object, _smb.Object, _googleDrive.Object, _usb.Object, NullLogger<ConnectionSpaceService>.Instance);
         }
 
         [Test]

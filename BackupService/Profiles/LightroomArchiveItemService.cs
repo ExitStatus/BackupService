@@ -46,7 +46,6 @@ namespace BackupService.Profiles
                     existing.Name = input.Name;
                     existing.SourceFolder = input.SourceFolder;
                     existing.TargetFolder = input.TargetFolder;
-                    existing.TargetConnectionId = input.TargetConnectionId;
                     existing.DebounceMilliseconds = input.DebounceMilliseconds;
                     existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.AllowDeletions = input.AllowDeletions;
@@ -130,7 +129,6 @@ namespace BackupService.Profiles
             Name = input.Name,
             SourceFolder = input.SourceFolder,
             TargetFolder = input.TargetFolder,
-            TargetConnectionId = input.TargetConnectionId,
             DebounceMilliseconds = input.DebounceMilliseconds,
             IncludeSubFolders = input.IncludeSubFolders,
             AllowDeletions = input.AllowDeletions,

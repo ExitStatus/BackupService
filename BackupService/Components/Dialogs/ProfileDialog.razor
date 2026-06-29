@@ -18,11 +18,6 @@
                 <InputText @bind-Value="Input.Name" />
             </label>
 
-            <label>
-                Description
-                <InputText @bind-Value="Input.Description" />
-            </label>
-
             @if (!IsEdit)
             {
                 <label>
@@ -34,7 +29,22 @@
                 </label>
             }
 
-            @if (!IsWatcherDriven)
+            @* The connection is profile-level (shared by every row). Source only for the scheduled types —
+               InstantSync/LightroomArchive are watcher-driven with a local-only source. *@
+            @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync)
+            {
+                <ConnectionLocationField Label="Source connection" ShowFolder="false"
+                                         @bind-ConnectionId="Input.SourceConnectionId" />
+            }
+
+            <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="false"
+                                     @bind-ConnectionId="Input.TargetConnectionId" />
+
+            @if (IsDeviceTriggered)
+            {
+                <p class="help-text">Automatically runs when the device is plugged in.</p>
+            }
+            else if (!IsWatcherDriven)
             {
                 <label>
                     Schedule
@@ -69,16 +79,20 @@
             @switch (Input.Type)
             {
                 case ProfileType.FolderPair:
-                    <FolderPairControl @ref="_folderPairControl" Items="_folderPairs" />
+                    <FolderPairControl @ref="_folderPairControl" Items="_folderPairs"
+                                       SourceConnectionId="Input.SourceConnectionId" TargetConnectionId="Input.TargetConnectionId" />
                     break;
                 case ProfileType.InstantSync:
-                    <InstantSyncControl @ref="_instantSyncControl" Items="_instantSyncItems" />
+                    <InstantSyncControl @ref="_instantSyncControl" Items="_instantSyncItems"
+                                        TargetConnectionId="Input.TargetConnectionId" />
                     break;
                 case ProfileType.ArchiveSync:
-                    <ArchiveSyncControl @ref="_archiveSyncControl" Items="_archiveSyncItems" />
+                    <ArchiveSyncControl @ref="_archiveSyncControl" Items="_archiveSyncItems"
+                                        SourceConnectionId="Input.SourceConnectionId" TargetConnectionId="Input.TargetConnectionId" />
                     break;
                 case ProfileType.LightroomArchive:
-                    <LightroomArchiveControl @ref="_lightroomArchiveControl" Items="_lightroomArchiveItems" />
+                    <LightroomArchiveControl @ref="_lightroomArchiveControl" Items="_lightroomArchiveItems"
+                                             TargetConnectionId="Input.TargetConnectionId" />
                     break;
             }
 

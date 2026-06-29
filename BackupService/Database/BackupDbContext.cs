@@ -47,6 +47,8 @@ namespace BackupService.Database
 
         public DbSet<GoogleDriveConnectionSettings> GoogleDriveConnectionSettings => Set<GoogleDriveConnectionSettings>();
 
+        public DbSet<UsbConnectionSettings> UsbConnectionSettings => Set<UsbConnectionSettings>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -106,50 +108,28 @@ namespace BackupService.Database
                 .HasForeignKey<GoogleDriveConnectionSettings>(s => s.ConnectionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // A folder pair may point its source and/or target at a connection. Restrict the delete
-            // (don't cascade or null it) — the connection service blocks deleting a connection in use.
-            modelBuilder.Entity<FolderPair>()
-                .HasOne(fp => fp.SourceConnection)
+            // USB settings are likewise a 1:1 cascade-deleted child of a connection.
+            modelBuilder.Entity<UsbConnectionSettings>()
+                .HasKey(s => s.ConnectionId);
+
+            modelBuilder.Entity<Connection>()
+                .HasOne(c => c.Usb)
+                .WithOne(s => s.Connection)
+                .HasForeignKey<UsbConnectionSettings>(s => s.ConnectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A profile may point its source and/or target at a connection (shared by all its rows). Restrict
+            // the delete (don't cascade or null it) — the connection service blocks deleting a connection in use.
+            modelBuilder.Entity<Profile>()
+                .HasOne(p => p.SourceConnection)
                 .WithMany()
-                .HasForeignKey(fp => fp.SourceConnectionId)
+                .HasForeignKey(p => p.SourceConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<FolderPair>()
-                .HasOne(fp => fp.TargetConnection)
+            modelBuilder.Entity<Profile>()
+                .HasOne(p => p.TargetConnection)
                 .WithMany()
-                .HasForeignKey(fp => fp.TargetConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // InstantSync and ArchiveSync items can likewise point a side at a connection (same Restrict).
-            modelBuilder.Entity<InstantSyncItem>()
-                .HasOne(i => i.SourceConnection)
-                .WithMany()
-                .HasForeignKey(i => i.SourceConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<InstantSyncItem>()
-                .HasOne(i => i.TargetConnection)
-                .WithMany()
-                .HasForeignKey(i => i.TargetConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ArchiveSyncItem>()
-                .HasOne(a => a.SourceConnection)
-                .WithMany()
-                .HasForeignKey(a => a.SourceConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ArchiveSyncItem>()
-                .HasOne(a => a.TargetConnection)
-                .WithMany()
-                .HasForeignKey(a => a.TargetConnectionId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // LightroomArchive items have a connectable target only (source is local-only); same Restrict.
-            modelBuilder.Entity<LightroomArchiveItem>()
-                .HasOne(l => l.TargetConnection)
-                .WithMany()
-                .HasForeignKey(l => l.TargetConnectionId)
+                .HasForeignKey(p => p.TargetConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }

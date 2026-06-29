@@ -22,7 +22,7 @@ namespace BackupService.Scheduling
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
         ILogger<InstantSyncHandler> logger,
-        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
+        IDesktopNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.InstantSync;
 
@@ -56,7 +56,7 @@ namespace BackupService.Scheduling
                         cancellationToken.ThrowIfCancellationRequested();
                         try
                         {
-                            totalFiles += await synchronizer.CountFilesAsync(ToPair(item), cancellationToken);
+                            totalFiles += await synchronizer.CountFilesAsync(ToPair(item), profile.SourceConnectionId, cancellationToken);
                         }
                         catch (OperationCanceledException)
                         {
@@ -74,7 +74,7 @@ namespace BackupService.Scheduling
                     foreach (var item in profile.InstantSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunItemAsync(item, log, total, progress, cancellationToken);
+                        await RunItemAsync(item, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, cancellationToken);
                     }
                 }
             }
@@ -123,14 +123,12 @@ namespace BackupService.Scheduling
             Name = item.Name,
             SourceFolder = item.SourceFolder,
             TargetFolder = item.TargetFolder,
-            SourceConnectionId = item.SourceConnectionId,
-            TargetConnectionId = item.TargetConnectionId,
             AllowDeletions = item.AllowDeletions,
             IncludeSubFolders = item.IncludeSubFolders,
             OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
         };
 
-        private async Task RunItemAsync(InstantSyncItem item, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
+        private async Task RunItemAsync(InstantSyncItem item, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
         {
             await log.AppendAsync($"Instant sync '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
 
@@ -138,7 +136,7 @@ namespace BackupService.Scheduling
 
             try
             {
-                total.Add(await synchronizer.SyncAsync(pair, log, cancellationToken, progress));
+                total.Add(await synchronizer.SyncAsync(pair, sourceConnectionId, targetConnectionId, log, cancellationToken, progress));
             }
             catch (OperationCanceledException)
             {

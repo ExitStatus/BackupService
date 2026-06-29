@@ -54,14 +54,13 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task CreateAsync_PersistsProfileWithOneFolderPair()
         {
-            await _service.CreateAsync("Docs", "desc", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: true, OverwriteBehaviour: OverwriteBehaviour.AlwaysOverwrite)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.FolderPairs).SingleAsync();
 
             profile.Name.Should().Be("Docs");
-            profile.Description.Should().Be("desc");
             profile.Type.Should().Be(ProfileType.FolderPair);
             profile.Schedule.Should().Be("0 2 * * *");
             profile.Enabled.Should().BeTrue();
@@ -80,7 +79,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task CreateAsync_PersistsHandleMissedSync()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
                 [new FolderPairInput(0, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)],
                 handleMissedSync: true);
 
@@ -91,13 +90,13 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task UpdateAsync_UpdatesHandleMissedSync()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
                 [new FolderPairInput(0, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
             var pairId = original!.FolderPairs.Single().Id;
             original.HandleMissedSync.Should().BeFalse();
 
-            await _service.UpdateAsync(original.Id, "Docs", null, "0 2 * * *", enabled: true,
+            await _service.UpdateAsync(original.Id, "Docs", "0 2 * * *", enabled: true,
                 [new FolderPairInput(pairId, "P", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)],
                 handleMissedSync: true);
 
@@ -108,7 +107,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task CreateAsync_PersistsMultipleFolderPairs()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
             [
                 new FolderPairInput(0, "A", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
                 new FolderPairInput(0, "B", @"C:\B", @"D:\B", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
@@ -123,7 +122,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task CreateAsync_PersistsFolderPairFilters()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
                     OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
                     Filters:
@@ -143,7 +142,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task UpdateAsync_ReconcilesFolderPairFilters()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
                     OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
                     Filters:
@@ -157,7 +156,7 @@ namespace BackupService.UnitTests.Profiles
             var keepId = pair.Filters.Single(f => f.Pattern == "*.txt").Id;
 
             // Keep the *.txt rule (update its pattern), drop *.tmp, add a new exclude folder.
-            await _service.UpdateAsync(original.Id, "Docs", null, null, enabled: true,
+            await _service.UpdateAsync(original.Id, "Docs", null, enabled: true,
                 [new FolderPairInput(pair.Id, "P", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false,
                     OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer,
                     Filters:
@@ -178,7 +177,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task CreateAsync_WritesOperationLogWithProfileDetails()
         {
-            await _service.CreateAsync("Docs", "my docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
             [
                 new FolderPairInput(0, "Pair A", @"C:\A", @"D:\A", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.AlwaysOverwrite),
                 new FolderPairInput(0, "Pair B", @"C:\B", @"D:\B", IncludeSubFolders: false, AllowDeletions: true, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
@@ -192,7 +191,6 @@ namespace BackupService.UnitTests.Profiles
 
             var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
-            messages.Should().Contain("Description: my docs");
             messages.Should().Contain(m => m.StartsWith("Type:"));
             messages.Should().Contain(m => m.StartsWith("Schedule:"));
             messages.Should().Contain("Enabled: Yes");
@@ -207,7 +205,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task GetAsync_ReturnsProfileWithFolderPairs()
         {
-            await _service.CreateAsync("Docs", "desc", ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var id = await GetOnlyProfileIdAsync();
 
@@ -227,19 +225,18 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task UpdateAsync_UpdatesProfileAndFolderPairButNotType()
         {
-            await _service.CreateAsync("Docs", "desc", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
             var pairId = original!.FolderPairs.Single().Id;
 
-            await _service.UpdateAsync(original.Id, "Photos", "new desc", "0 3 * * *", enabled: false,
+            await _service.UpdateAsync(original.Id, "Photos", "0 3 * * *", enabled: false,
                 [new FolderPairInput(pairId, "Photos pair", @"C:\Pics", @"E:\Backup", IncludeSubFolders: false, AllowDeletions: true, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
 
             await using var context = new BackupDbContext(_options);
             var profile = await context.Profiles.Include(p => p.FolderPairs).SingleAsync();
 
             profile.Name.Should().Be("Photos");
-            profile.Description.Should().Be("new desc");
             profile.Schedule.Should().Be("0 3 * * *");
             profile.Type.Should().Be(ProfileType.FolderPair);
             profile.Enabled.Should().BeFalse();
@@ -254,13 +251,13 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task UpdateAsync_WritesOperationLogOfChangedFields()
         {
-            await _service.CreateAsync("Docs", "desc", ProfileType.FolderPair, "0 2 * * *", enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, "0 2 * * *", enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var original = await _service.GetAsync(await GetOnlyProfileIdAsync());
             var pairId = original!.FolderPairs.Single().Id;
 
             // Change the name, enabled, and the folder pair's target; leave description/schedule alone.
-            await _service.UpdateAsync(original.Id, "Photos", "desc", "0 2 * * *", enabled: false,
+            await _service.UpdateAsync(original.Id, "Photos", "0 2 * * *", enabled: false,
                 [new FolderPairInput(pairId, "Src pair", @"C:\Src", @"E:\Backup", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
 
             await using var context = new BackupDbContext(_options);
@@ -272,14 +269,13 @@ namespace BackupService.UnitTests.Profiles
             messages.Should().Contain("Enabled changed from 'Yes' to 'No'");
             messages.Should().Contain(@"Folder pair 'Src pair' target changed from 'D:\Dst' to 'E:\Backup'");
             // Unchanged fields are not logged.
-            messages.Should().NotContain(m => m.StartsWith("Description"));
             messages.Should().NotContain(m => m.StartsWith("Schedule"));
         }
 
         [Test]
         public async Task UpdateAsync_AddsAndRemovesFolderPairs()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
             [
                 new FolderPairInput(0, "Keep", @"C:\Keep", @"D:\Keep", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
                 new FolderPairInput(0, "Drop", @"C:\Drop", @"D:\Drop", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
@@ -288,7 +284,7 @@ namespace BackupService.UnitTests.Profiles
             var keepId = original!.FolderPairs.Single(p => p.SourceFolder == @"C:\Keep").Id;
 
             // Keep one (by id), drop the other (omit it), and add a new one (id 0).
-            await _service.UpdateAsync(original.Id, "Docs", null, null, enabled: true,
+            await _service.UpdateAsync(original.Id, "Docs", null, enabled: true,
             [
                 new FolderPairInput(keepId, "Keep", @"C:\Keep", @"D:\Keep", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
                 new FolderPairInput(0, "New", @"C:\New", @"D:\New", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer),
@@ -303,7 +299,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task DeleteAsync_RemovesProfileAndFolderPairs()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var id = await GetOnlyProfileIdAsync();
 
@@ -325,7 +321,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task DeleteAsync_WritesOperationLog()
         {
-            await _service.CreateAsync("Docs", "my docs", ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var id = await GetOnlyProfileIdAsync();
 
@@ -342,7 +338,6 @@ namespace BackupService.UnitTests.Profiles
 
             var messages = log.Details.Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
-            messages.Should().Contain("Description: my docs");
             messages.Should().Contain(m => m.StartsWith("Type:"));
         }
 
@@ -351,7 +346,7 @@ namespace BackupService.UnitTests.Profiles
         {
             // Guards the EF default-value sentinel: a false Enabled must still be stored as false
             // despite the column's store default of true.
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: false,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: false,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
 
             await using var context = new BackupDbContext(_options);
@@ -363,7 +358,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task SetEnabledAsync_UpdatesOnlyTheEnabledFlag()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var id = await GetOnlyProfileIdAsync();
 
@@ -379,7 +374,7 @@ namespace BackupService.UnitTests.Profiles
         [Test]
         public async Task SetEnabledAsync_WritesOperationLogAssociatedWithProfile()
         {
-            await _service.CreateAsync("Docs", null, ProfileType.FolderPair, null, enabled: true,
+            await _service.CreateAsync("Docs", ProfileType.FolderPair, null, enabled: true,
                 [new FolderPairInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
             var id = await GetOnlyProfileIdAsync();
 
@@ -419,7 +414,7 @@ namespace BackupService.UnitTests.Profiles
                 new ProfileStatusService());
 
             await service.CreateAsync(
-                "Live", "watch", ProfileType.InstantSync, scheduleCron: null, enabled: true,
+                "Live", ProfileType.InstantSync, scheduleCron: null, enabled: true,
                 folderPairs: [],
                 instantSyncItems: [new InstantSyncInput(0, "Item", @"C:\Src", @"D:\Dst", DebounceMilliseconds: 2000, IncludeSubFolders: true, AllowDeletions: true)]);
 
@@ -442,13 +437,13 @@ namespace BackupService.UnitTests.Profiles
         public async Task UpdateAsync_SyncsInstantSyncItems()
         {
             await _service.CreateAsync(
-                "Live", null, ProfileType.InstantSync, scheduleCron: null, enabled: true,
+                "Live", ProfileType.InstantSync, scheduleCron: null, enabled: true,
                 folderPairs: [],
                 instantSyncItems: [new InstantSyncInput(0, "Item", @"C:\Src", @"D:\Dst", DebounceMilliseconds: 1000, IncludeSubFolders: false, AllowDeletions: false)]);
             var id = await GetOnlyProfileIdAsync();
 
             await _service.UpdateAsync(
-                id, "Live", null, scheduleCron: null, enabled: true,
+                id, "Live", scheduleCron: null, enabled: true,
                 folderPairs: [],
                 instantSyncItems: [new InstantSyncInput(0, "Item2", @"C:\Src2", @"D:\Dst2", DebounceMilliseconds: 3000, IncludeSubFolders: true, AllowDeletions: true)]);
 
@@ -463,7 +458,7 @@ namespace BackupService.UnitTests.Profiles
         public async Task CreateAsync_PersistsArchiveSyncProfileWithItems()
         {
             await _service.CreateAsync(
-                "Nightly", "zip docs", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
+                "Nightly", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
                 archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.GrandfatherFatherSon, RetentionCount: 3, MaxLevels: 3)]);
@@ -488,14 +483,14 @@ namespace BackupService.UnitTests.Profiles
         public async Task UpdateAsync_SyncsArchiveSyncItems()
         {
             await _service.CreateAsync(
-                "Nightly", null, ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
+                "Nightly", ProfileType.ArchiveSync, "0 2 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
                 archiveSyncItems: [new ArchiveSyncInput(0, "Docs", @"C:\Src", @"D:\Archives", "DocsBackup", IncludeSubFolders: false, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 5, MaxLevels: 1)]);
             var id = await GetOnlyProfileIdAsync();
 
             await _service.UpdateAsync(
-                id, "Nightly", null, "0 3 * * *", enabled: true,
+                id, "Nightly", "0 3 * * *", enabled: true,
                 folderPairs: [],
                 instantSyncItems: null,
                 archiveSyncItems: [new ArchiveSyncInput(0, "Pics", @"C:\Pics", @"D:\Archives2", "PicsBackup", IncludeSubFolders: true, OnlyCopyOnChange: false, CompressionLevel: ArchiveCompressionLevel.Optimal, PasswordProtect: false, Password: null, EncryptionMethod: ArchiveEncryptionMethod.Aes256, RetentionMode: ArchiveRetentionMode.KeepLastN, RetentionCount: 10, MaxLevels: 1)]);

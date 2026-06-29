@@ -43,7 +43,7 @@ namespace BackupService.UnitTests.Scheduling
                 OverwriteBehaviour = overwrite,
             };
 
-        private Task<BackupResult> Run(FolderPair pair) => _sut.SyncAsync(pair, _log, CancellationToken.None);
+        private Task<BackupResult> Run(FolderPair pair) => _sut.SyncAsync(pair, null, null, _log, CancellationToken.None);
 
         [Test]
         public async Task NewFile_IsCopiedThroughTemp_LeavingNoTemp()
@@ -432,12 +432,12 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddFile(@"C:\src\b.dat", T1, "b");
             _fs.AddFile(@"C:\src\sub\c.txt", T1, "c");
 
-            (await _sut.CountFilesAsync(Pair(includeSubFolders: false), CancellationToken.None)).Should().Be(2); // top-level only
-            (await _sut.CountFilesAsync(Pair(includeSubFolders: true), CancellationToken.None)).Should().Be(3);  // includes nested
+            (await _sut.CountFilesAsync(Pair(includeSubFolders: false), null, CancellationToken.None)).Should().Be(2); // top-level only
+            (await _sut.CountFilesAsync(Pair(includeSubFolders: true), null, CancellationToken.None)).Should().Be(3);  // includes nested
 
             var filtered = Pair(includeSubFolders: true);
             filtered.Filters.Add(Filter(FilterDirection.Include, FilterKind.File, "*.txt"));
-            (await _sut.CountFilesAsync(filtered, CancellationToken.None)).Should().Be(2); // a.txt + sub/c.txt
+            (await _sut.CountFilesAsync(filtered, null, CancellationToken.None)).Should().Be(2); // a.txt + sub/c.txt
         }
 
         [Test]
@@ -451,7 +451,7 @@ namespace BackupService.UnitTests.Scheduling
             var reported = 0;
             var progress = new CapturingProgress(value => reported += value);
 
-            await _sut.SyncAsync(Pair(includeSubFolders: true), _log, CancellationToken.None, progress);
+            await _sut.SyncAsync(Pair(includeSubFolders: true), null, null, _log, CancellationToken.None, progress);
 
             reported.Should().Be(3); // one report per in-scope source file
         }
@@ -465,7 +465,7 @@ namespace BackupService.UnitTests.Scheduling
             // crash-safe temp stream is opened) rather than at the top-of-folder guard.
             _fs.OpenReadOverride = _ => new CancelOnReadStream("hello", cts);
 
-            var act = () => _sut.SyncAsync(Pair(), _log, cts.Token);
+            var act = () => _sut.SyncAsync(Pair(), null, null, _log, cts.Token);
 
             await act.Should().ThrowAsync<OperationCanceledException>();
             _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp")); // partial temp swept on cancel
@@ -486,7 +486,7 @@ namespace BackupService.UnitTests.Scheduling
 
             var sut = new FolderPairSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs));
 
-            var result = await sut.SyncAsync(Pair(), _log, CancellationToken.None);
+            var result = await sut.SyncAsync(Pair(), null, null, _log, CancellationToken.None);
 
             // The file crossed from the source filesystem into the (separate) target filesystem.
             sourceFs.FileExists(@"C:\dst\a.txt").Should().BeFalse();

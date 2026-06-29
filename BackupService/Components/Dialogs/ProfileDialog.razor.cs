@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using BackupService.Components.Controls;
+using BackupService.Connections;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -19,6 +20,9 @@ namespace BackupService.Components.Dialogs
     {
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
+
+        [Inject]
+        private IConnectionService ConnectionService { get; set; } = default!;
 
         /// <summary>When set, the dialog edits this profile; otherwise it creates a new one.</summary>
         [Parameter]
@@ -43,6 +47,7 @@ namespace BackupService.Components.Dialogs
         private string? _existingScheduleCron;
         private bool _showSchedule;
         private bool _lightroomFolderError;
+        private IReadOnlyDictionary<int, ConnectionType> _connectionTypes = new Dictionary<int, ConnectionType>();
 
         // Shown as a hover tooltip on the "Handle missed sync" checkbox.
         private const string HandleMissedSyncTooltip =
@@ -61,6 +66,15 @@ namespace BackupService.Components.Dialogs
         // Watcher-driven types (InstantSync, LightroomArchive) aren't scheduled, so the Schedule and
         // Handle-missed-sync fields are hidden/disabled for them.
         private bool IsWatcherDriven => Input.Type is ProfileType.InstantSync or ProfileType.LightroomArchive;
+
+        // A FolderPair/ArchiveSync profile whose (profile-level) source is a USB connection is run when the
+        // device is plugged in, not on a schedule — so the Schedule field is replaced with a note and no cron is
+        // saved. Recomputed on render, so it reflects the source connection picked above.
+        private bool IsDeviceTriggered =>
+            Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync
+            && Input.SourceConnectionId is { } id
+            && _connectionTypes.TryGetValue(id, out var type)
+            && type == ConnectionType.Usb;
 
         private string DialogTitle => IsEdit
             ? $"Edit {Input.Type.GetDescription()} Profile"
@@ -81,6 +95,9 @@ namespace BackupService.Components.Dialogs
 
         protected override async Task OnInitializedAsync()
         {
+            // Connection types let the dialog tell when a source is a USB connection (device-triggered).
+            _connectionTypes = (await ConnectionService.GetSummariesAsync()).ToDictionary(c => c.Id, c => c.Type);
+
             if (ProfileId is not { } id)
             {
                 return;
@@ -93,10 +110,11 @@ namespace BackupService.Components.Dialogs
             }
 
             Input.Name = profile.Name;
-            Input.Description = profile.Description;
             Input.Type = profile.Type;
             Input.Enabled = profile.Enabled;
             Input.HandleMissedSync = profile.HandleMissedSync;
+            Input.SourceConnectionId = profile.SourceConnectionId;
+            Input.TargetConnectionId = profile.TargetConnectionId;
             Input.LightroomFolder = profile.LightroomFolder ?? string.Empty;
             Input.RawFormats = string.IsNullOrWhiteSpace(profile.RawFormats) ? LightroomArchiveSettings.DefaultRawFormats : profile.RawFormats;
             Input.RawFolderName = string.IsNullOrWhiteSpace(profile.RawFolderName) ? LightroomArchiveSettings.DefaultRawFolderName : profile.RawFolderName;
@@ -113,8 +131,6 @@ namespace BackupService.Components.Dialogs
                     Name = pair.Name,
                     SourceFolder = pair.SourceFolder,
                     TargetFolder = pair.TargetFolder,
-                    SourceConnectionId = pair.SourceConnectionId,
-                    TargetConnectionId = pair.TargetConnectionId,
                     AllowDeletions = pair.AllowDeletions,
                     IncludeSubFolders = pair.IncludeSubFolders,
                     OverwriteBehaviour = pair.OverwriteBehaviour,
@@ -131,8 +147,6 @@ namespace BackupService.Components.Dialogs
                     Name = item.Name,
                     SourceFolder = item.SourceFolder,
                     TargetFolder = item.TargetFolder,
-                    SourceConnectionId = item.SourceConnectionId,
-                    TargetConnectionId = item.TargetConnectionId,
                     DebounceMilliseconds = item.DebounceMilliseconds,
                     IncludeSubFolders = item.IncludeSubFolders,
                     AllowDeletions = item.AllowDeletions,
@@ -147,8 +161,6 @@ namespace BackupService.Components.Dialogs
                     Name = item.Name,
                     SourceFolder = item.SourceFolder,
                     TargetFolder = item.TargetFolder,
-                    SourceConnectionId = item.SourceConnectionId,
-                    TargetConnectionId = item.TargetConnectionId,
                     FileName = item.FileName,
                     IncludeSubFolders = item.IncludeSubFolders,
                     OnlyCopyOnChange = item.OnlyCopyOnChange,
@@ -172,7 +184,6 @@ namespace BackupService.Components.Dialogs
                     Name = item.Name,
                     SourceFolder = item.SourceFolder,
                     TargetFolder = item.TargetFolder,
-                    TargetConnectionId = item.TargetConnectionId,
                     DebounceMilliseconds = item.DebounceMilliseconds,
                     IncludeSubFolders = item.IncludeSubFolders,
                     AllowDeletions = item.AllowDeletions,
@@ -213,20 +224,22 @@ namespace BackupService.Components.Dialogs
                 return false;
             }
 
-            // Keep the existing schedule when the user hasn't built a new one.
-            var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
+            // A USB-sourced profile is device-triggered, not scheduled — save it with no cron.
+            var scheduleCron = IsDeviceTriggered ? null : _schedule?.ToCron() ?? _existingScheduleCron;
 
             var folderPairs = _folderPairs
-                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes), p.SourceConnectionId, p.TargetConnectionId))
+                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes)))
                 .ToList();
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync);
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync);
+                await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
             }
 
             return true;
@@ -240,17 +253,19 @@ namespace BackupService.Components.Dialogs
             }
 
             var items = _instantSyncItems
-                .Select(i => new InstantSyncInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions, i.SourceConnectionId, i.TargetConnectionId))
+                .Select(i => new InstantSyncInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions))
                 .ToList();
 
-            // InstantSync isn't scheduled — never carries a cron.
+            // InstantSync isn't scheduled — never carries a cron. Source is local-only (no source connection).
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron: null, Input.Enabled, folderPairs: [], items);
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled, folderPairs: [], items,
+                    targetConnectionId: Input.TargetConnectionId);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items);
+                await ProfileService.CreateAsync(Input.Name, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items,
+                    targetConnectionId: Input.TargetConnectionId);
             }
 
             return true;
@@ -263,20 +278,22 @@ namespace BackupService.Components.Dialogs
                 return false;
             }
 
-            // ArchiveSync is scheduled (like FolderPair): keep the existing schedule when unchanged.
-            var scheduleCron = _schedule?.ToCron() ?? _existingScheduleCron;
+            // ArchiveSync is scheduled (like FolderPair) unless its source is a USB device (then device-triggered).
+            var scheduleCron = IsDeviceTriggered ? null : _schedule?.ToCron() ?? _existingScheduleCron;
 
             var items = _archiveSyncItems
-                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.OnlyCopyOnChange, a.CompressionLevel, a.PasswordProtect, a.Password, a.EncryptionMethod, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes), a.SourceConnectionId, a.TargetConnectionId))
+                .Select(a => new ArchiveSyncInput(a.Id, a.Name, a.SourceFolder, a.TargetFolder, a.FileName, a.IncludeSubFolders, a.OnlyCopyOnChange, a.CompressionLevel, a.PasswordProtect, a.Password, a.EncryptionMethod, a.RetentionMode, a.RetentionCount, a.MaxLevels, BuildFilters(a.Includes, a.Excludes)))
                 .ToList();
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync);
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync);
+                await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
             }
 
             return true;
@@ -293,21 +310,23 @@ namespace BackupService.Components.Dialogs
             }
 
             var items = _lightroomArchiveItems
-                .Select(i => new LightroomArchiveInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions, i.TargetConnectionId))
+                .Select(i => new LightroomArchiveInput(i.Id, i.Name, i.SourceFolder, i.TargetFolder, i.DebounceMilliseconds, i.IncludeSubFolders, i.AllowDeletions))
                 .ToList();
 
-            // LightroomArchive is watcher-driven — never carries a cron.
+            // LightroomArchive is watcher-driven — never carries a cron. Source is local-only.
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron: null, Input.Enabled,
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled,
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
-                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName);
+                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
+                    targetConnectionId: Input.TargetConnectionId);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, Input.Description, ProfileType.LightroomArchive, scheduleCron: null, Input.Enabled,
+                await ProfileService.CreateAsync(Input.Name, ProfileType.LightroomArchive, scheduleCron: null, Input.Enabled,
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
-                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName);
+                    lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
+                    targetConnectionId: Input.TargetConnectionId);
             }
 
             return true;
@@ -335,11 +354,15 @@ namespace BackupService.Components.Dialogs
             [Required]
             public string Name { get; set; } = string.Empty;
 
-            public string? Description { get; set; }
-
             public ProfileType Type { get; set; } = ProfileType.FolderPair;
 
             public bool Enabled { get; set; } = true;
+
+            /// <summary>Profile-level source connection (null = local). Only meaningful for FolderPair/ArchiveSync.</summary>
+            public int? SourceConnectionId { get; set; }
+
+            /// <summary>Profile-level target connection (null = local).</summary>
+            public int? TargetConnectionId { get; set; }
 
             /// <summary>Run immediately on startup if a scheduled run was missed while the service was down.</summary>
             public bool HandleMissedSync { get; set; }

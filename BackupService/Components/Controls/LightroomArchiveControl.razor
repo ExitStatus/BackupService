@@ -54,5 +54,6 @@ else
 
 @if (_editing is not null)
 {
-    <LightroomArchiveEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+    <LightroomArchiveEditDialog Model="_editing" TargetConnectionId="TargetConnectionId"
+                                OnSave="OnEditSaved" OnCancel="() => _editing = null" />
 }

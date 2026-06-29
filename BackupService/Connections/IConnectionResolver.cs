@@ -1,4 +1,5 @@
 using BackupService.Connections.GoogleDrive;
+using BackupService.Connections.Usb;
 using BackupService.Enumerations;
 
 namespace BackupService.Connections
@@ -14,6 +15,8 @@ namespace BackupService.Connections
         Task<SmbConnectionInfo> GetSmbInfoAsync(int connectionId, CancellationToken cancellationToken = default);
 
         Task<GoogleDriveConnectionInfo> GetGoogleDriveInfoAsync(int connectionId, CancellationToken cancellationToken = default);
+
+        Task<UsbConnectionInfo> GetUsbInfoAsync(int connectionId, CancellationToken cancellationToken = default);
 
         /// <summary>The connection's type — lets callers branch to the right info/browser without loading settings.</summary>
         Task<ConnectionType> GetTypeAsync(int connectionId, CancellationToken cancellationToken = default);

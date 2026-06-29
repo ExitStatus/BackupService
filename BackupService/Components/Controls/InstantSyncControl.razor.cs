@@ -16,6 +16,11 @@ namespace BackupService.Components.Controls
         [Parameter]
         public List<InstantSyncItemModel> Items { get; set; } = default!;
 
+        /// <summary>The profile-level target connection (null = local); the row editor browses against it. The
+        /// source is always local (a remote source can't be watched live).</summary>
+        [Parameter]
+        public int? TargetConnectionId { get; set; }
+
         private InstantSyncItemModel? _editing;
         private int _editIndex = -1; // -1 when adding a new item
         private bool _error;
@@ -100,8 +105,6 @@ namespace BackupService.Components.Controls
             Name = source.Name,
             SourceFolder = source.SourceFolder,
             TargetFolder = source.TargetFolder,
-            SourceConnectionId = source.SourceConnectionId,
-            TargetConnectionId = source.TargetConnectionId,
             DebounceMilliseconds = source.DebounceMilliseconds,
             IncludeSubFolders = source.IncludeSubFolders,
             AllowDeletions = source.AllowDeletions,
@@ -119,12 +122,6 @@ namespace BackupService.Components.Controls
         public string SourceFolder { get; set; } = string.Empty;
 
         public string TargetFolder { get; set; } = string.Empty;
-
-        /// <summary>When set, the source is on this connection (a remote source can't be watched live).</summary>
-        public int? SourceConnectionId { get; set; }
-
-        /// <summary>When set, the target is on this connection.</summary>
-        public int? TargetConnectionId { get; set; }
 
         /// <summary>Debounce window in milliseconds; defaults to 5 seconds.</summary>
         public int DebounceMilliseconds { get; set; } = 5000;

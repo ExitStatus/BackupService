@@ -5,7 +5,7 @@ namespace BackupService.Components.Controls
     /// <summary>
     /// A theme-controlled dropdown that replaces the native <c>&lt;select&gt;</c> (whose
     /// OS-drawn popup ignores the dark theme on Windows). Supports two-way binding via
-    /// <c>@bind-Value</c>. Closes when an option or the backdrop is clicked.
+    /// <c>@bind-Value</c>. Closes when an option is clicked or you click outside it (a global handler in App.razor).
     /// </summary>
     public partial class Dropdown<TValue> : ComponentBase
     {
@@ -33,8 +33,6 @@ namespace BackupService.Components.Controls
                 _open = !_open;
             }
         }
-
-        private void Close() => _open = false;
 
         private async Task SelectAsync(TValue item)
         {

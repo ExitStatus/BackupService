@@ -1,4 +1,5 @@
 using BackupService.Connections;
+using BackupService.Connections.Usb;
 using BackupService.Enumerations;
 using BackupService.FileSystem.GoogleDrive;
 using BackupService.FileSystem.Smb;
@@ -7,12 +8,14 @@ namespace BackupService.FileSystem
 {
     /// <summary>
     /// Default <see cref="IEndpointFileSystemFactory"/>: a null connection id resolves to the shared local
-    /// filesystem; a set id resolves the connection by type (SMB or Google Drive, decrypting its secrets)
-    /// and opens a session.
+    /// filesystem; a set id resolves the connection by type (SMB, Google Drive or USB, decrypting any secrets)
+    /// and opens a session. A USB connection resolves to the <b>local</b> filesystem rooted at the bound device's
+    /// current drive letter, so it's only resolvable while the device is connected.
     /// </summary>
     public sealed class EndpointFileSystemFactory(
         IBackupFileSystem localFileSystem,
-        IConnectionResolver connectionResolver) : IEndpointFileSystemFactory
+        IConnectionResolver connectionResolver,
+        IUsbConnector usbConnector) : IEndpointFileSystemFactory
     {
         private static readonly IDisposable NoSession = new NoopDisposable();
 
@@ -34,6 +37,29 @@ namespace BackupService.FileSystem
                     return new EndpointFileSystem(drive, basePath, drive);
                 }
 
+                case ConnectionType.Usb:
+                {
+                    var info = await connectionResolver.GetUsbInfoAsync(id, cancellationToken);
+                    if (info.Kind == UsbDeviceKind.Mtp)
+                    {
+                        if (!OperatingSystem.IsWindows())
+                        {
+                            throw new PlatformNotSupportedException("MTP devices are only supported on Windows.");
+                        }
+
+                        // MediaDevices uses device-absolute backslash paths (e.g. "\Internal storage\DCIM").
+                        var mtpPath = CombineDeviceAbsolute(info.RootFolder, configuredPath);
+                        var mtp = Mtp.MtpBackupFileSystem.Connect(info); // throws when the device isn't connected
+                        return new EndpointFileSystem(mtp, mtpPath, mtp);
+                    }
+
+                    var mountPath = usbConnector.FindMountPath(info)
+                        ?? throw new InvalidOperationException($"The USB device for connection {id} is not connected.");
+                    var relative = CombineRelative(info.RootFolder, configuredPath);
+                    var basePath = relative.Length == 0 ? mountPath : Path.Combine(mountPath, relative);
+                    return new EndpointFileSystem(localFileSystem, basePath, NoSession);
+                }
+
                 case ConnectionType.Smb:
                 default:
                 {
@@ -43,6 +69,13 @@ namespace BackupService.FileSystem
                     return new EndpointFileSystem(smb, basePath, smb);
                 }
             }
+        }
+
+        // Joins an MTP root + relative path into a device-absolute path (leading backslash preserved).
+        private static string CombineDeviceAbsolute(string? root, string? path)
+        {
+            var relative = CombineRelative(root, path);
+            return relative.Length == 0 ? @"\" : $@"\{relative}";
         }
 
         // Joins two share-relative path fragments with a single backslash, trimming separators.

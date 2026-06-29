@@ -7,18 +7,21 @@
     <div class="field-label loc-heading">@Label</div>
 
     <div class="loc-grid">
-        @if (!LocalOnly)
+        @if (!LocalOnly && ShowLocation)
         {
             <span class="loc-cap">Location</span>
             <Dropdown TValue="int?" Value="ConnectionId" ValueChanged="OnLocationChanged"
                       Items="_options" DisplayText="LocationLabel" />
         }
 
-        <span class="loc-cap loc-cap-right">Folder</span>
-        <div class="input-row">
-            <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
-            <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
-        </div>
+        @if (ShowFolder)
+        {
+            <span class="loc-cap loc-cap-right">Folder</span>
+            <div class="input-row">
+                <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
+                <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
+            </div>
+        }
 
         @if (Error is not null)
         {
@@ -28,7 +31,7 @@
 }
 else
 {
-    @if (!LocalOnly)
+    @if (!LocalOnly && ShowLocation)
     {
         <label>
             @LocationCaption
@@ -37,17 +40,20 @@ else
         </label>
     }
 
-    <label>
-        @FolderCaption
-        <div class="input-row">
-            <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
-            <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
-        </div>
-        @if (Error is not null)
-        {
-            <span class="validation-message">@Error</span>
-        }
-    </label>
+    @if (ShowFolder)
+    {
+        <label>
+            @FolderCaption
+            <div class="input-row">
+                <input type="text" value="@Path" @onchange="OnPathChanged" placeholder="@FolderPlaceholder" />
+                <button type="button" class="btn-secondary" @onclick="BrowseAsync">Browse</button>
+            </div>
+            @if (Error is not null)
+            {
+                <span class="validation-message">@Error</span>
+            }
+        </label>
+    }
 }
 
 @if (_browsing)
@@ -70,6 +76,22 @@ else
                                         OnSelect="OnSelected"
                                         OnCancel="CancelBrowse" />
     }
+    else if (_usbMountPath is not null)
+    {
+        <FolderBrowserDialog RootPath="_usbMountPath"
+                             InitialPath="@UsbBrowseInitialPath"
+                             OnSelect="OnUsbSelected"
+                             OnCancel="CancelBrowse" />
+    }
+    else if (_usbMtpSerial is not null)
+    {
+        @* MTP confined browse returns a path relative to the connection's root — exactly what we store. *@
+        <MtpFolderBrowserDialog Serial="@_usbMtpSerial"
+                                ConfineRoot="@_usbMtpRoot"
+                                InitialPath="@Path"
+                                OnSelect="OnSelected"
+                                OnCancel="CancelBrowse" />
+    }
     else
     {
         <FolderBrowserDialog InitialPath="@Path"
@@ -77,4 +99,9 @@ else
                              OnSelect="OnSelected"
                              OnCancel="CancelBrowse" />
     }
+}
+
+@if (_browseHint is not null)
+{
+    <span class="validation-message">@_browseHint</span>
 }

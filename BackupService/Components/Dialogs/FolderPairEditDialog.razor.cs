@@ -14,6 +14,14 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public FolderPairModel Model { get; set; } = default!;
 
+        /// <summary>Profile-level source connection (null = local); the source folder Browse uses it.</summary>
+        [Parameter]
+        public int? SourceConnectionId { get; set; }
+
+        /// <summary>Profile-level target connection (null = local); the target folder Browse uses it.</summary>
+        [Parameter]
+        public int? TargetConnectionId { get; set; }
+
         [Parameter]
         public EventCallback<FolderPairModel> OnSave { get; set; }
 
@@ -36,8 +44,8 @@ namespace BackupService.Components.Dialogs
         {
             _nameError = string.IsNullOrWhiteSpace(Model.Name);
             // A remote side may legitimately be the connection root (empty), so only require a path locally.
-            _sourceError = Model.SourceConnectionId is null && string.IsNullOrWhiteSpace(Model.SourceFolder);
-            _targetError = Model.TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
+            _sourceError = SourceConnectionId is null && string.IsNullOrWhiteSpace(Model.SourceFolder);
+            _targetError = TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
 
             if (_nameError || _sourceError || _targetError)
             {

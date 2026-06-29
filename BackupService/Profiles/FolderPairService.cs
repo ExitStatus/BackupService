@@ -49,8 +49,6 @@ namespace BackupService.Profiles
                     existing.Name = input.Name;
                     existing.SourceFolder = input.SourceFolder;
                     existing.TargetFolder = input.TargetFolder;
-                    existing.SourceConnectionId = input.SourceConnectionId;
-                    existing.TargetConnectionId = input.TargetConnectionId;
                     existing.AllowDeletions = input.AllowDeletions;
                     existing.IncludeSubFolders = input.IncludeSubFolders;
                     existing.OverwriteBehaviour = input.OverwriteBehaviour;
@@ -140,8 +138,6 @@ namespace BackupService.Profiles
             Name = input.Name,
             SourceFolder = input.SourceFolder,
             TargetFolder = input.TargetFolder,
-            SourceConnectionId = input.SourceConnectionId,
-            TargetConnectionId = input.TargetConnectionId,
             AllowDeletions = input.AllowDeletions,
             IncludeSubFolders = input.IncludeSubFolders,
             OverwriteBehaviour = input.OverwriteBehaviour,

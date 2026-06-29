@@ -54,5 +54,6 @@ else
 
 @if (_editing is not null)
 {
-    <ArchiveSyncEditDialog Model="_editing" OnSave="OnEditSaved" OnCancel="() => _editing = null" />
+    <ArchiveSyncEditDialog Model="_editing" SourceConnectionId="SourceConnectionId" TargetConnectionId="TargetConnectionId"
+                           OnSave="OnEditSaved" OnCancel="() => _editing = null" />
 }

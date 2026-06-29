@@ -1,0 +1,35 @@
+@namespace BackupService.Components.Dialogs
+
+<div class="modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Select a folder on the device">
+        <h2>Select a folder</h2>
+
+        <div class="input-row">
+            <button type="button" class="btn-secondary" @onclick="Up" disabled="@(!CanGoUp || _busy)">Up</button>
+            <input type="text" readonly value="@_currentPath" />
+        </div>
+
+        <div class="folder-list">
+            @if (_busy)
+            {
+                <p class="help-text">Reading device…</p>
+            }
+            else if (_dirs.Count == 0)
+            {
+                <p class="help-text">No sub-folders here.</p>
+            }
+            else
+            {
+                @foreach (var dir in _dirs)
+                {
+                    <button type="button" class="folder-row" @onclick="() => Navigate(dir)">@DisplayName(dir)</button>
+                }
+            }
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="Select" disabled="@_busy">Select this folder</button>
+        </div>
+    </div>
+</div>

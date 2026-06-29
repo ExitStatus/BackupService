@@ -37,7 +37,6 @@ namespace BackupService.UnitTests.Database
                 context.Profiles.Add(new Profile
                 {
                     Name = "Documents",
-                    Description = "Back up my documents",
                     DateCreated = DateTimeOffset.UtcNow,
                     Schedule = "0 2 * * *",
                     FolderPairs =
@@ -58,7 +57,6 @@ namespace BackupService.UnitTests.Database
                 var profile = await context.Profiles.Include(p => p.FolderPairs).SingleAsync();
 
                 profile.Name.Should().Be("Documents");
-                profile.Description.Should().Be("Back up my documents");
                 profile.DateLastRun.Should().BeNull();
                 profile.Schedule.Should().Be("0 2 * * *");
 

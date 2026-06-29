@@ -29,11 +29,6 @@ namespace BackupService.Database
         [MaxLength(1024)]
         public required string TargetFolder { get; set; }
 
-        /// <summary>When set, the target is on this connection and <see cref="TargetFolder"/> is relative to its root.</summary>
-        public int? TargetConnectionId { get; set; }
-
-        public Connection? TargetConnection { get; set; }
-
         /// <summary>How long the source must be quiet before queued changes are copied.</summary>
         public int DebounceMilliseconds { get; set; }
 

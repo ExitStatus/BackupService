@@ -6,7 +6,6 @@ namespace BackupService.Enumerations
     public enum ProfileSortColumn
     {
         Name,
-        Description,
         DateLastRun,
     }
 }

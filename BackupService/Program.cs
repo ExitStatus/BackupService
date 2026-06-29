@@ -112,7 +112,9 @@ namespace BackupService
                 else
                 {
                     builder.Services.AddSingleton<Hosting.IStartupManager, Hosting.NoopStartupManager>();
-                    builder.Services.AddSingleton<Notifications.IRunCompletionNotifier, Notifications.NullRunCompletionNotifier>();
+                    builder.Services.AddSingleton<Notifications.IDesktopNotifier, Notifications.NullDesktopNotifier>();
+                    builder.Services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.NullUsbDeviceInspector>();
+                    builder.Services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.NullMtpDeviceInspector>();
                 }
 
                 // Connections (remote resources, e.g. SMB shares). SMB passwords are encrypted at rest via
@@ -130,6 +132,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Connections.IConnectionSpaceService, Connections.ConnectionSpaceService>();
                 builder.Services.AddSingleton<Connections.Smb.ISmbConnector, Connections.Smb.SmbConnector>();
                 builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleDriveConnector, Connections.GoogleDrive.GoogleDriveConnector>();
+                builder.Services.AddSingleton<Connections.Usb.IUsbConnector, Connections.Usb.UsbConnector>();
                 builder.Services.AddSingleton<Connections.GoogleDrive.IGoogleOAuthFlowService, Connections.GoogleDrive.GoogleOAuthFlowService>();
                 // The app's built-in Google OAuth client (so users can authorise Drive with one click). Sourced
                 // from config (GoogleDrive:ClientId/ClientSecret via user-secrets or an environment overlay — never
@@ -293,8 +296,14 @@ namespace BackupService
 #pragma warning disable CA1416
                 services.AddSingleton<Hosting.IStartupManager, Hosting.WindowsStartupManager>();
                 services.AddSingleton<Notifications.WindowsTrayService>();
-                services.AddSingleton<Notifications.IRunCompletionNotifier>(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
+                services.AddSingleton<Notifications.IDesktopNotifier>(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
                 services.AddHostedService(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
+
+                // USB device detection: read device identity + watch for connect/disconnect to trigger backups.
+                services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.WindowsUsbDeviceInspector>();
+                services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.WindowsMtpDeviceInspector>();
+                services.AddSingleton<Scheduling.Usb.UsbDeviceWatcherService>();
+                services.AddHostedService(sp => sp.GetRequiredService<Scheduling.Usb.UsbDeviceWatcherService>());
 #pragma warning restore CA1416
             }
         }

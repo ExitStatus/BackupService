@@ -15,16 +15,16 @@ namespace BackupService.Scheduling
     /// </summary>
     public sealed class FolderPairSynchronizer(IEndpointFileSystemFactory endpointFactory) : IFolderPairSynchronizer
     {
-        public async Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
+        public async Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
         {
             var result = new BackupResult();
             // Include/exclude rules filter which files are synced (empty includes = all files).
             var filter = new BackupFilter(pair.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
 
-            var source = await endpointFactory.ResolveAsync(pair.SourceConnectionId, pair.SourceFolder, cancellationToken);
+            var source = await endpointFactory.ResolveAsync(sourceConnectionId, pair.SourceFolder, cancellationToken);
             try
             {
-                var target = await endpointFactory.ResolveAsync(pair.TargetConnectionId, pair.TargetFolder, cancellationToken);
+                var target = await endpointFactory.ResolveAsync(targetConnectionId, pair.TargetFolder, cancellationToken);
                 try
                 {
                     var ctx = new SyncContext(source.FileSystem, target.FileSystem, pair, filter);
@@ -43,10 +43,10 @@ namespace BackupService.Scheduling
             return result;
         }
 
-        public async Task<int> CountFilesAsync(FolderPair pair, CancellationToken cancellationToken)
+        public async Task<int> CountFilesAsync(FolderPair pair, int? sourceConnectionId, CancellationToken cancellationToken)
         {
             var filter = new BackupFilter(pair.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
-            var source = await endpointFactory.ResolveAsync(pair.SourceConnectionId, pair.SourceFolder, cancellationToken);
+            var source = await endpointFactory.ResolveAsync(sourceConnectionId, pair.SourceFolder, cancellationToken);
             try
             {
                 return CountDirectory(source.FileSystem, source.BasePath, [], pair, filter, cancellationToken);

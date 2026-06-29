@@ -27,6 +27,18 @@
                 e.preventDefault();
             }
         });
+
+        // Close any open themed Dropdown (.dropdown.open) when clicking outside it. The dropdown's close state
+        // lives in Blazor, so we trigger it by clicking the toggle (which toggles it shut). Robust against
+        // CSS stacking contexts that can defeat a click-backdrop. The outside element still gets its own click.
+        document.addEventListener('pointerdown', function (e) {
+            document.querySelectorAll('.dropdown.open').forEach(function (dd) {
+                if (!dd.contains(e.target)) {
+                    var toggle = dd.querySelector('.dropdown-toggle');
+                    if (toggle) { toggle.click(); }
+                }
+            });
+        }, true);
     </script>
 </body>
 

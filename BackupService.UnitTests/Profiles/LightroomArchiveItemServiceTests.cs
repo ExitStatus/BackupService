@@ -23,7 +23,6 @@ namespace BackupService.UnitTests.Profiles
             _sut.Add(profile, [Input(0, "A"), Input(0, "B")]);
 
             profile.LightroomArchiveItems.Select(i => i.Name).Should().BeEquivalentTo("A", "B");
-            profile.LightroomArchiveItems.Should().OnlyContain(i => i.TargetConnectionId == null);
         }
 
         [Test]

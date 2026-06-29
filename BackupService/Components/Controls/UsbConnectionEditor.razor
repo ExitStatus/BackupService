@@ -1,0 +1,56 @@
+@namespace BackupService.Components.Controls
+@using BackupService.Connections.Usb
+@using BackupService.Enumerations
+
+<div class="usb-editor">
+    <p class="help-text">
+        Plug the device in and choose it below — the connection remembers that specific device (USB drive or camera/
+        phone), so it's recognised on future connections even if it gets a different drive letter.
+    </p>
+
+    <label>
+        Device
+        <div class="input-row">
+            @if (_keys.Count == 0)
+            {
+                <span class="usb-no-device">No USB device found</span>
+            }
+            else
+            {
+                <Dropdown TValue="string" Value="_selectedKey" ValueChanged="OnDeviceSelected"
+                          Items="_keys" DisplayText="DeviceLabel" />
+            }
+            <button type="button" class="btn-secondary" @onclick="RefreshDevices">Refresh</button>
+        </div>
+        @if (_deviceError)
+        {
+            <span class="validation-message">Plug the device in and select it.</span>
+        }
+    </label>
+
+    <p class="usb-status @(IsConnected ? "ok" : "muted")">@StatusText</p>
+
+    <label>
+        Root folder
+        <div class="input-row">
+            <input type="text" @bind="Model.RootFolder" placeholder="(device root)" />
+            <button type="button" class="btn-secondary" @onclick="Browse" disabled="@(!IsConnected)">Browse</button>
+        </div>
+    </label>
+</div>
+
+@if (_showLocalBrowser && _mountPath is not null)
+{
+    <FolderBrowserDialog RootPath="_mountPath"
+                         InitialPath="@LocalBrowseInitialPath"
+                         OnSelect="OnLocalFolderSelected"
+                         OnCancel="CloseBrowser" />
+}
+
+@if (_showMtpBrowser && !string.IsNullOrEmpty(Model.MtpSerial))
+{
+    <MtpFolderBrowserDialog Serial="@Model.MtpSerial"
+                            InitialPath="@Model.RootFolder"
+                            OnSelect="OnMtpFolderSelected"
+                            OnCancel="CloseBrowser" />
+}

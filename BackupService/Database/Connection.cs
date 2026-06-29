@@ -24,5 +24,8 @@ namespace BackupService.Database
 
         /// <summary>Google Drive-specific settings; populated when <see cref="Type"/> is <see cref="ConnectionType.GoogleDrive"/>.</summary>
         public GoogleDriveConnectionSettings? GoogleDrive { get; set; }
+
+        /// <summary>USB-device settings; populated when <see cref="Type"/> is <see cref="ConnectionType.Usb"/>.</summary>
+        public UsbConnectionSettings? Usb { get; set; }
     }
 }

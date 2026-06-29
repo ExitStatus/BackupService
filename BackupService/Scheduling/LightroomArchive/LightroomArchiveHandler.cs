@@ -23,7 +23,7 @@ namespace BackupService.Scheduling
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
         ILogger<LightroomArchiveHandler> logger,
-        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
+        IDesktopNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.LightroomArchive;
 
@@ -63,7 +63,7 @@ namespace BackupService.Scheduling
                     foreach (var (item, files) in work)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunItemAsync(item, settings, files, log, total, progress, cancellationToken);
+                        await RunItemAsync(item, profile.TargetConnectionId, settings, files, log, total, progress, cancellationToken);
                     }
                 }
             }
@@ -103,7 +103,7 @@ namespace BackupService.Scheduling
         }
 
         private async Task RunItemAsync(
-            LightroomArchiveItem item, LightroomArchiveSettings settings, IReadOnlyCollection<string> files,
+            LightroomArchiveItem item, int? targetConnectionId, LightroomArchiveSettings settings, IReadOnlyCollection<string> files,
             IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
         {
             await log.AppendAsync($"Lightroom archive '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
@@ -111,7 +111,7 @@ namespace BackupService.Scheduling
             try
             {
                 // A full reconcile feeds every source file as a "change" (no deletions on a manual run).
-                total.Add(await processor.ProcessBatchAsync(item, settings, files, deletedPaths: [], log, progress, cancellationToken));
+                total.Add(await processor.ProcessBatchAsync(item, targetConnectionId, settings, files, deletedPaths: [], log, progress, cancellationToken));
             }
             catch (OperationCanceledException)
             {

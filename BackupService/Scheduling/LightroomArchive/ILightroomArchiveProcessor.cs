@@ -22,6 +22,7 @@ namespace BackupService.Scheduling
         /// </summary>
         Task<BackupResult> ProcessBatchAsync(
             LightroomArchiveItem item,
+            int? targetConnectionId,
             LightroomArchiveSettings settings,
             IReadOnlyCollection<string> changedPaths,
             IReadOnlyCollection<string> deletedPaths,

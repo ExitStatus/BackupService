@@ -18,6 +18,10 @@ namespace BackupService.Connections
 
         Task UpdateAsync(int id, string name, GoogleDriveConnectionInput googleDrive, CancellationToken cancellationToken = default);
 
+        Task<int> CreateAsync(string name, ConnectionType type, UsbConnectionInput usb, CancellationToken cancellationToken = default);
+
+        Task UpdateAsync(int id, string name, UsbConnectionInput usb, CancellationToken cancellationToken = default);
+
         Task<PagedResult<Connection>> GetPageAsync(int pageNumber, int pageSize, ConnectionSortColumn sortColumn, bool descending, CancellationToken cancellationToken = default);
 
         Task<Connection?> GetAsync(int id, CancellationToken cancellationToken = default);

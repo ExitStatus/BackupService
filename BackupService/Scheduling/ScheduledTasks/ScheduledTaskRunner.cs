@@ -23,7 +23,7 @@ namespace BackupService.Scheduling.ScheduledTasks
         IProcessRunner processRunner,
         IBackupRunRecorder runRecorder,
         ILogger<ScheduledTaskRunner> logger,
-        IRunCompletionNotifier? notifier = null) : IScheduledTaskRunner
+        IDesktopNotifier? notifier = null) : IScheduledTaskRunner
     {
         // The cancellation source for each in-progress run, keyed by task id, so the UI's Stop button
         // (RequestStop) can cancel a run that's already under way.

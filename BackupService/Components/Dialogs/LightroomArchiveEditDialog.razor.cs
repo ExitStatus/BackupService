@@ -15,6 +15,10 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public LightroomArchiveItemModel Model { get; set; } = default!;
 
+        /// <summary>Profile-level target connection (null = local); the target folder Browse uses it.</summary>
+        [Parameter]
+        public int? TargetConnectionId { get; set; }
+
         [Parameter]
         public EventCallback<LightroomArchiveItemModel> OnSave { get; set; }
 
@@ -38,7 +42,7 @@ namespace BackupService.Components.Dialogs
             _nameError = string.IsNullOrWhiteSpace(Model.Name);
             _sourceError = string.IsNullOrWhiteSpace(Model.SourceFolder);
             // A remote target may legitimately be the connection root (empty), so only require a path locally.
-            _targetError = Model.TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
+            _targetError = TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
             _debounceError = Model.DebounceMilliseconds < 0;
 
             if (_nameError || _sourceError || _targetError || _debounceError)

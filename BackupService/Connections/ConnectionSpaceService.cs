@@ -1,5 +1,6 @@
 using BackupService.Connections.GoogleDrive;
 using BackupService.Connections.Smb;
+using BackupService.Connections.Usb;
 using BackupService.Enumerations;
 
 namespace BackupService.Connections
@@ -13,6 +14,7 @@ namespace BackupService.Connections
         IConnectionResolver resolver,
         ISmbConnector smbConnector,
         IGoogleDriveConnector googleDriveConnector,
+        IUsbConnector usbConnector,
         ILogger<ConnectionSpaceService> logger) : IConnectionSpaceService
     {
         public async Task<StorageSpace?> GetSpaceAsync(int connectionId, CancellationToken cancellationToken = default)
@@ -28,6 +30,10 @@ namespace BackupService.Connections
                     case ConnectionType.Smb:
                         var smb = await resolver.GetSmbInfoAsync(connectionId, cancellationToken);
                         return await smbConnector.GetFreeSpaceAsync(smb, cancellationToken);
+
+                    case ConnectionType.Usb:
+                        var usb = await resolver.GetUsbInfoAsync(connectionId, cancellationToken);
+                        return await usbConnector.GetFreeSpaceAsync(usb, cancellationToken);
 
                     default:
                         return null;

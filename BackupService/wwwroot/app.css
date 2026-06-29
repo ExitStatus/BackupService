@@ -192,6 +192,32 @@ h3:focus {
     margin-top: 8px;
 }
 
+/* USB connection editor: the connected/disconnected status line. */
+.usb-status {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 0.9rem;
+}
+
+/* Shown in place of the device dropdown when no removable drive is connected. */
+.usb-no-device {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    background: var(--surface);
+}
+
+.usb-status.ok {
+    color: var(--accent);
+}
+
+.usb-status.muted {
+    color: var(--text-muted);
+}
+
 /* Options panel rows: a label/description on the left, a toggle on the right. */
 .option-row {
     display: flex;
@@ -348,12 +374,6 @@ textarea:focus {
 
 .dropdown-caret {
     color: var(--text-muted);
-}
-
-.dropdown-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 1200;
 }
 
 .dropdown-menu {

@@ -183,6 +183,75 @@ namespace BackupService.Connections
             await LogGoogleDriveUpdatedAsync(oldName, name, oldSettings, settings, secretChanged, tokenChanged, cancellationToken);
         }
 
+        public async Task<int> CreateAsync(string name, ConnectionType type, UsbConnectionInput usb, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var connection = new Connection
+            {
+                Name = name,
+                Type = type,
+                DateCreated = DateTimeOffset.UtcNow,
+                Usb = new UsbConnectionSettings
+                {
+                    Kind = usb.Kind,
+                    HardwareSerial = NullIfBlank(usb.HardwareSerial),
+                    VolumeSerial = usb.VolumeSerial,
+                    MtpSerial = NullIfBlank(usb.MtpSerial),
+                    DeviceLabel = NullIfBlank(usb.DeviceLabel),
+                    RootFolder = NullIfBlank(usb.RootFolder),
+                },
+            };
+
+            db.Connections.Add(connection);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var log = await operationLogFactory.CreateAsync($"Connection created: {name}", cancellationToken: cancellationToken);
+            await log.AppendAsync(DescribeUsb(name, type, usb).ToArray());
+
+            return connection.Id;
+        }
+
+        public async Task UpdateAsync(int id, string name, UsbConnectionInput usb, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var connection = await db.Connections
+                .Include(c => c.Usb)
+                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+            if (connection is null)
+            {
+                return;
+            }
+
+            var oldName = connection.Name;
+            connection.Name = name;
+
+            var settings = connection.Usb ??= new UsbConnectionSettings
+            {
+                ConnectionId = connection.Id,
+                VolumeSerial = usb.VolumeSerial,
+            };
+
+            var oldSettings = (settings.DeviceLabel, settings.RootFolder);
+            var deviceChanged = settings.Kind != usb.Kind
+                || settings.VolumeSerial != usb.VolumeSerial
+                || settings.HardwareSerial != NullIfBlank(usb.HardwareSerial)
+                || settings.MtpSerial != NullIfBlank(usb.MtpSerial);
+
+            settings.Kind = usb.Kind;
+            settings.HardwareSerial = NullIfBlank(usb.HardwareSerial);
+            settings.VolumeSerial = usb.VolumeSerial;
+            settings.MtpSerial = NullIfBlank(usb.MtpSerial);
+            settings.DeviceLabel = NullIfBlank(usb.DeviceLabel);
+            settings.RootFolder = NullIfBlank(usb.RootFolder);
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            await LogUsbUpdatedAsync(oldName, name, oldSettings, settings, deviceChanged, cancellationToken);
+        }
+
         public async Task<PagedResult<Connection>> GetPageAsync(int pageNumber, int pageSize, ConnectionSortColumn sortColumn, bool descending, CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1)
@@ -235,6 +304,7 @@ namespace BackupService.Connections
                 .AsNoTracking()
                 .Include(c => c.Smb)
                 .Include(c => c.GoogleDrive)
+                .Include(c => c.Usb)
                 .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
@@ -269,36 +339,13 @@ namespace BackupService.Connections
                 }
             }
 
-            foreach (var fp in await db.FolderPairs.AsNoTracking()
-                .Where(fp => fp.SourceConnectionId != null || fp.TargetConnectionId != null)
-                .Select(fp => new { fp.ProfileId, fp.SourceConnectionId, fp.TargetConnectionId })
+            // The connection is profile-level (shared by all a profile's rows), so one query covers every type.
+            foreach (var p in await db.Profiles.AsNoTracking()
+                .Where(p => p.SourceConnectionId != null || p.TargetConnectionId != null)
+                .Select(p => new { p.Id, p.SourceConnectionId, p.TargetConnectionId })
                 .ToListAsync(cancellationToken))
             {
-                AddRef(fp.SourceConnectionId, fp.TargetConnectionId, fp.ProfileId);
-            }
-
-            foreach (var i in await db.InstantSyncItems.AsNoTracking()
-                .Where(i => i.SourceConnectionId != null || i.TargetConnectionId != null)
-                .Select(i => new { i.ProfileId, i.SourceConnectionId, i.TargetConnectionId })
-                .ToListAsync(cancellationToken))
-            {
-                AddRef(i.SourceConnectionId, i.TargetConnectionId, i.ProfileId);
-            }
-
-            foreach (var a in await db.ArchiveSyncItems.AsNoTracking()
-                .Where(a => a.SourceConnectionId != null || a.TargetConnectionId != null)
-                .Select(a => new { a.ProfileId, a.SourceConnectionId, a.TargetConnectionId })
-                .ToListAsync(cancellationToken))
-            {
-                AddRef(a.SourceConnectionId, a.TargetConnectionId, a.ProfileId);
-            }
-
-            foreach (var l in await db.LightroomArchiveItems.AsNoTracking()
-                .Where(l => l.TargetConnectionId != null)
-                .Select(l => new { l.ProfileId, l.TargetConnectionId })
-                .ToListAsync(cancellationToken))
-            {
-                AddRef(null, l.TargetConnectionId, l.ProfileId);
+                AddRef(p.SourceConnectionId, p.TargetConnectionId, p.Id);
             }
 
             return pairs
@@ -316,16 +363,13 @@ namespace BackupService.Connections
                 return ConnectionDeleteResult.Success;
             }
 
-            // Don't orphan any backup entry (folder pair, instant-sync or archive item) that references
-            // this connection as a source/target.
-            var inUse =
-                await db.FolderPairs.CountAsync(fp => fp.SourceConnectionId == id || fp.TargetConnectionId == id, cancellationToken)
-                + await db.InstantSyncItems.CountAsync(i => i.SourceConnectionId == id || i.TargetConnectionId == id, cancellationToken)
-                + await db.ArchiveSyncItems.CountAsync(a => a.SourceConnectionId == id || a.TargetConnectionId == id, cancellationToken);
+            // Don't orphan any profile that references this connection as its (profile-level) source/target.
+            var inUse = await db.Profiles.CountAsync(
+                p => p.SourceConnectionId == id || p.TargetConnectionId == id, cancellationToken);
             if (inUse > 0)
             {
                 return ConnectionDeleteResult.Blocked(
-                    $"Connection is in use by {inUse} backup entr{(inUse == 1 ? "y" : "ies")}. Update or remove them first.");
+                    $"Connection is in use by {inUse} profile{(inUse == 1 ? "" : "s")}. Update or remove them first.");
             }
 
             var name = connection.Name;
@@ -430,6 +474,46 @@ namespace BackupService.Connections
             var log = await operationLogFactory.CreateAsync($"Connection updated: {oldName}", cancellationToken: cancellationToken);
             await log.AppendAsync(changes.Count == 0 ? ["No changes detected."] : changes.ToArray());
         }
+
+        private async Task LogUsbUpdatedAsync(
+            string oldName,
+            string newName,
+            (string? DeviceLabel, string? RootFolder) old,
+            UsbConnectionSettings now,
+            bool deviceChanged,
+            CancellationToken cancellationToken)
+        {
+            var changes = new List<string>();
+
+            if (oldName != newName)
+            {
+                changes.Add($"Name changed from '{oldName}' to '{newName}'");
+            }
+            if (deviceChanged)
+            {
+                changes.Add($"Bound device changed to '{DisplayText(now.DeviceLabel)}'");
+            }
+            else if (old.DeviceLabel != now.DeviceLabel)
+            {
+                changes.Add($"Device label changed from '{DisplayText(old.DeviceLabel)}' to '{DisplayText(now.DeviceLabel)}'");
+            }
+            if (old.RootFolder != now.RootFolder)
+            {
+                changes.Add($"Root folder changed from '{DisplayText(old.RootFolder)}' to '{DisplayText(now.RootFolder)}'");
+            }
+
+            var log = await operationLogFactory.CreateAsync($"Connection updated: {oldName}", cancellationToken: cancellationToken);
+            await log.AppendAsync(changes.Count == 0 ? ["No changes detected."] : changes.ToArray());
+        }
+
+        private static List<string> DescribeUsb(string name, ConnectionType type, UsbConnectionInput usb) =>
+        [
+            $"Name: {name}",
+            $"Type: {type.GetDescription()}",
+            $"Device kind: {usb.Kind.GetDescription()}",
+            $"Device: {DisplayText(usb.DeviceLabel)}",
+            $"Root folder: {DisplayText(usb.RootFolder)}",
+        ];
 
         // Never logs the client secret or refresh token.
         private static List<string> DescribeGoogleDrive(string name, ConnectionType type, GoogleDriveConnectionInput googleDrive) =>

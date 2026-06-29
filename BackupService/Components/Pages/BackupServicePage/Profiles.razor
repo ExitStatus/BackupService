@@ -64,7 +64,6 @@ else
             <tr>
                 <th class="enabled-col">Enabled</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Name)">Name@(SortIndicator(ProfileSortColumn.Name))</button></th>
-                <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.Description)">Description@(SortIndicator(ProfileSortColumn.Description))</button></th>
                 @if (!_arrangeByType)
                 {
                     <th>Type</th>
@@ -84,7 +83,6 @@ else
                                                ValueChanged="enabled => ToggleEnabledAsync(profile, enabled)" />
                     </td>
                     <td>@profile.Name</td>
-                    <td>@profile.Description</td>
                     @if (!_arrangeByType)
                     {
                         <td>@profile.Type.GetDescription()</td>

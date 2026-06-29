@@ -14,6 +14,10 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public InstantSyncItemModel Model { get; set; } = default!;
 
+        /// <summary>Profile-level target connection (null = local); the target folder Browse uses it.</summary>
+        [Parameter]
+        public int? TargetConnectionId { get; set; }
+
         [Parameter]
         public EventCallback<InstantSyncItemModel> OnSave { get; set; }
 
@@ -34,13 +38,11 @@ namespace BackupService.Components.Dialogs
 
         private async Task SaveAsync()
         {
-            // The source is always a local folder (a remote source can't be watched live).
-            Model.SourceConnectionId = null;
-
             _nameError = string.IsNullOrWhiteSpace(Model.Name);
+            // The source is always a local folder (a remote source can't be watched live).
             _sourceError = string.IsNullOrWhiteSpace(Model.SourceFolder);
             // A remote target may legitimately be the connection root (empty), so only require a path locally.
-            _targetError = Model.TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
+            _targetError = TargetConnectionId is null && string.IsNullOrWhiteSpace(Model.TargetFolder);
             _debounceError = Model.DebounceMilliseconds < 0;
 
             if (_nameError || _sourceError || _targetError || _debounceError)

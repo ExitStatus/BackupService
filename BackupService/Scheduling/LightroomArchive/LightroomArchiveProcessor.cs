@@ -17,6 +17,7 @@ namespace BackupService.Scheduling
     {
         public async Task<BackupResult> ProcessBatchAsync(
             LightroomArchiveItem item,
+            int? targetConnectionId,
             LightroomArchiveSettings settings,
             IReadOnlyCollection<string> changedPaths,
             IReadOnlyCollection<string> deletedPaths,
@@ -29,7 +30,7 @@ namespace BackupService.Scheduling
             // Build the basename -> raw paths index once per batch so a big flush doesn't re-walk the catalog.
             var rawIndex = BuildRawIndex(settings);
 
-            var target = await endpointFactory.ResolveAsync(item.TargetConnectionId, item.TargetFolder, cancellationToken);
+            var target = await endpointFactory.ResolveAsync(targetConnectionId, item.TargetFolder, cancellationToken);
             try
             {
                 var ctx = new Ctx(localFileSystem, target.FileSystem, item, target.BasePath, settings, rawIndex);

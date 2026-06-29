@@ -121,7 +121,7 @@ namespace BackupService.UnitTests.Scheduling
             public List<string> ItemNames { get; } = [];
 
             public Task<BackupResult> ProcessBatchAsync(
-                LightroomArchiveItem item, LightroomArchiveSettings settings, IReadOnlyCollection<string> changedPaths,
+                LightroomArchiveItem item, int? targetConnectionId, LightroomArchiveSettings settings, IReadOnlyCollection<string> changedPaths,
                 IReadOnlyCollection<string> deletedPaths, IOperationLogger log, IProgress<int>? progress, CancellationToken cancellationToken)
             {
                 ItemNames.Add(item.Name);

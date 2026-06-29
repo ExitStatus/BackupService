@@ -15,13 +15,25 @@ namespace BackupService.Hosting
     /// <c>-background</c>.</item>
     /// </list>
     /// The handle names use the per-session <c>Local\</c> namespace, so each interactive Windows user gets an
-    /// independent instance — matching the per-user data directory.
+    /// independent instance — matching the per-user data directory. They are also suffixed with the environment
+    /// (Development vs Production) so a developer's debug instance (port 5080, DB in <c>bin\</c>) and the deployed
+    /// instance (port 55000, DB in <c>%LOCALAPPDATA%</c>) — which are genuinely independent — can run side by side
+    /// instead of the deployed one blocking the debug run.
     /// </summary>
     public static class BackgroundProcessManager
     {
-        private const string InstanceMutexName = @"Local\BackupService.Instance";
-        private const string StopEventName = @"Local\BackupService.Stop";
+        private static readonly string EnvironmentSuffix = ResolveEnvironmentSuffix();
+        private static readonly string InstanceMutexName = $@"Local\BackupService.Instance.{EnvironmentSuffix}";
+        private static readonly string StopEventName = $@"Local\BackupService.Stop.{EnvironmentSuffix}";
         private const string PidFileName = "backupservice.pid";
+
+        // The environment determines both the data directory and these handle names, so a Development run and a
+        // deployed (Production) run don't share a single-instance lock or stop event.
+        private static string ResolveEnvironmentSuffix()
+        {
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            return string.IsNullOrWhiteSpace(environment) ? "Production" : environment;
+        }
 
         // Kept alive for the process lifetime so the registered wait and the event aren't collected.
         private static EventWaitHandle? _stopEvent;

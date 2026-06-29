@@ -1,6 +1,7 @@
 using BackupService.Connections;
 using BackupService.Connections.GoogleDrive;
 using BackupService.Connections.Smb;
+using BackupService.Connections.Usb;
 using BackupService.Enumerations;
 using Microsoft.AspNetCore.Components;
 
@@ -20,6 +21,9 @@ namespace BackupService.Components.Controls
         [Inject]
         private IConnectionResolver ConnectionResolver { get; set; } = default!;
 
+        [Inject]
+        private IUsbConnector UsbConnector { get; set; } = default!;
+
         /// <summary>Field label prefix, e.g. "Source" or "Target".</summary>
         [Parameter]
         public string Label { get; set; } = "Folder";
@@ -32,7 +36,7 @@ namespace BackupService.Components.Controls
         [Parameter]
         public bool Grouped { get; set; }
 
-        private string LocationCaption => Grouped ? "Location" : $"{Label} location";
+        private string LocationCaption => Grouped ? "Location" : (ShowFolder ? $"{Label} location" : Label);
 
         private string FolderCaption => Grouped ? "Folder" : $"{Label} folder";
 
@@ -61,6 +65,27 @@ namespace BackupService.Components.Controls
         [Parameter]
         public bool LocalOnly { get; set; }
 
+        /// <summary>
+        /// When false, USB connections are not offered in the location dropdown. USB connections are source-only
+        /// (the target-side fields pass <c>AllowUsb="false"</c>).
+        /// </summary>
+        [Parameter]
+        public bool AllowUsb { get; set; } = true;
+
+        /// <summary>
+        /// When false, only the location dropdown is rendered (no folder textbox / Browse). Used for the
+        /// profile-level connection pickers, where the connection is chosen once and the folder lives per row.
+        /// </summary>
+        [Parameter]
+        public bool ShowFolder { get; set; } = true;
+
+        /// <summary>
+        /// When false, the location dropdown is hidden and the (fixed) <see cref="ConnectionId"/> passed in by the
+        /// parent is used for Browse. Used by the per-row folder editors against the profile-level connection.
+        /// </summary>
+        [Parameter]
+        public bool ShowLocation { get; set; } = true;
+
         /// <summary>An inline validation message to show under the folder box, or null.</summary>
         [Parameter]
         public string? Error { get; set; }
@@ -70,18 +95,26 @@ namespace BackupService.Components.Controls
         private bool _browsing;
         private SmbConnectionInfo? _smbInfo;
         private GoogleDriveConnectionInfo? _googleDriveInfo;
+        private string? _usbMountPath;
+        private string? _usbMtpSerial;
+        private string _usbMtpRoot = string.Empty;
+        private string? _browseHint;
 
         protected override async Task OnInitializedAsync()
         {
-            if (LocalOnly)
+            if (LocalOnly || !ShowLocation)
             {
-                return; // no location dropdown — nothing to load
+                return; // no location dropdown — nothing to load (Browse resolves a fixed connection by id)
             }
 
             _connections = await ConnectionService.GetSummariesAsync();
-            // The location options: null = this machine (local), then each configured connection.
+            // The location options: null = this machine (local), then each configured connection. USB connections
+            // are source-only, so they're hidden when AllowUsb is false (the target side).
+            var selectable = AllowUsb
+                ? _connections
+                : _connections.Where(c => c.Type != ConnectionType.Usb).ToList();
             _options = new List<int?> { null };
-            _options.AddRange(_connections.Select(c => (int?)c.Id));
+            _options.AddRange(selectable.Select(c => (int?)c.Id));
         }
 
         private string LocationLabel(int? connectionId) =>
@@ -92,8 +125,11 @@ namespace BackupService.Components.Controls
         private async Task OnLocationChanged(int? connectionId)
         {
             await ConnectionIdChanged.InvokeAsync(connectionId);
-            // Switching location changes what the path means, so clear it.
-            await PathChanged.InvokeAsync(string.Empty);
+            // Switching location changes what the path means, so clear it (only when this field owns a folder).
+            if (ShowFolder)
+            {
+                await PathChanged.InvokeAsync(string.Empty);
+            }
         }
 
         private Task OnPathChanged(ChangeEventArgs e) =>
@@ -103,6 +139,9 @@ namespace BackupService.Components.Controls
         {
             _smbInfo = null;
             _googleDriveInfo = null;
+            _usbMountPath = null;
+            _usbMtpSerial = null;
+            _browseHint = null;
 
             // Remote: resolve the connection by type (decrypting its secrets) so the right picker can list it.
             if (ConnectionId is { } id)
@@ -111,6 +150,29 @@ namespace BackupService.Components.Controls
                 {
                     case ConnectionType.GoogleDrive:
                         _googleDriveInfo = await ConnectionResolver.GetGoogleDriveInfoAsync(id);
+                        break;
+                    case ConnectionType.Usb:
+                        // A USB connection is only browsable while its device is connected.
+                        var usb = await ConnectionResolver.GetUsbInfoAsync(id);
+                        if (usb.Kind == UsbDeviceKind.Mtp)
+                        {
+                            if (!(await UsbConnector.TestAsync(usb)).Ok)
+                            {
+                                _browseHint = "Plug the device in to browse it.";
+                                return;
+                            }
+                            _usbMtpSerial = usb.MtpSerial;
+                            _usbMtpRoot = usb.RootFolder ?? string.Empty;
+                        }
+                        else
+                        {
+                            _usbMountPath = UsbConnector.FindMountPath(usb);
+                            if (_usbMountPath is null)
+                            {
+                                _browseHint = "Plug the device in to browse it.";
+                                return;
+                            }
+                        }
                         break;
                     default:
                         _smbInfo = await ConnectionResolver.GetSmbInfoAsync(id);
@@ -127,11 +189,29 @@ namespace BackupService.Components.Controls
             CancelBrowse();
         }
 
+        // The USB picker returns an absolute path on the current drive; store it relative to the device root.
+        private async Task OnUsbSelected(string absolutePath)
+        {
+            if (_usbMountPath is not null)
+            {
+                var relative = System.IO.Path.GetRelativePath(_usbMountPath, absolutePath);
+                await PathChanged.InvokeAsync(relative is "." or "" ? string.Empty : relative);
+            }
+
+            CancelBrowse();
+        }
+
+        private string? UsbBrowseInitialPath => _usbMountPath is null
+            ? null
+            : string.IsNullOrEmpty(Path) ? _usbMountPath : System.IO.Path.Combine(_usbMountPath, Path);
+
         private void CancelBrowse()
         {
             _browsing = false;
             _smbInfo = null;
             _googleDriveInfo = null;
+            _usbMountPath = null;
+            _usbMtpSerial = null;
         }
     }
 }

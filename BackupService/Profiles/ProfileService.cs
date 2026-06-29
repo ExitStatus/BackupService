@@ -25,7 +25,6 @@ namespace BackupService.Profiles
     {
         public async Task CreateAsync(
             string name,
-            string? description,
             ProfileType type,
             string? scheduleCron,
             bool enabled,
@@ -37,6 +36,8 @@ namespace BackupService.Profiles
             string? rawFormats = null,
             string? rawFolderName = null,
             bool handleMissedSync = false,
+            int? sourceConnectionId = null,
+            int? targetConnectionId = null,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -48,11 +49,12 @@ namespace BackupService.Profiles
             var profile = new Profile
             {
                 Name = name,
-                Description = description,
                 Type = type,
                 Schedule = scheduleCron,
                 Enabled = enabled,
                 HandleMissedSync = handleMissedSync,
+                SourceConnectionId = sourceConnectionId,
+                TargetConnectionId = targetConnectionId,
                 DateCreated = DateTimeOffset.UtcNow,
             };
 
@@ -77,7 +79,9 @@ namespace BackupService.Profiles
             db.Profiles.Add(profile);
             await db.SaveChangesAsync(cancellationToken);
 
-            await LogProfileCreatedAsync(profile.Id, name, description, type, scheduleCron, enabled, handleMissedSync, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
+            var sourceLabel = await ConnectionLabelAsync(db, sourceConnectionId, cancellationToken);
+            var targetLabel = await ConnectionLabelAsync(db, targetConnectionId, cancellationToken);
+            await LogProfileCreatedAsync(profile.Id, name, type, scheduleCron, enabled, handleMissedSync, sourceLabel, targetLabel, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
 
             // Track the new profile's status (starts Idle), then register it with all drivers — the
             // scheduler (cron-driven types) and the watcher managers (watcher-driven types). Each is a
@@ -96,14 +100,29 @@ namespace BackupService.Profiles
             profile.RawFolderName = rawFolderName;
         }
 
+        // The display label for a (profile-level) connection: the connection name, or "this machine (local)" when null.
+        private static async Task<string> ConnectionLabelAsync(BackupDbContext db, int? connectionId, CancellationToken cancellationToken)
+        {
+            if (connectionId is not { } id)
+            {
+                return "this machine (local)";
+            }
+            var name = await db.Connections.AsNoTracking()
+                .Where(c => c.Id == id)
+                .Select(c => c.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+            return name ?? $"connection #{id}";
+        }
+
         private async Task LogProfileCreatedAsync(
             int profileId,
             string name,
-            string? description,
             ProfileType type,
             string? scheduleCron,
             bool enabled,
             bool handleMissedSync,
+            string sourceConnectionLabel,
+            string targetConnectionLabel,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput> instantSyncItems,
             IReadOnlyList<ArchiveSyncInput> archiveSyncItems,
@@ -114,8 +133,9 @@ namespace BackupService.Profiles
 
             await log.AppendAsync(
                 $"Name: {name}",
-                $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}",
+                $"Source connection: {sourceConnectionLabel}",
+                $"Target connection: {targetConnectionLabel}",
                 $"Schedule: {ScheduleDefinition.Describe(scheduleCron)}",
                 $"Handle missed sync: {YesNo(handleMissedSync)}",
                 $"Enabled: {YesNo(enabled)}");
@@ -165,10 +185,9 @@ namespace BackupService.Profiles
             }
             if (!string.IsNullOrWhiteSpace(filter))
             {
-                // LIKE is case-insensitive for ASCII in SQLite; matches the name or the description.
+                // LIKE is case-insensitive for ASCII in SQLite; matches the name.
                 var like = $"%{filter.Trim()}%";
-                query = query.Where(p => EF.Functions.Like(p.Name, like)
-                    || (p.Description != null && EF.Functions.Like(p.Description, like)));
+                query = query.Where(p => EF.Functions.Like(p.Name, like));
             }
             var totalCount = await query.CountAsync(cancellationToken);
             var skip = (pageNumber - 1) * pageSize;
@@ -186,15 +205,9 @@ namespace BackupService.Profiles
             }
             else
             {
-                IQueryable<Profile> ordered = sortColumn switch
-                {
-                    ProfileSortColumn.Description => descending
-                        ? query.OrderByDescending(p => p.Description)
-                        : query.OrderBy(p => p.Description),
-                    _ => descending
-                        ? query.OrderByDescending(p => p.Name)
-                        : query.OrderBy(p => p.Name),
-                };
+                IQueryable<Profile> ordered = descending
+                    ? query.OrderByDescending(p => p.Name)
+                    : query.OrderBy(p => p.Name);
                 items = await ordered.Skip(skip).Take(pageSize).ToListAsync(cancellationToken);
             }
 
@@ -250,7 +263,6 @@ namespace BackupService.Profiles
 
             // Capture the details before the row is removed so we can log what was deleted.
             var name = profile.Name;
-            var description = profile.Description;
             var type = profile.Type;
 
             db.Profiles.Remove(profile);
@@ -261,7 +273,6 @@ namespace BackupService.Profiles
             var log = await operationLogFactory.CreateAsync($"Profile deleted: {name}", cancellationToken: cancellationToken);
             await log.AppendAsync(
                 $"Name: {name}",
-                $"Description: {DisplayText(description)}",
                 $"Type: {type.GetDescription()}");
 
             // The row is gone, so this unschedules the profile, tears down any watchers, and drops
@@ -300,7 +311,6 @@ namespace BackupService.Profiles
         public async Task UpdateAsync(
             int id,
             string name,
-            string? description,
             string? scheduleCron,
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
@@ -311,6 +321,8 @@ namespace BackupService.Profiles
             string? rawFormats = null,
             string? rawFolderName = null,
             bool handleMissedSync = false,
+            int? sourceConnectionId = null,
+            int? targetConnectionId = null,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -333,16 +345,18 @@ namespace BackupService.Profiles
 
             // Snapshot the original profile-level values so we can log what changed after saving.
             var oldName = profile.Name;
-            var oldDescription = profile.Description;
             var oldSchedule = profile.Schedule;
             var oldEnabled = profile.Enabled;
             var oldHandleMissedSync = profile.HandleMissedSync;
+            var oldSourceConnectionId = profile.SourceConnectionId;
+            var oldTargetConnectionId = profile.TargetConnectionId;
 
             profile.Name = name;
-            profile.Description = description;
             profile.Schedule = scheduleCron;
             profile.Enabled = enabled;
             profile.HandleMissedSync = handleMissedSync;
+            profile.SourceConnectionId = sourceConnectionId;
+            profile.TargetConnectionId = targetConnectionId;
 
             // The type-specific item data (and the description of what changed within it) is owned by
             // the matching data service; the profile type is fixed, so only that one runs.
@@ -356,9 +370,16 @@ namespace BackupService.Profiles
 
             await db.SaveChangesAsync(cancellationToken);
 
+            var oldSourceLabel = await ConnectionLabelAsync(db, oldSourceConnectionId, cancellationToken);
+            var newSourceLabel = await ConnectionLabelAsync(db, sourceConnectionId, cancellationToken);
+            var oldTargetLabel = await ConnectionLabelAsync(db, oldTargetConnectionId, cancellationToken);
+            var newTargetLabel = await ConnectionLabelAsync(db, targetConnectionId, cancellationToken);
             await LogProfileUpdatedAsync(
-                id, oldName, name, oldDescription, description, oldSchedule, scheduleCron,
-                oldEnabled, enabled, oldHandleMissedSync, handleMissedSync, itemChanges, cancellationToken);
+                id, oldName, name, oldSchedule, scheduleCron,
+                oldEnabled, enabled, oldHandleMissedSync, handleMissedSync,
+                oldSourceConnectionId, sourceConnectionId, oldSourceLabel, newSourceLabel,
+                oldTargetConnectionId, targetConnectionId, oldTargetLabel, newTargetLabel,
+                itemChanges, cancellationToken);
 
             await scheduler.SyncAsync(id, cancellationToken);
             await instantSyncManager.SyncAsync(id, cancellationToken);
@@ -376,14 +397,20 @@ namespace BackupService.Profiles
             int profileId,
             string oldName,
             string newName,
-            string? oldDescription,
-            string? newDescription,
             string? oldSchedule,
             string? newSchedule,
             bool oldEnabled,
             bool newEnabled,
             bool oldHandleMissedSync,
             bool newHandleMissedSync,
+            int? oldSourceConnectionId,
+            int? newSourceConnectionId,
+            string oldSourceLabel,
+            string newSourceLabel,
+            int? oldTargetConnectionId,
+            int? newTargetConnectionId,
+            string oldTargetLabel,
+            string newTargetLabel,
             IReadOnlyList<string> itemChanges,
             CancellationToken cancellationToken)
         {
@@ -393,9 +420,13 @@ namespace BackupService.Profiles
             {
                 changes.Add($"Name changed from '{oldName}' to '{newName}'");
             }
-            if (oldDescription != newDescription)
+            if (oldSourceConnectionId != newSourceConnectionId)
             {
-                changes.Add($"Description changed from '{DisplayText(oldDescription)}' to '{DisplayText(newDescription)}'");
+                changes.Add($"Source connection changed from '{oldSourceLabel}' to '{newSourceLabel}'");
+            }
+            if (oldTargetConnectionId != newTargetConnectionId)
+            {
+                changes.Add($"Target connection changed from '{oldTargetLabel}' to '{newTargetLabel}'");
             }
             if (oldSchedule != newSchedule)
             {
@@ -423,9 +454,6 @@ namespace BackupService.Profiles
 
             await log.AppendAsync(changes.ToArray());
         }
-
-        private static string DisplayText(string? value) =>
-            string.IsNullOrWhiteSpace(value) ? "(none)" : value;
 
         private static string YesNo(bool value) => value ? "Yes" : "No";
     }

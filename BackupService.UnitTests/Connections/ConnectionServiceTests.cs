@@ -213,13 +213,13 @@ namespace BackupService.UnitTests.Connections
         private async Task SeedFolderPairUsingConnectionAsync(int connectionId)
         {
             await using var db = new BackupDbContext(_options);
-            var profile = new Profile { Name = "P", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow };
+            // The connection is profile-level now (shared by all rows).
+            var profile = new Profile { Name = "P", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow, SourceConnectionId = connectionId };
             profile.FolderPairs.Add(new FolderPair
             {
                 Name = "pair",
                 SourceFolder = "in",
                 TargetFolder = "C:\\out",
-                SourceConnectionId = connectionId,
             });
             db.Profiles.Add(profile);
             await db.SaveChangesAsync();

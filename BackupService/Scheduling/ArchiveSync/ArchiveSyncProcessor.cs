@@ -28,11 +28,11 @@ namespace BackupService.Scheduling
         private const double ZipPhaseShare = 0.75;
 
         public async Task<BackupResult> CreateArchiveAsync(
-            ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
+            ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
         {
             var result = new BackupResult();
 
-            var targetEndpoint = await endpointFactory.ResolveAsync(item.TargetConnectionId, item.TargetFolder, cancellationToken);
+            var targetEndpoint = await endpointFactory.ResolveAsync(targetConnectionId, item.TargetFolder, cancellationToken);
             try
             {
                 var target = new Target(targetEndpoint.FileSystem, targetEndpoint.BasePath);
@@ -43,7 +43,7 @@ namespace BackupService.Scheduling
                 string? stagingDir = null;
                 try
                 {
-                    if (item.SourceConnectionId is null)
+                    if (sourceConnectionId is null)
                     {
                         if (!fileSystem.DirectoryExists(item.SourceFolder))
                         {
@@ -55,7 +55,7 @@ namespace BackupService.Scheduling
                     }
                     else
                     {
-                        stagingDir = await StageRemoteSourceAsync(item, log, cancellationToken);
+                        stagingDir = await StageRemoteSourceAsync(item, sourceConnectionId, log, cancellationToken);
                         if (stagingDir is null)
                         {
                             result.Errors++;
@@ -240,9 +240,9 @@ namespace BackupService.Scheduling
         /// Recursively copies a remote source tree into a fresh local temp folder so it can be zipped.
         /// Returns the staging folder, or null if the remote source doesn't exist.
         /// </summary>
-        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, IOperationLogger log, CancellationToken cancellationToken)
+        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, int? sourceConnectionId, IOperationLogger log, CancellationToken cancellationToken)
         {
-            var endpoint = await endpointFactory.ResolveAsync(item.SourceConnectionId, item.SourceFolder, cancellationToken);
+            var endpoint = await endpointFactory.ResolveAsync(sourceConnectionId, item.SourceFolder, cancellationToken);
             try
             {
                 if (!endpoint.FileSystem.DirectoryExists(endpoint.BasePath))

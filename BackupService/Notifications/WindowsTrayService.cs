@@ -10,15 +10,15 @@ namespace BackupService.Notifications
 {
     /// <summary>
     /// Windows system-tray integration: owns a notification-area icon and shows balloon tips, and serves as
-    /// the <see cref="IRunCompletionNotifier"/>. All Shell_NotifyIcon calls run on a dedicated message-loop
+    /// the <see cref="IDesktopNotifier"/>. All Shell_NotifyIcon calls run on a dedicated message-loop
     /// thread (a hidden message-only window); other threads communicate by posting window messages.
     ///
     /// The icon is present whenever "Show tray icon" <b>or</b> "Allow notifications" is on (a balloon attaches
     /// to a tray icon). Double-clicking opens the admin UI; a right-click menu offers Open / Exit. Registered
-    /// only on Windows (three roles: singleton, <see cref="IRunCompletionNotifier"/>, hosted service).
+    /// only on Windows (three roles: singleton, <see cref="IDesktopNotifier"/>, hosted service).
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public sealed class WindowsTrayService : IHostedService, IRunCompletionNotifier
+    public sealed class WindowsTrayService : IHostedService, IDesktopNotifier
     {
         private readonly IAppOptionsService _options;
         private readonly IHostApplicationLifetime _lifetime;
@@ -93,19 +93,25 @@ namespace BackupService.Notifications
         }
 
         public void NotifyBackupCompleted(string profileName, ProfileType type, RunOutcome outcome) =>
-            Enqueue("Backup completed", $"'{profileName}' ({type.GetDescription()}) — {outcome.GetDescription()}", outcome);
+            Enqueue("Backup completed", $"'{profileName}' ({type.GetDescription()}) — {outcome.GetDescription()}", InfoFlagFor(outcome));
 
         public void NotifyTaskCompleted(string taskName, RunOutcome outcome) =>
-            Enqueue("Scheduled task completed", $"'{taskName}' — {outcome.GetDescription()}", outcome);
+            Enqueue("Scheduled task completed", $"'{taskName}' — {outcome.GetDescription()}", InfoFlagFor(outcome));
 
-        private void Enqueue(string title, string message, RunOutcome outcome)
+        public void NotifyDeviceConnected(string deviceName) =>
+            Enqueue("USB device connected", $"'{deviceName}' is connected.", NIIF_INFO);
+
+        public void NotifyDeviceDisconnected(string deviceName) =>
+            Enqueue("USB device disconnected", $"'{deviceName}' was disconnected.", NIIF_INFO);
+
+        private void Enqueue(string title, string message, int infoFlag)
         {
             if (!_allowNotifications || _hwnd == IntPtr.Zero)
             {
                 return;
             }
 
-            _pending.Enqueue(new BalloonRequest(title, message, InfoFlagFor(outcome)));
+            _pending.Enqueue(new BalloonRequest(title, message, infoFlag));
             PostMessage(_hwnd, WM_APP_BALLOON, IntPtr.Zero, IntPtr.Zero);
         }
 

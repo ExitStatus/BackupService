@@ -36,6 +36,8 @@ namespace BackupService.Components.Dialogs
         private SmbConnectionEditor? _smbEditor;
         private readonly GoogleDriveConnectionEditor.GoogleDriveEditModel _googleDrive = new();
         private GoogleDriveConnectionEditor? _googleDriveEditor;
+        private readonly UsbConnectionEditor.UsbEditModel _usb = new();
+        private UsbConnectionEditor? _usbEditor;
 
         private bool IsEdit => ConnectionId.HasValue;
 
@@ -53,6 +55,7 @@ namespace BackupService.Components.Dialogs
         private string IntroText => Input.Type switch
         {
             ConnectionType.GoogleDrive => "A connection to a Google Drive account (authorised via Google) so it can be used as a backup source or target.",
+            ConnectionType.Usb => "A connection bound to a specific USB device. It's valid only while that device is plugged in; a profile that uses it as a source runs automatically when the device is connected.",
             _ => "A connection points at a remote resource (such as an SMB share) so it can be used as a backup source or target.",
         };
 
@@ -93,6 +96,16 @@ namespace BackupService.Components.Dialogs
                 _googleDrive.RootFolder = googleDrive.RootFolder;
                 _googleDrive.HasStoredAuth = !string.IsNullOrEmpty(googleDrive.RefreshTokenEncrypted);
             }
+
+            if (connection.Usb is { } usb)
+            {
+                _usb.Kind = usb.Kind;
+                _usb.HardwareSerial = usb.HardwareSerial;
+                _usb.VolumeSerial = usb.VolumeSerial;
+                _usb.MtpSerial = usb.MtpSerial;
+                _usb.DeviceLabel = usb.DeviceLabel;
+                _usb.RootFolder = usb.RootFolder;
+            }
         }
 
         private async Task SubmitAsync()
@@ -100,6 +113,7 @@ namespace BackupService.Components.Dialogs
             var saved = Input.Type switch
             {
                 ConnectionType.GoogleDrive => await SubmitGoogleDriveAsync(),
+                ConnectionType.Usb => await SubmitUsbAsync(),
                 _ => await SubmitSmbAsync(),
             };
 
@@ -161,6 +175,33 @@ namespace BackupService.Components.Dialogs
             else
             {
                 await ConnectionService.CreateAsync(Input.Name, ConnectionType.Smb, smb);
+            }
+
+            return true;
+        }
+
+        private async Task<bool> SubmitUsbAsync()
+        {
+            if (_usbEditor is null || !_usbEditor.Validate())
+            {
+                return false;
+            }
+
+            var usb = new UsbConnectionInput(
+                _usb.Kind,
+                _usb.HardwareSerial,
+                _usb.VolumeSerial,
+                _usb.MtpSerial,
+                _usb.DeviceLabel,
+                string.IsNullOrWhiteSpace(_usb.RootFolder) ? null : _usb.RootFolder);
+
+            if (ConnectionId is { } id)
+            {
+                await ConnectionService.UpdateAsync(id, Input.Name, usb);
+            }
+            else
+            {
+                await ConnectionService.CreateAsync(Input.Name, ConnectionType.Usb, usb);
             }
 
             return true;

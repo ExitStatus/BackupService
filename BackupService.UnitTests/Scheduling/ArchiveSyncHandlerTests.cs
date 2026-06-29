@@ -157,7 +157,7 @@ namespace BackupService.UnitTests.Scheduling
             public List<IProgress<double>?> Progresses { get; } = [];
 
             public Task<BackupResult> CreateArchiveAsync(
-                ArchiveSyncItem item, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
+                ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
             {
                 ItemNames.Add(item.Name);
                 RunIndexes.Add(runIndex);

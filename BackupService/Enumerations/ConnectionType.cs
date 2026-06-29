@@ -13,5 +13,8 @@ namespace BackupService.Enumerations
 
         [Description("Google Drive")]
         GoogleDrive = 1,
+
+        [Description("USB")]
+        Usb = 2,
     }
 }

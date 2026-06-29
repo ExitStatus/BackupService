@@ -102,21 +102,23 @@ namespace BackupService.Scheduling
         private void RegisterProfile(Profile profile)
         {
             var list = new List<ItemWatcher>();
+
+            // A source on a remote connection can't be watched (no FileSystemWatcher over SMB) — it
+            // only syncs via a manual "Run now". A remote target is fine (the flush reconciles to it).
+            // The connection is profile-level, so this gates the whole profile.
+            if (profile.SourceConnectionId is not null)
+            {
+                logger.LogInformation(
+                    "Instant sync profile {ProfileId} has a remote source — live watching is not supported; use Run now.",
+                    profile.Id);
+                return;
+            }
+
             foreach (var item in profile.InstantSyncItems)
             {
-                // A source on a remote connection can't be watched (no FileSystemWatcher over SMB) — it
-                // only syncs via a manual "Run now". A remote target is fine (the flush reconciles to it).
-                if (item.SourceConnectionId is not null)
-                {
-                    logger.LogInformation(
-                        "Instant sync item '{Item}' (profile {ProfileId}) has a remote source — live watching is not supported; use Run now.",
-                        item.Name, profile.Id);
-                    continue;
-                }
-
                 try
                 {
-                    list.Add(new ItemWatcher(item, profile.Id, processor, synchronizer, operationLogFactory, runRecorder, logger, _stoppingToken));
+                    list.Add(new ItemWatcher(item, profile.Id, profile.TargetConnectionId, processor, synchronizer, operationLogFactory, runRecorder, logger, _stoppingToken));
                 }
                 catch (Exception ex)
                 {
@@ -184,6 +186,7 @@ namespace BackupService.Scheduling
         {
             private readonly InstantSyncItem _item;
             private readonly int _profileId;
+            private readonly int? _targetConnectionId;
             private readonly IInstantSyncProcessor _processor;
             private readonly IFolderPairSynchronizer _synchronizer;
             private readonly IOperationLogFactory _logFactory;
@@ -204,6 +207,7 @@ namespace BackupService.Scheduling
             public ItemWatcher(
                 InstantSyncItem item,
                 int profileId,
+                int? targetConnectionId,
                 IInstantSyncProcessor processor,
                 IFolderPairSynchronizer synchronizer,
                 IOperationLogFactory logFactory,
@@ -213,6 +217,7 @@ namespace BackupService.Scheduling
             {
                 _item = item;
                 _profileId = profileId;
+                _targetConnectionId = targetConnectionId;
                 _processor = processor;
                 _synchronizer = synchronizer;
                 _logFactory = logFactory;
@@ -372,7 +377,7 @@ namespace BackupService.Scheduling
                     // A remote target can't be written incrementally by the local processor, so reconcile the
                     // whole item through the connection-aware folder-pair engine instead. Local targets keep
                     // the fast incremental path. (The source is always local here — remote sources aren't watched.)
-                    result = _item.TargetConnectionId is not null
+                    result = _targetConnectionId is not null
                         ? await ReconcileViaConnectionAsync(log)
                         : await _processor.ProcessBatchAsync(_item, changes, deletes, log, _stoppingToken);
                 }
@@ -438,13 +443,12 @@ namespace BackupService.Scheduling
                     Name = _item.Name,
                     SourceFolder = _item.SourceFolder,
                     TargetFolder = _item.TargetFolder,
-                    SourceConnectionId = _item.SourceConnectionId,
-                    TargetConnectionId = _item.TargetConnectionId,
                     AllowDeletions = _item.AllowDeletions,
                     IncludeSubFolders = _item.IncludeSubFolders,
                     OverwriteBehaviour = OverwriteBehaviour.AlwaysOverwrite,
                 };
-                return _synchronizer.SyncAsync(pair, log, _stoppingToken);
+                // Source is always local here (a remote source isn't watched); target is the profile connection.
+                return _synchronizer.SyncAsync(pair, sourceConnectionId: null, _targetConnectionId, log, _stoppingToken);
             }
 
             private static string FormatDuration(TimeSpan elapsed) =>

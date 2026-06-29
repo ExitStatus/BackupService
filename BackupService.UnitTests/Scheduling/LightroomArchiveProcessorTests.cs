@@ -47,7 +47,8 @@ namespace BackupService.UnitTests.Scheduling
         private Task<BackupResult> Run(LightroomArchiveItem item, LightroomArchiveSettings settings, string[] changes, string[]? deletes = null, IBackupFileSystem? targetFs = null)
         {
             var sut = targetFs is null ? _sut : new LightroomArchiveProcessor(new FakeEndpointFactory(targetFs), _fs);
-            return sut.ProcessBatchAsync(item, settings, changes, deletes ?? [], _log, progress: null, CancellationToken.None);
+            // The FakeEndpointFactory resolves the target regardless of id, so the profile-level id here is irrelevant.
+            return sut.ProcessBatchAsync(item, targetConnectionId: null, settings, changes, deletes ?? [], _log, progress: null, CancellationToken.None);
         }
 
         [Test]

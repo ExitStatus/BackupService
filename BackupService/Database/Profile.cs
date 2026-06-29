@@ -13,10 +13,24 @@ namespace BackupService.Database
         [MaxLength(256)]
         public required string Name { get; set; }
 
-        [MaxLength(1000)]
-        public string? Description { get; set; }
-
         public ProfileType Type { get; set; }
+
+        /// <summary>
+        /// When set, the source for every row lives on this <see cref="Connection"/> and each row's
+        /// <c>SourceFolder</c> is interpreted relative to the connection's root. Null = local on this machine.
+        /// Always null for InstantSync/LightroomArchive (their source is watcher-driven, local-only).
+        /// </summary>
+        public int? SourceConnectionId { get; set; }
+
+        public Connection? SourceConnection { get; set; }
+
+        /// <summary>
+        /// When set, the target for every row lives on this <see cref="Connection"/> and each row's
+        /// <c>TargetFolder</c> is interpreted relative to the connection's root. Null = local on this machine.
+        /// </summary>
+        public int? TargetConnectionId { get; set; }
+
+        public Connection? TargetConnection { get; set; }
 
         /// <summary>Whether the profile participates in backups. Defaults to enabled.</summary>
         public bool Enabled { get; set; } = true;

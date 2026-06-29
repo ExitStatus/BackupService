@@ -106,7 +106,7 @@ namespace BackupService.Scheduling
             {
                 try
                 {
-                    list.Add(new ItemWatcher(item, settings, profile.Id, processor, operationLogFactory, runRecorder, logger, _stoppingToken));
+                    list.Add(new ItemWatcher(item, profile.TargetConnectionId, settings, profile.Id, processor, operationLogFactory, runRecorder, logger, _stoppingToken));
                 }
                 catch (Exception ex)
                 {
@@ -173,6 +173,7 @@ namespace BackupService.Scheduling
         private sealed class ItemWatcher : IDisposable
         {
             private readonly LightroomArchiveItem _item;
+            private readonly int? _targetConnectionId;
             private readonly LightroomArchiveSettings _settings;
             private readonly int _profileId;
             private readonly ILightroomArchiveProcessor _processor;
@@ -193,6 +194,7 @@ namespace BackupService.Scheduling
 
             public ItemWatcher(
                 LightroomArchiveItem item,
+                int? targetConnectionId,
                 LightroomArchiveSettings settings,
                 int profileId,
                 ILightroomArchiveProcessor processor,
@@ -202,6 +204,7 @@ namespace BackupService.Scheduling
                 CancellationToken stoppingToken)
             {
                 _item = item;
+                _targetConnectionId = targetConnectionId;
                 _settings = settings;
                 _profileId = profileId;
                 _processor = processor;
@@ -353,7 +356,7 @@ namespace BackupService.Scheduling
                 BackupResult result;
                 try
                 {
-                    result = await _processor.ProcessBatchAsync(_item, _settings, changes, deletes, log, progress: null, _stoppingToken);
+                    result = await _processor.ProcessBatchAsync(_item, _targetConnectionId, _settings, changes, deletes, log, progress: null, _stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {

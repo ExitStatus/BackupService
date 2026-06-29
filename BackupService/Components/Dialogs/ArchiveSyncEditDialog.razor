@@ -16,10 +16,10 @@
                     }
                 </label>
 
-                <ConnectionLocationField Label="Source" Grouped="true" @bind-ConnectionId="Model.SourceConnectionId" @bind-Path="Model.SourceFolder"
+                <ConnectionLocationField Label="Source" Grouped="true" ShowLocation="false" ConnectionId="SourceConnectionId" @bind-Path="Model.SourceFolder"
                                          Error="@(_sourceError ? "The Source folder field is required." : null)" />
 
-                <ConnectionLocationField Label="Target" Grouped="true" @bind-ConnectionId="Model.TargetConnectionId" @bind-Path="Model.TargetFolder"
+                <ConnectionLocationField Label="Target" Grouped="true" ShowLocation="false" ConnectionId="TargetConnectionId" @bind-Path="Model.TargetFolder"
                                          AllowCreateFolder="true"
                                          Error="@(_targetError ? "The Target folder field is required." : null)" />
 

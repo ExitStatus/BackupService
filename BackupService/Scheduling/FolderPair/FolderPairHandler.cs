@@ -24,7 +24,7 @@ namespace BackupService.Scheduling
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
         ILogger<FolderPairHandler> logger,
-        IRunCompletionNotifier? notifier = null) : IProfileTypeHandler
+        IDesktopNotifier? notifier = null) : IProfileTypeHandler
     {
         public ProfileType Type => ProfileType.FolderPair;
 
@@ -61,7 +61,7 @@ namespace BackupService.Scheduling
                         cancellationToken.ThrowIfCancellationRequested();
                         try
                         {
-                            totalFiles += await synchronizer.CountFilesAsync(pair, cancellationToken);
+                            totalFiles += await synchronizer.CountFilesAsync(pair, profile.SourceConnectionId, cancellationToken);
                         }
                         catch (OperationCanceledException)
                         {
@@ -79,7 +79,7 @@ namespace BackupService.Scheduling
                     foreach (var pair in profile.FolderPairs)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        await RunPairAsync(pair, log, total, progress, cancellationToken);
+                        await RunPairAsync(pair, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, cancellationToken);
                     }
                 }
             }
@@ -137,7 +137,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunPairAsync(FolderPair pair, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
+        private async Task RunPairAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
         {
             await SetPairStatusAsync(pair.Id, FolderPairStatus.Running, lastRunStatus: null, cancellationToken);
             await log.AppendAsync($"Folder pair '{pair.Name}': {pair.SourceFolder} -> {pair.TargetFolder}");
@@ -145,7 +145,7 @@ namespace BackupService.Scheduling
             BackupResult result;
             try
             {
-                result = await synchronizer.SyncAsync(pair, log, cancellationToken, progress);
+                result = await synchronizer.SyncAsync(pair, sourceConnectionId, targetConnectionId, log, cancellationToken, progress);
             }
             catch (OperationCanceledException)
             {

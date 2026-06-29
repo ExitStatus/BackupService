@@ -62,7 +62,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
 
-            var result = await _sut.CreateArchiveAsync(KeepLastN(5), runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             result.Errors.Should().Be(0);
@@ -85,7 +85,7 @@ namespace BackupService.UnitTests.Scheduling
             var reports = new List<double>();
             var progress = new SyncProgress(reports.Add);
 
-            var result = await _sut.CreateArchiveAsync(KeepLastN(5), runIndex: 1, RunTime, _log, CancellationToken.None, progress);
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), null, null, 1, RunTime, _log, CancellationToken.None, progress);
 
             result.Copied.Should().Be(1);
             reports.Should().NotBeEmpty();
@@ -116,14 +116,13 @@ namespace BackupService.UnitTests.Scheduling
                 Name = "A",
                 SourceFolder = Source,
                 TargetFolder = @"archives",
-                TargetConnectionId = 7,
                 FileName = "Backup",
                 RetentionMode = ArchiveRetentionMode.KeepLastN,
                 RetentionCount = 5,
                 MaxLevels = 1,
             };
 
-            var result = await sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await sut.CreateArchiveAsync(item, null, 7, 1, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             result.Errors.Should().Be(0);
@@ -141,7 +140,7 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.IncludeSubFolders = true;
 
-            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             // One detail row, the file list split across CRLF-separated lines.
             var detail = _log.DebugMessages.Should().ContainSingle().Subject;
@@ -161,7 +160,7 @@ namespace BackupService.UnitTests.Scheduling
                 new ZipSkippedFile("sub/also-locked.dat", "being used by another process"),
             ];
 
-            var result = await _sut.CreateArchiveAsync(KeepLastN(5), runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), null, null, 1, RunTime, _log, CancellationToken.None);
 
             // The archive is still produced from the readable files.
             result.Copied.Should().Be(1);
@@ -181,7 +180,7 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.SourceFolder = @"C:\does-not-exist";
 
-            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Errors.Should().Be(1);
             result.Copied.Should().Be(0);
@@ -199,7 +198,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddFile(KeepName(t2), t2, "z");
             _fs.AddFile(KeepName(t3), t3, "z");
 
-            var result = await _sut.CreateArchiveAsync(KeepLastN(3), runIndex: 4, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(KeepLastN(3), null, null, 4, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             result.Deleted.Should().Be(1);
@@ -220,7 +219,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddFile(GfsName(1, s2), s2, "z");
             _fs.AddFile(GfsName(1, s3), s3, "z");
 
-            var result = await _sut.CreateArchiveAsync(Gfs(3, 3), runIndex: 3, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(Gfs(3, 3), null, null, 3, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             // The oldest son (s1) is promoted to level 2, not deleted.
@@ -245,7 +244,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddFile(GfsName(1, s2), s2, "z");
             _fs.AddFile(GfsName(1, s3), s3, "z");
 
-            var result = await _sut.CreateArchiveAsync(Gfs(3, 3), runIndex: 4, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(Gfs(3, 3), null, null, 4, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             result.Deleted.Should().Be(1);
@@ -265,7 +264,7 @@ namespace BackupService.UnitTests.Scheduling
             item.Filters.Add(new ArchiveSyncFilter { Direction = FilterDirection.Include, Kind = FilterKind.File, Pattern = "*.txt" });
             item.Filters.Add(new ArchiveSyncFilter { Direction = FilterDirection.Exclude, Kind = FilterKind.File, Pattern = "secret.txt" });
 
-            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             // Only *.txt minus secret.txt — image.png excluded by the include filter, secret.txt by the exclude.
             var detail = _log.DebugMessages.Should().ContainSingle().Subject;
@@ -283,7 +282,7 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.OnlyCopyOnChange = true;
 
-            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             _fs.GetZipComment(KeepName(RunTime)).Should().NotBeNullOrEmpty(); // fingerprint stored for next time
@@ -296,10 +295,10 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.OnlyCopyOnChange = true;
 
-            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
             var zipsAfterFirst = _fs.AllFiles.Count(p => p.EndsWith(".zip"));
 
-            var second = await _sut.CreateArchiveAsync(item, runIndex: 2, RunTime.AddHours(1), _log, CancellationToken.None);
+            var second = await _sut.CreateArchiveAsync(item, null, null, 2, RunTime.AddHours(1), _log, CancellationToken.None);
 
             second.Copied.Should().Be(0);
             second.Deleted.Should().Be(0);
@@ -314,10 +313,10 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.OnlyCopyOnChange = true;
 
-            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             _fs.AddFile(@"C:\src\file.txt", RunTime, "CHANGED"); // same path, different content
-            var second = await _sut.CreateArchiveAsync(item, runIndex: 2, RunTime.AddHours(1), _log, CancellationToken.None);
+            var second = await _sut.CreateArchiveAsync(item, null, null, 2, RunTime.AddHours(1), _log, CancellationToken.None);
 
             second.Copied.Should().Be(1);
             _fs.FileExists(KeepName(RunTime)).Should().BeTrue();
@@ -331,7 +330,7 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.CompressionLevel = ArchiveCompressionLevel.SmallestSize;
 
-            await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             _fs.LastCompressionLevel.Should().Be(System.IO.Compression.CompressionLevel.SmallestSize);
         }
@@ -345,7 +344,7 @@ namespace BackupService.UnitTests.Scheduling
             item.PasswordEncrypted = new ReversibleProtector().Protect("hunter2");
             item.EncryptionMethod = ArchiveEncryptionMethod.ZipCrypto;
 
-            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Copied.Should().Be(1);
             _fs.LastPassword.Should().Be("hunter2");      // decrypted before zipping
@@ -360,7 +359,7 @@ namespace BackupService.UnitTests.Scheduling
             item.PasswordProtect = true;
             item.PasswordEncrypted = null;
 
-            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Errors.Should().Be(1);
             result.Copied.Should().Be(0);
@@ -378,7 +377,7 @@ namespace BackupService.UnitTests.Scheduling
             var item = KeepLastN(5);
             item.OnlyCopyOnChange = true;
 
-            var result = await _sut.CreateArchiveAsync(item, runIndex: 1, RunTime, _log, CancellationToken.None);
+            var result = await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
 
             result.Errors.Should().Be(0);
             result.Copied.Should().Be(1);

@@ -1,4 +1,5 @@
 using BackupService.Connections.GoogleDrive;
+using BackupService.Connections.Usb;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Security;
@@ -64,6 +65,19 @@ namespace BackupService.Connections
                 refreshToken,
                 settings.AccountEmail,
                 settings.RootFolder);
+        }
+
+        public async Task<UsbConnectionInfo> GetUsbInfoAsync(int connectionId, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var settings = await db.UsbConnectionSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.ConnectionId == connectionId, cancellationToken)
+                ?? throw new InvalidOperationException($"Connection {connectionId} has no USB settings.");
+
+            // No secret to decrypt — USB identity is plain.
+            return new UsbConnectionInfo(settings.Kind, settings.HardwareSerial, settings.VolumeSerial, settings.MtpSerial, settings.RootFolder);
         }
 
         public async Task<ConnectionType> GetTypeAsync(int connectionId, CancellationToken cancellationToken = default)

@@ -16,7 +16,6 @@ namespace BackupService.Profiles
         /// </summary>
         Task CreateAsync(
             string name,
-            string? description,
             ProfileType type,
             string? scheduleCron,
             bool enabled,
@@ -28,6 +27,8 @@ namespace BackupService.Profiles
             string? rawFormats = null,
             string? rawFolderName = null,
             bool handleMissedSync = false,
+            int? sourceConnectionId = null,
+            int? targetConnectionId = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -78,7 +79,6 @@ namespace BackupService.Profiles
         Task UpdateAsync(
             int id,
             string name,
-            string? description,
             string? scheduleCron,
             bool enabled,
             IReadOnlyList<FolderPairInput> folderPairs,
@@ -89,6 +89,8 @@ namespace BackupService.Profiles
             string? rawFormats = null,
             string? rawFolderName = null,
             bool handleMissedSync = false,
+            int? sourceConnectionId = null,
+            int? targetConnectionId = null,
             CancellationToken cancellationToken = default);
     }
 }

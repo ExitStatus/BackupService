@@ -23,6 +23,8 @@ namespace BackupService.Scheduling
         /// </summary>
         Task<BackupResult> CreateArchiveAsync(
             ArchiveSyncItem item,
+            int? sourceConnectionId,
+            int? targetConnectionId,
             long runIndex,
             DateTime timestamp,
             IOperationLogger log,

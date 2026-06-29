@@ -12,16 +12,17 @@ namespace BackupService.Scheduling
     public interface IFolderPairSynchronizer
     {
         /// <summary>
-        /// Synchronises the pair. <paramref name="fileProgress"/>, when supplied, is reported <c>1</c> for each
-        /// in-scope source file after it's handled (copied/updated/skipped) — pair it with
-        /// <see cref="CountFilesAsync"/> for a percentage.
+        /// Synchronises the pair. The source/target connections are profile-level (null = local on this machine):
+        /// each side's folder is resolved relative to its connection. <paramref name="fileProgress"/>, when
+        /// supplied, is reported <c>1</c> for each in-scope source file after it's handled (copied/updated/skipped)
+        /// — pair it with <see cref="CountFilesAsync"/> for a percentage.
         /// </summary>
-        Task<BackupResult> SyncAsync(FolderPair pair, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null);
+        Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null);
 
         /// <summary>
         /// Counts the in-scope source files the sync would process (same include/exclude + IncludeSubFolders
         /// rules as <see cref="SyncAsync"/>), via a cheap source-only walk — the denominator for progress.
         /// </summary>
-        Task<int> CountFilesAsync(FolderPair pair, CancellationToken cancellationToken);
+        Task<int> CountFilesAsync(FolderPair pair, int? sourceConnectionId, CancellationToken cancellationToken);
     }
 }

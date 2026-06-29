@@ -20,6 +20,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <!-- MTP/PTP (Windows Portable Devices) access for the USB connection type's portable-device kind (cameras,
+         phones). MIT, no dependencies, Windows-only at runtime (guarded with OperatingSystem.IsWindows()). -->
+    <PackageReference Include="MediaDevices" Version="1.10.0" />
     <!-- SMB client (SMB2/3) for the Connections feature; netstandard2.0, works on net10.0. -->
     <PackageReference Include="SMBLibrary" Version="1.5.7" />
     <!-- ZIP writer with encryption (AES-256 / ZipCrypto) for password-protected ArchiveSync archives —
