@@ -23,6 +23,7 @@ else
                 <th>Profiles</th>
                 <th>Endpoint</th>
                 <th>Free space</th>
+                <th>Active</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ConnectionSortColumn.DateCreated)">Created@(SortIndicator(ConnectionSortColumn.DateCreated))</button></th>
                 <th class="action-col"></th>
             </tr>
@@ -67,6 +68,20 @@ else
                         else
                         {
                             <span class="muted" title="Could not determine free space">—</span>
+                        }
+                    </td>
+                    <td>
+                        @if (!_activeChecked.Contains(connection.Id))
+                        {
+                            <span class="muted">…</span>
+                        }
+                        else if (_active.GetValueOrDefault(connection.Id))
+                        {
+                            <span title="The connection is currently reachable">Yes</span>
+                        }
+                        else
+                        {
+                            <span class="muted" title="The connection could not be reached">No</span>
                         }
                     </td>
                     <td>@connection.DateCreated.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>

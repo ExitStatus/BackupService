@@ -39,13 +39,27 @@ namespace BackupService.Components.Pages.BackupServicePage
         private int _generation;
         private CancellationTokenSource _spaceCts = new();
 
-        protected override Task OnInitializedAsync() => LoadAsync(_page);
+        // "Active" (contactable) is checked per row like free-space, and re-checked every 5s. _activeChecked gates
+        // the "…" placeholder; _active holds the last Yes/No. Shares the space-load generation/token so a page or
+        // sort change discards in-flight checks.
+        private readonly Dictionary<int, bool> _active = [];
+        private readonly HashSet<int> _activeChecked = [];
+        private const int ActivePollMs = 5000;
+        private Timer? _activeTimer;
+
+        protected override async Task OnInitializedAsync()
+        {
+            await LoadAsync(_page);
+            // Poll the live "Active" state; the grid re-renders only when a connection's Yes/No actually changes.
+            _activeTimer = new Timer(_ => _ = InvokeAsync(() => RunActiveChecks(initial: false)), null, ActivePollMs, ActivePollMs);
+        }
 
         private async Task LoadAsync(int page)
         {
             _connections = await ConnectionService.GetPageAsync(page, PageSize, _sortColumn, _descending);
             _page = _connections.PageNumber;
             StartSpaceLoad();
+            RunActiveChecks(initial: true);
             StartUsageLoad();
         }
 
@@ -100,6 +114,64 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
+        // Checks whether each connection on the current page is contactable, on a background task per row (each is
+        // a live round-trip). On the initial load it clears the cache and shows "…" until each result lands; on a
+        // periodic re-check it keeps the shown value and re-renders only a row whose Yes/No flipped. Reuses the
+        // space-load generation/token so a superseded page/sort is discarded.
+        private void RunActiveChecks(bool initial)
+        {
+            if (_connections is null)
+            {
+                return;
+            }
+
+            if (initial)
+            {
+                _active.Clear();
+                _activeChecked.Clear();
+            }
+
+            var generation = _generation;
+            var token = _spaceCts.Token;
+
+            foreach (var connection in _connections.Items)
+            {
+                var id = connection.Id;
+                _ = Task.Run(async () =>
+                {
+                    bool ok;
+                    try
+                    {
+                        ok = await SpaceService.IsContactableAsync(id, token);
+                    }
+                    catch
+                    {
+                        ok = false; // best-effort — shows "No"
+                    }
+
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    await InvokeAsync(() =>
+                    {
+                        if (generation != _generation)
+                        {
+                            return; // a newer page/sort superseded this result
+                        }
+                        var changed = !_activeChecked.Contains(id) || _active.GetValueOrDefault(id) != ok;
+                        _active[id] = ok;
+                        _activeChecked.Add(id);
+                        if (changed)
+                        {
+                            StateHasChanged();
+                        }
+                    });
+                }, token);
+            }
+        }
+
         // Loads the per-connection profile-usage counts in the background (one query for all rows) so the grid
         // doesn't wait on it. Reuses the space-load generation/token so a superseded page/sort is discarded.
         private void StartUsageLoad()
@@ -142,6 +214,7 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         public void Dispose()
         {
+            _activeTimer?.Dispose();
             _spaceCts.Cancel();
             _spaceCts.Dispose();
         }

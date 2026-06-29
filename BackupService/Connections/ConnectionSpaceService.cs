@@ -45,5 +45,34 @@ namespace BackupService.Connections
                 return null;
             }
         }
+
+        public async Task<bool> IsContactableAsync(int connectionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                switch (await resolver.GetTypeAsync(connectionId, cancellationToken))
+                {
+                    case ConnectionType.GoogleDrive:
+                        var googleDrive = await resolver.GetGoogleDriveInfoAsync(connectionId, cancellationToken);
+                        return (await googleDriveConnector.TestAsync(googleDrive, cancellationToken)).Ok;
+
+                    case ConnectionType.Smb:
+                        var smb = await resolver.GetSmbInfoAsync(connectionId, cancellationToken);
+                        return (await smbConnector.TestAsync(smb, cancellationToken)).Ok;
+
+                    case ConnectionType.Usb:
+                        var usb = await resolver.GetUsbInfoAsync(connectionId, cancellationToken);
+                        return (await usbConnector.TestAsync(usb, cancellationToken)).Ok;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not test connection {ConnectionId}.", connectionId);
+                return false;
+            }
+        }
     }
 }
