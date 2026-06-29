@@ -37,7 +37,7 @@ namespace BackupService.Scheduling.Usb
         // against this snapshot to spot arrivals/removals. Seeded at start so already-attached devices aren't "new".
         private readonly HashSet<string> _knownMtpSerials = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<MatchedConnection>> _matchedMtp = new(StringComparer.OrdinalIgnoreCase);
-        private DateTime _lastMtpScan = DateTime.MinValue;
+        private int _mtpScanInFlight; // 0/1 — coalesces a burst of device-tree changes into one re-scan sequence
 
         private Thread? _thread;
         private IntPtr _hwnd;
@@ -51,22 +51,25 @@ namespace BackupService.Scheduling.Usb
             }
 
             // Seed the MTP snapshot with already-connected devices so they don't count as arrivals at startup.
+            // (A device already attached when the service starts is therefore not auto-run — replug it to trigger.)
             _ = Task.Run(() =>
             {
                 try
                 {
-                    var serials = mtpInspector.EnumerateMtpDevices().Select(d => d.Serial);
+                    var devices = mtpInspector.EnumerateMtpDevices();
                     lock (_gate)
                     {
-                        foreach (var serial in serials)
+                        foreach (var device in devices)
                         {
-                            _knownMtpSerials.Add(serial);
+                            _knownMtpSerials.Add(device.Serial);
                         }
                     }
+                    logger.LogInformation("USB watcher: seeded {Count} already-connected portable (MTP) device(s): {Devices}",
+                        devices.Count, DescribeDevices(devices));
                 }
                 catch (Exception ex)
                 {
-                    logger.LogDebug(ex, "Failed to seed the MTP device snapshot.");
+                    logger.LogWarning(ex, "Failed to seed the MTP device snapshot.");
                 }
             });
 
@@ -270,16 +273,38 @@ namespace BackupService.Scheduling.Usb
 
         private void OnDeviceNodesChanged()
         {
-            lock (_gate)
+            // A device-tree change usually comes as a burst; coalesce into a single re-scan sequence. The sequence
+            // itself re-scans several times, so we ignore further changes until it finishes.
+            if (Interlocked.CompareExchange(ref _mtpScanInFlight, 1, 0) != 0)
             {
-                if ((DateTime.UtcNow - _lastMtpScan) < TimeSpan.FromSeconds(2))
-                {
-                    return;
-                }
-                _lastMtpScan = DateTime.UtcNow;
+                return;
             }
 
-            _ = Task.Run(ScanMtpAsync);
+            _ = Task.Run(ScanMtpSequenceAsync);
+        }
+
+        // A portable device (especially a camera that prompts on-screen for a USB mode) can take several seconds
+        // to register with WPD after the device-tree change fires. Scan a few times over ~8s so a late arrival is
+        // still caught — the diff against _knownMtpSerials keeps the repeats idempotent (each device fires once).
+        private async Task ScanMtpSequenceAsync()
+        {
+            try
+            {
+                logger.LogDebug("USB watcher: device-tree changed — scanning for portable (MTP) devices.");
+                int[] delaysMs = [0, 1500, 3000, 5000, 8000];
+                foreach (var delay in delaysMs)
+                {
+                    if (delay > 0)
+                    {
+                        await Task.Delay(delay);
+                    }
+                    await ScanMtpAsync();
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _mtpScanInFlight, 0);
+            }
         }
 
         private async Task ScanMtpAsync()
@@ -287,27 +312,31 @@ namespace BackupService.Scheduling.Usb
             try
             {
                 var present = mtpInspector.EnumerateMtpDevices();
-                var presentBySerial = present.ToDictionary(d => d.Serial, d => d.Name, StringComparer.OrdinalIgnoreCase);
+                logger.LogDebug("USB watcher: MTP scan found {Count} portable device(s): {Devices}",
+                    present.Count, DescribeDevices(present));
 
-                List<string> arrived;
+                List<MtpDevice> arrived;
                 List<string> removed;
                 lock (_gate)
                 {
-                    arrived = presentBySerial.Keys.Where(s => !_knownMtpSerials.Contains(s)).ToList();
-                    removed = _knownMtpSerials.Where(s => !presentBySerial.ContainsKey(s)).ToList();
+                    var presentSerials = present.Select(d => d.Serial).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    arrived = present.Where(d => !_knownMtpSerials.Contains(d.Serial)).ToList();
+                    removed = _knownMtpSerials.Where(s => !presentSerials.Contains(s)).ToList();
                     _knownMtpSerials.Clear();
-                    foreach (var serial in presentBySerial.Keys)
+                    foreach (var serial in presentSerials)
                     {
                         _knownMtpSerials.Add(serial);
                     }
                 }
 
-                foreach (var serial in arrived)
+                foreach (var device in arrived)
                 {
-                    await HandleMtpArrivalAsync(serial);
+                    logger.LogInformation("USB watcher: portable (MTP) device connected: '{Name}' ({Serial}).", device.Name, device.Serial);
+                    await HandleMtpArrivalAsync(device.Serial, device.Name);
                 }
                 foreach (var serial in removed)
                 {
+                    logger.LogInformation("USB watcher: portable (MTP) device disconnected ({Serial}).", serial);
                     await HandleMtpRemovalAsync(serial);
                 }
             }
@@ -317,7 +346,7 @@ namespace BackupService.Scheduling.Usb
             }
         }
 
-        private async Task HandleMtpArrivalAsync(string serial)
+        private async Task HandleMtpArrivalAsync(string serial, string name)
         {
             try
             {
@@ -329,10 +358,14 @@ namespace BackupService.Scheduling.Usb
                     .Include(c => c.Usb)
                     .ToListAsync();
 
+                var mtpRegistrations = mtpConnections
+                    .Where(c => c.Usb is { Kind: UsbDeviceKind.Mtp })
+                    .ToList();
+
                 var matched = new List<MatchedConnection>();
-                foreach (var connection in mtpConnections)
+                foreach (var connection in mtpRegistrations)
                 {
-                    if (connection.Usb is { Kind: UsbDeviceKind.Mtp } usb && UsbDeviceMatcher.MatchesMtp(usb.MtpSerial, serial))
+                    if (UsbDeviceMatcher.MatchesMtp(connection.Usb!.MtpSerial, serial))
                     {
                         matched.Add(new MatchedConnection(connection.Id, connection.Name));
                     }
@@ -340,6 +373,14 @@ namespace BackupService.Scheduling.Usb
 
                 if (matched.Count == 0)
                 {
+                    // Visible so a serial mismatch (e.g. an unstable WPD DeviceId) is diagnosable — it shows the
+                    // arrived id next to every registered MTP connection's stored id.
+                    var registered = mtpRegistrations.Count == 0
+                        ? "(no MTP connections configured)"
+                        : string.Join("; ", mtpRegistrations.Select(c => $"'{c.Name}' [{c.Usb!.MtpSerial}]"));
+                    logger.LogInformation(
+                        "USB watcher: portable device '{Name}' ({Serial}) matched no MTP connection. Registered: {Registered}",
+                        name, serial, registered);
                     return;
                 }
 
@@ -406,6 +447,9 @@ namespace BackupService.Scheduling.Usb
                 logger.LogError(ex, "Failed to handle USB removal for {Drive}.", driveLetter);
             }
         }
+
+        private static string DescribeDevices(IReadOnlyList<MtpDevice> devices) =>
+            devices.Count == 0 ? "(none)" : string.Join("; ", devices.Select(d => $"'{d.Name}' [{d.Serial}]"));
 
         private readonly record struct MatchedConnection(int ConnectionId, string Name);
 
