@@ -41,6 +41,11 @@ namespace BackupService.Scheduling
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
 
+            if (profile.NotificationsEnabled && profile.NotifyOnStart)
+            {
+                notifier?.NotifyBackupStarted(profile.Name, Type);
+            }
+
             try
             {
                 if (profile.InstantSyncItems.Count == 0)
@@ -112,7 +117,10 @@ namespace BackupService.Scheduling
                 await log.SetSummaryAsync(summary, level);
 
                 // Desktop notification for the completed manual reconcile (no-op unless on Windows + enabled).
-                notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
+                if (profile.NotificationsEnabled && profile.NotifyOnComplete)
+                {
+                    notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
+                }
             }
         }
 

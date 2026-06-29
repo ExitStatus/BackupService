@@ -35,6 +35,16 @@ namespace BackupService.Database
         /// <summary>Whether the profile participates in backups. Defaults to enabled.</summary>
         public bool Enabled { get; set; } = true;
 
+        /// <summary>Master switch for this profile's desktop notifications (gated further by the per-event flags
+        /// below and the global "Allow notifications" option). Defaults on via a store default.</summary>
+        public bool NotificationsEnabled { get; set; } = true;
+
+        /// <summary>Notify when a run for this profile starts (off by default — start notifications are noisier).</summary>
+        public bool NotifyOnStart { get; set; }
+
+        /// <summary>Notify when a run for this profile completes. Defaults on via a store default.</summary>
+        public bool NotifyOnComplete { get; set; } = true;
+
         /// <summary>Cron-style schedule string; null/empty when not scheduled.</summary>
         [MaxLength(256)]
         public string? Schedule { get; set; }

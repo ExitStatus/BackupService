@@ -29,6 +29,9 @@ namespace BackupService.Profiles
             bool handleMissedSync = false,
             int? sourceConnectionId = null,
             int? targetConnectionId = null,
+            bool notificationsEnabled = true,
+            bool notifyOnStart = false,
+            bool notifyOnComplete = true,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -91,6 +94,9 @@ namespace BackupService.Profiles
             bool handleMissedSync = false,
             int? sourceConnectionId = null,
             int? targetConnectionId = null,
+            bool notificationsEnabled = true,
+            bool notifyOnStart = false,
+            bool notifyOnComplete = true,
             CancellationToken cancellationToken = default);
     }
 }

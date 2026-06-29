@@ -13,6 +13,14 @@
         <EditForm Model="Input" OnValidSubmit="SubmitAsync">
             <DataAnnotationsValidator />
 
+            <TabBar Items="_tabs" @bind-SelectedKey="_activeTab" />
+
+            @* Both tab panels stay rendered (hidden via CSS when inactive) so the type editors' @@ref survive a
+               Save from the Notifications tab. The wrapper is a fixed height (scrolls when needed) so switching
+               tabs never changes the dialog's vertical size. *@
+            <div class="profile-tab-content">
+            <div style="@TabStyle("details")">
+
             <label>
                 Name
                 <InputText @bind-Value="Input.Name" />
@@ -95,6 +103,32 @@
                                              TargetConnectionId="Input.TargetConnectionId" />
                     break;
             }
+
+            </div>
+
+            <div style="@TabStyle("notifications")">
+                <label class="check">
+                    <input type="checkbox" @bind="Input.NotificationsEnabled" />
+                    Enable Notifications
+                </label>
+                <p class="help-text">
+                    Show a desktop notification for this profile's runs. Also requires the global
+                    <strong>Allow Notifications</strong> option (Settings → Options) to be on.
+                </p>
+
+                <div class="check-rows">
+                    <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")">
+                        <input type="checkbox" @bind="Input.NotifyOnStart" disabled="@(!Input.NotificationsEnabled)" />
+                        @NotifyLabel("started")
+                    </label>
+
+                    <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")">
+                        <input type="checkbox" @bind="Input.NotifyOnComplete" disabled="@(!Input.NotificationsEnabled)" />
+                        @NotifyLabel("completed")
+                    </label>
+                </div>
+            </div>
+            </div>
 
             <ValidationSummary />
 

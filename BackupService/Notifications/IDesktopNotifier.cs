@@ -10,6 +10,9 @@ namespace BackupService.Notifications
     /// </summary>
     public interface IDesktopNotifier
     {
+        /// <summary>A scheduled or manual backup run started.</summary>
+        void NotifyBackupStarted(string profileName, ProfileType type);
+
         /// <summary>A scheduled or manual backup run finished.</summary>
         void NotifyBackupCompleted(string profileName, ProfileType type, RunOutcome outcome);
 

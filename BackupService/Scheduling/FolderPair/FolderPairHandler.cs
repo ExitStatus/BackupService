@@ -44,6 +44,11 @@ namespace BackupService.Scheduling
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
 
+            if (profile.NotificationsEnabled && profile.NotifyOnStart)
+            {
+                notifier?.NotifyBackupStarted(profile.Name, Type);
+            }
+
             try
             {
                 if (profile.FolderPairs.Count == 0)
@@ -129,8 +134,8 @@ namespace BackupService.Scheduling
                 await log.SetSummaryAsync(summary, level);
 
                 // Desktop notification for the completed run (a no-op unless on Windows with notifications on).
-                // A cancelled run isn't a completion, so it's skipped.
-                if (!cancelled)
+                // A cancelled run isn't a completion, so it's skipped; honour the profile's notification settings.
+                if (!cancelled && profile.NotificationsEnabled && profile.NotifyOnComplete)
                 {
                     notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
                 }

@@ -58,6 +58,15 @@ namespace BackupService.Database
                 .Property(p => p.Enabled)
                 .HasDefaultValue(true);
 
+            // Notifications default on (master + completion); existing rows backfill to true on migration.
+            // (NotifyOnStart defaults to false, the bool default, so it needs no store default.)
+            modelBuilder.Entity<Profile>()
+                .Property(p => p.NotificationsEnabled)
+                .HasDefaultValue(true);
+            modelBuilder.Entity<Profile>()
+                .Property(p => p.NotifyOnComplete)
+                .HasDefaultValue(true);
+
             // A log optionally belongs to a profile; deleting the profile cascade-deletes its
             // logs (cascade is the non-default behaviour for a nullable FK).
             modelBuilder.Entity<OperationLog>()

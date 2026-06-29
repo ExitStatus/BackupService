@@ -505,6 +505,22 @@ textarea:focus {
     min-height: 18rem;
 }
 
+/* ProfileDialog's tabs vary a lot in height (a tall Details tab vs a short Notifications tab), so its content
+   area is a fixed height that scrolls when needed — the dialog's vertical size stays constant across tabs. */
+.create-profile .profile-tab-content {
+    height: 38rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+}
+
+/* A checkbox whose label is disabled (e.g. the per-event notification options when notifications are off)
+   greys its label text to match the dimmed control. Needs label.check.check-disabled to outweigh label.check's
+   own color rule. */
+label.check.check-disabled {
+    color: var(--text-muted);
+}
+
 /* Include/Exclude list editor (FilterListEditor). */
 .filter-add {
     margin-bottom: 1rem;

@@ -92,6 +92,9 @@ namespace BackupService.Notifications
             return Task.CompletedTask;
         }
 
+        public void NotifyBackupStarted(string profileName, ProfileType type) =>
+            Enqueue("Backup started", $"'{profileName}' ({type.GetDescription()}) started.", NIIF_INFO);
+
         public void NotifyBackupCompleted(string profileName, ProfileType type, RunOutcome outcome) =>
             Enqueue("Backup completed", $"'{profileName}' ({type.GetDescription()}) — {outcome.GetDescription()}", InfoFlagFor(outcome));
 

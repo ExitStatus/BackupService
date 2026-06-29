@@ -49,6 +49,20 @@ namespace BackupService.Components.Dialogs
         private bool _lightroomFolderError;
         private IReadOnlyDictionary<int, ConnectionType> _connectionTypes = new Dictionary<int, ConnectionType>();
 
+        private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
+        [
+            new("details", "Details"),
+            new("notifications", "Notifications"),
+        ];
+        private string _activeTab = "details";
+
+        // Both tab panels stay in the DOM (so the type editors' @ref persist); the inactive one is just hidden.
+        private string TabStyle(string key) => _activeTab == key ? string.Empty : "display:none";
+
+        // The per-event checkbox label, e.g. "My Backup started" — falls back to "Profile" before a name is typed.
+        private string NotifyLabel(string eventName) =>
+            $"{(string.IsNullOrWhiteSpace(Input.Name) ? "Profile" : Input.Name)} {eventName}";
+
         // Shown as a hover tooltip on the "Handle missed sync" checkbox.
         private const string HandleMissedSyncTooltip =
             "If the service was not running at the scheduled time, run this profile immediately when the service next starts.";
@@ -115,6 +129,9 @@ namespace BackupService.Components.Dialogs
             Input.HandleMissedSync = profile.HandleMissedSync;
             Input.SourceConnectionId = profile.SourceConnectionId;
             Input.TargetConnectionId = profile.TargetConnectionId;
+            Input.NotificationsEnabled = profile.NotificationsEnabled;
+            Input.NotifyOnStart = profile.NotifyOnStart;
+            Input.NotifyOnComplete = profile.NotifyOnComplete;
             Input.LightroomFolder = profile.LightroomFolder ?? string.Empty;
             Input.RawFormats = string.IsNullOrWhiteSpace(profile.RawFormats) ? LightroomArchiveSettings.DefaultRawFormats : profile.RawFormats;
             Input.RawFolderName = string.IsNullOrWhiteSpace(profile.RawFolderName) ? LightroomArchiveSettings.DefaultRawFolderName : profile.RawFolderName;
@@ -234,12 +251,14 @@ namespace BackupService.Components.Dialogs
             if (ProfileId is { } id)
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
-                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
-                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
 
             return true;
@@ -260,12 +279,14 @@ namespace BackupService.Components.Dialogs
             if (ProfileId is { } id)
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled, folderPairs: [], items,
-                    targetConnectionId: Input.TargetConnectionId);
+                    targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items,
-                    targetConnectionId: Input.TargetConnectionId);
+                    targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
 
             return true;
@@ -288,12 +309,14 @@ namespace BackupService.Components.Dialogs
             if (ProfileId is { } id)
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
-                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
-                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId);
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
 
             return true;
@@ -319,14 +342,16 @@ namespace BackupService.Components.Dialogs
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled,
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
-                    targetConnectionId: Input.TargetConnectionId);
+                    targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.LightroomArchive, scheduleCron: null, Input.Enabled,
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
-                    targetConnectionId: Input.TargetConnectionId);
+                    targetConnectionId: Input.TargetConnectionId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
             }
 
             return true;
@@ -366,6 +391,13 @@ namespace BackupService.Components.Dialogs
 
             /// <summary>Run immediately on startup if a scheduled run was missed while the service was down.</summary>
             public bool HandleMissedSync { get; set; }
+
+            // Per-profile desktop notifications (master switch + per-event). Defaults match new/migrated profiles.
+            public bool NotificationsEnabled { get; set; } = true;
+
+            public bool NotifyOnStart { get; set; }
+
+            public bool NotifyOnComplete { get; set; } = true;
 
             // LightroomArchive only — the profile-level Lightroom settings shared by all the profile's items.
             public string LightroomFolder { get; set; } = string.Empty;
