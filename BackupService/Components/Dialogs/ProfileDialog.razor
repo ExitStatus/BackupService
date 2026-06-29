@@ -127,6 +127,15 @@
                         @NotifyLabel("completed")
                     </label>
                 </div>
+
+                <label class="check">
+                    <input type="checkbox" @bind="Input.ShowProgressWindow" />
+                    Show Progress Window
+                </label>
+                <p class="help-text">
+                    While this profile runs, show a small borderless progress window in the bottom-right of the
+                    screen. Multiple running profiles stack vertically. (Windows only.)
+                </p>
             </div>
             </div>
 

@@ -299,6 +299,9 @@ namespace BackupService
                 services.AddSingleton<Notifications.IDesktopNotifier>(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
                 services.AddHostedService(sp => sp.GetRequiredService<Notifications.WindowsTrayService>());
 
+                // On-screen progress windows for profiles with ShowProgressWindow (observes IProfileStatusService).
+                services.AddHostedService<Notifications.WindowsProgressWindowService>();
+
                 // USB device detection: read device identity + watch for connect/disconnect to trigger backups.
                 services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.WindowsUsbDeviceInspector>();
                 services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.WindowsMtpDeviceInspector>();

@@ -132,6 +132,7 @@ namespace BackupService.Components.Dialogs
             Input.NotificationsEnabled = profile.NotificationsEnabled;
             Input.NotifyOnStart = profile.NotifyOnStart;
             Input.NotifyOnComplete = profile.NotifyOnComplete;
+            Input.ShowProgressWindow = profile.ShowProgressWindow;
             Input.LightroomFolder = profile.LightroomFolder ?? string.Empty;
             Input.RawFormats = string.IsNullOrWhiteSpace(profile.RawFormats) ? LightroomArchiveSettings.DefaultRawFormats : profile.RawFormats;
             Input.RawFolderName = string.IsNullOrWhiteSpace(profile.RawFolderName) ? LightroomArchiveSettings.DefaultRawFolderName : profile.RawFolderName;
@@ -252,13 +253,15 @@ namespace BackupService.Components.Dialogs
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
 
             return true;
@@ -280,13 +283,15 @@ namespace BackupService.Components.Dialogs
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled, folderPairs: [], items,
                     targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items,
                     targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
 
             return true;
@@ -310,13 +315,15 @@ namespace BackupService.Components.Dialogs
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
 
             return true;
@@ -343,7 +350,8 @@ namespace BackupService.Components.Dialogs
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
                     targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
             else
             {
@@ -351,7 +359,8 @@ namespace BackupService.Components.Dialogs
                     folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
                     targetConnectionId: Input.TargetConnectionId,
-                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete);
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    showProgressWindow: Input.ShowProgressWindow);
             }
 
             return true;
@@ -398,6 +407,9 @@ namespace BackupService.Components.Dialogs
             public bool NotifyOnStart { get; set; }
 
             public bool NotifyOnComplete { get; set; } = true;
+
+            /// <summary>Show a borderless on-screen progress window while the profile runs (Windows only).</summary>
+            public bool ShowProgressWindow { get; set; }
 
             // LightroomArchive only — the profile-level Lightroom settings shared by all the profile's items.
             public string LightroomFolder { get; set; } = string.Empty;

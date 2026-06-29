@@ -45,6 +45,10 @@ namespace BackupService.Database
         /// <summary>Notify when a run for this profile completes. Defaults on via a store default.</summary>
         public bool NotifyOnComplete { get; set; } = true;
 
+        /// <summary>When true, a borderless on-screen progress window is shown (bottom-right) while this profile
+        /// runs. Windows-only (rendered by <c>WindowsProgressWindowService</c>); off by default.</summary>
+        public bool ShowProgressWindow { get; set; }
+
         /// <summary>Cron-style schedule string; null/empty when not scheduled.</summary>
         [MaxLength(256)]
         public string? Schedule { get; set; }

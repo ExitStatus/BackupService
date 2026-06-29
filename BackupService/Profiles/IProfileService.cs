@@ -32,6 +32,7 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool showProgressWindow = false,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -97,6 +98,7 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool showProgressWindow = false,
             CancellationToken cancellationToken = default);
     }
 }
