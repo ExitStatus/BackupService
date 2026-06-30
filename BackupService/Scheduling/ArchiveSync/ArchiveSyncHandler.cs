@@ -2,6 +2,7 @@ using System.Diagnostics;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
+using BackupService.FileSystem;
 using BackupService.Logging;
 using BackupService.Notifications;
 using BackupService.Profiles;
@@ -38,6 +39,7 @@ namespace BackupService.Scheduling
             var total = new BackupResult();
             var fatal = false;
             var cancelled = false;
+            var disconnected = false;
 
             var log = await operationLogFactory.CreateAsync(
                 $"{handlerName} called with {profile.ArchiveSyncItems.Count} archive(s).",
@@ -83,6 +85,14 @@ namespace BackupService.Scheduling
                 await log.AppendAsync(OperationLogLevel.Warning, "Run cancelled — stopped before completion.");
                 throw;
             }
+            catch (EndpointUnavailableException ex)
+            {
+                // The source endpoint went away mid-run (e.g. a USB camera switched off / unplugged). Stop fast
+                // and clean — treat it like a cancellation (a warning, profile returns to Idle) and don't re-throw,
+                // so the run winds down through the finally. Archives already created are intact.
+                disconnected = true;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Source device disconnected — run stopped. {ex.Message}");
+            }
             catch (Exception ex)
             {
                 // Catastrophic failure (something outside an item's own try).
@@ -95,7 +105,7 @@ namespace BackupService.Scheduling
             {
                 stopwatch.Stop();
                 var duration = FormatDuration(stopwatch.Elapsed);
-                var outcome = cancelled ? RunOutcome.CompletedWithWarnings
+                var outcome = cancelled || disconnected ? RunOutcome.CompletedWithWarnings
                     : fatal ? RunOutcome.Failed
                     : total.Errors > 0 ? RunOutcome.CompletedWithErrors
                     : total.Warnings > 0 ? RunOutcome.CompletedWithWarnings
@@ -110,6 +120,8 @@ namespace BackupService.Scheduling
                 var counts = $"{total.Copied} archive(s) created, {total.Deleted} pruned";
                 var (summary, level) = cancelled
                     ? ($"{handlerName} was cancelled after {duration} — {counts}", OperationLogLevel.Warning)
+                    : disconnected
+                    ? ($"{handlerName} stopped after {duration} — source device disconnected — {counts}", OperationLogLevel.Warning)
                     : outcome switch
                     {
                         RunOutcome.Failed => ($"{handlerName} failed in {duration}", OperationLogLevel.Error),
@@ -120,8 +132,8 @@ namespace BackupService.Scheduling
                 await log.SetSummaryAsync(summary, level);
 
                 // Desktop notification for the completed run (a no-op unless on Windows with notifications on).
-                // A cancelled run isn't a completion, so it's skipped; honour the profile's notification settings.
-                if (!cancelled && profile.NotificationsEnabled && profile.NotifyOnComplete)
+                // A cancelled or disconnected run isn't a completion, so it's skipped; honour the profile's settings.
+                if (!cancelled && !disconnected && profile.NotificationsEnabled && profile.NotifyOnComplete)
                 {
                     notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
                 }
@@ -142,6 +154,10 @@ namespace BackupService.Scheduling
             catch (OperationCanceledException)
             {
                 throw;
+            }
+            catch (EndpointUnavailableException)
+            {
+                throw; // source endpoint gone — abort the whole run (remaining items share the same dead device)
             }
             catch (Exception ex)
             {

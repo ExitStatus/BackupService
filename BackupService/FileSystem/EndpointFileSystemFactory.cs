@@ -15,7 +15,8 @@ namespace BackupService.FileSystem
     public sealed class EndpointFileSystemFactory(
         IBackupFileSystem localFileSystem,
         IConnectionResolver connectionResolver,
-        IUsbConnector usbConnector) : IEndpointFileSystemFactory
+        IUsbConnector usbConnector,
+        ILoggerFactory loggerFactory) : IEndpointFileSystemFactory
     {
         private static readonly IDisposable NoSession = new NoopDisposable();
 
@@ -49,7 +50,8 @@ namespace BackupService.FileSystem
 
                         // MediaDevices uses device-absolute backslash paths (e.g. "\Internal storage\DCIM").
                         var mtpPath = CombineDeviceAbsolute(info.RootFolder, configuredPath);
-                        var mtp = Mtp.MtpBackupFileSystem.Connect(info); // throws when the device isn't connected
+                        var mtpLogger = loggerFactory.CreateLogger<Mtp.MtpBackupFileSystem>();
+                        var mtp = Mtp.MtpBackupFileSystem.Connect(info, mtpLogger); // throws when the device isn't connected
                         return new EndpointFileSystem(mtp, mtpPath, mtp);
                     }
 

@@ -121,6 +121,17 @@ namespace BackupService.Database
             modelBuilder.Entity<UsbConnectionSettings>()
                 .HasKey(s => s.ConnectionId);
 
+            // USB connect/disconnect notifications default on; existing rows backfill to true on migration.
+            modelBuilder.Entity<UsbConnectionSettings>()
+                .Property(s => s.NotificationsEnabled)
+                .HasDefaultValue(true);
+            modelBuilder.Entity<UsbConnectionSettings>()
+                .Property(s => s.NotifyOnConnect)
+                .HasDefaultValue(true);
+            modelBuilder.Entity<UsbConnectionSettings>()
+                .Property(s => s.NotifyOnDisconnect)
+                .HasDefaultValue(true);
+
             modelBuilder.Entity<Connection>()
                 .HasOne(c => c.Usb)
                 .WithOne(s => s.Connection)

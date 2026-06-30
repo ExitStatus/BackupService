@@ -1,35 +1,57 @@
 @namespace BackupService.Components.Dialogs
 
 <div class="modal-overlay">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Select a folder on the device">
-        <h2>Select a folder</h2>
+    <div class="modal smb-browser" role="dialog" aria-modal="true" aria-label="Select a folder on the device">
+        <h2>Select folder on @RootLabel</h2>
 
-        <div class="input-row">
-            <button type="button" class="btn-secondary" @onclick="Up" disabled="@(!CanGoUp || _busy)">Up</button>
-            <input type="text" readonly value="@_currentPath" />
+        <div class="smb-browser-bar">
+            <button type="button" class="btn-secondary" @onclick="Up" disabled="@(_busy || !CanGoUp)">Up</button>
+            <div class="smb-breadcrumb">
+                <button type="button" class="crumb" @onclick="() => Navigate(RootPath)">@RootLabel</button>
+                @foreach (var crumb in Breadcrumbs)
+                {
+                    var target = crumb.FullPath;
+                    <span class="crumb-sep">\</span>
+                    <button type="button" class="crumb" @onclick="() => Navigate(target)">@crumb.Name</button>
+                }
+            </div>
         </div>
 
-        <div class="folder-list">
+        <div class="smb-browser-list">
             @if (_busy)
             {
-                <p class="help-text">Reading device…</p>
+                <p class="smb-browser-msg">Reading device…</p>
             }
             else if (_dirs.Count == 0)
             {
-                <p class="help-text">No sub-folders here.</p>
+                <p class="smb-browser-msg">No sub-folders here.</p>
             }
             else
             {
-                @foreach (var dir in _dirs)
-                {
-                    <button type="button" class="folder-row" @onclick="() => Navigate(dir)">@DisplayName(dir)</button>
-                }
+                <ul class="smb-folder-list">
+                    @foreach (var dir in _dirs)
+                    {
+                        var full = dir;
+                        <li>
+                            <button type="button" class="smb-folder @(_selected == full ? "selected" : null)"
+                                    @onclick="() => _selected = full"
+                                    @ondblclick="() => Navigate(full)">
+                                📁 @DisplayName(dir)
+                            </button>
+                        </li>
+                    }
+                </ul>
             }
         </div>
 
+        <label class="smb-folder-box">
+            Folder
+            <input type="text" readonly value="@CurrentDisplay" placeholder="(device root)" />
+        </label>
+
         <div class="modal-actions">
             <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
-            <button type="button" @onclick="Select" disabled="@_busy">Select this folder</button>
+            <button type="button" @onclick="Select" disabled="@_busy">Select Folder</button>
         </div>
     </div>
 </div>

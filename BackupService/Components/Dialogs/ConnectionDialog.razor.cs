@@ -41,6 +41,16 @@ namespace BackupService.Components.Dialogs
 
         private bool IsEdit => ConnectionId.HasValue;
 
+        private static readonly IReadOnlyList<TabBar.TabItem> _usbTabs =
+        [
+            new("details", "Details"),
+            new("notifications", "Notifications"),
+        ];
+        private string _activeTab = "details";
+
+        // Both USB tab panels stay in the DOM (so the editor's @ref/poll-timer persist); the inactive one is hidden.
+        private string TabStyle(string key) => _activeTab == key ? string.Empty : "display:none";
+
         // Google Drive is only offered once the admin has configured the app's built-in OAuth client, so a
         // user never lands on a Client ID field; without it, only the locally-configurable types are shown.
         private IReadOnlyList<ConnectionType> AvailableTypes =>
@@ -105,6 +115,9 @@ namespace BackupService.Components.Dialogs
                 _usb.MtpSerial = usb.MtpSerial;
                 _usb.DeviceLabel = usb.DeviceLabel;
                 _usb.RootFolder = usb.RootFolder;
+                Input.NotificationsEnabled = usb.NotificationsEnabled;
+                Input.NotifyOnConnect = usb.NotifyOnConnect;
+                Input.NotifyOnDisconnect = usb.NotifyOnDisconnect;
             }
         }
 
@@ -193,7 +206,10 @@ namespace BackupService.Components.Dialogs
                 _usb.VolumeSerial,
                 _usb.MtpSerial,
                 _usb.DeviceLabel,
-                string.IsNullOrWhiteSpace(_usb.RootFolder) ? null : _usb.RootFolder);
+                string.IsNullOrWhiteSpace(_usb.RootFolder) ? null : _usb.RootFolder,
+                Input.NotificationsEnabled,
+                Input.NotifyOnConnect,
+                Input.NotifyOnDisconnect);
 
             if (ConnectionId is { } id)
             {
@@ -213,6 +229,13 @@ namespace BackupService.Components.Dialogs
             public string Name { get; set; } = string.Empty;
 
             public ConnectionType Type { get; set; } = ConnectionType.Smb;
+
+            // USB connect/disconnect desktop notifications (only used by the USB connection type).
+            public bool NotificationsEnabled { get; set; } = true;
+
+            public bool NotifyOnConnect { get; set; } = true;
+
+            public bool NotifyOnDisconnect { get; set; } = true;
         }
     }
 }

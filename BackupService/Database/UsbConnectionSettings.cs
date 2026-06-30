@@ -39,5 +39,14 @@ namespace BackupService.Database
         /// <summary>Folder on the device the connection is rooted at (relative to the drive root); null = drive root.</summary>
         [MaxLength(1024)]
         public string? RootFolder { get; set; }
+
+        /// <summary>Master switch for this device's connect/disconnect desktop notifications (store default true).</summary>
+        public bool NotificationsEnabled { get; set; } = true;
+
+        /// <summary>Show a desktop notification when the device is plugged in (store default true).</summary>
+        public bool NotifyOnConnect { get; set; } = true;
+
+        /// <summary>Show a desktop notification when the device is unplugged (store default true).</summary>
+        public bool NotifyOnDisconnect { get; set; } = true;
     }
 }

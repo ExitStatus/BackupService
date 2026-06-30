@@ -221,7 +221,8 @@ namespace BackupService.Scheduling.Usb
                     var info = new UsbConnectionInfo(usb.Kind, usb.HardwareSerial, usb.VolumeSerial, usb.MtpSerial, usb.RootFolder);
                     if (UsbDeviceMatcher.Matches(info, device))
                     {
-                        matched.Add(new MatchedConnection(connection.Id, connection.Name));
+                        matched.Add(new MatchedConnection(connection.Id, connection.Name,
+                            usb.NotificationsEnabled, usb.NotifyOnConnect, usb.NotifyOnDisconnect));
                     }
                 }
 
@@ -250,7 +251,10 @@ namespace BackupService.Scheduling.Usb
             foreach (var connection in matched)
             {
                 await operationLogFactory.CreateAsync($"USB device '{connection.Name}' connected");
-                notifier.NotifyDeviceConnected(connection.Name);
+                if (connection.NotificationsEnabled && connection.NotifyOnConnect)
+                {
+                    notifier.NotifyDeviceConnected(connection.Name);
+                }
             }
 
             var connectionIds = matched.Select(m => m.ConnectionId).ToList();
@@ -367,7 +371,8 @@ namespace BackupService.Scheduling.Usb
                 {
                     if (UsbDeviceMatcher.MatchesMtp(connection.Usb!.MtpSerial, serial))
                     {
-                        matched.Add(new MatchedConnection(connection.Id, connection.Name));
+                        matched.Add(new MatchedConnection(connection.Id, connection.Name,
+                            connection.Usb!.NotificationsEnabled, connection.Usb!.NotifyOnConnect, connection.Usb!.NotifyOnDisconnect));
                     }
                 }
 
@@ -413,7 +418,10 @@ namespace BackupService.Scheduling.Usb
                 foreach (var connection in matched)
                 {
                     await operationLogFactory.CreateAsync($"USB device '{connection.Name}' disconnected");
-                    notifier.NotifyDeviceDisconnected(connection.Name);
+                    if (connection.NotificationsEnabled && connection.NotifyOnDisconnect)
+                    {
+                        notifier.NotifyDeviceDisconnected(connection.Name);
+                    }
                 }
             }
             catch (Exception ex)
@@ -439,7 +447,10 @@ namespace BackupService.Scheduling.Usb
                 foreach (var connection in matched)
                 {
                     await operationLogFactory.CreateAsync($"USB device '{connection.Name}' disconnected");
-                    notifier.NotifyDeviceDisconnected(connection.Name);
+                    if (connection.NotificationsEnabled && connection.NotifyOnDisconnect)
+                    {
+                        notifier.NotifyDeviceDisconnected(connection.Name);
+                    }
                 }
             }
             catch (Exception ex)
@@ -451,7 +462,8 @@ namespace BackupService.Scheduling.Usb
         private static string DescribeDevices(IReadOnlyList<MtpDevice> devices) =>
             devices.Count == 0 ? "(none)" : string.Join("; ", devices.Select(d => $"'{d.Name}' [{d.Serial}]"));
 
-        private readonly record struct MatchedConnection(int ConnectionId, string Name);
+        private readonly record struct MatchedConnection(
+            int ConnectionId, string Name, bool NotificationsEnabled, bool NotifyOnConnect, bool NotifyOnDisconnect);
 
         // ---- Win32 interop ----
 

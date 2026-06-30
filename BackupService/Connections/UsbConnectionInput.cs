@@ -14,5 +14,8 @@ namespace BackupService.Connections
         string VolumeSerial,
         string? MtpSerial,
         string? DeviceLabel,
-        string? RootFolder);
+        string? RootFolder,
+        bool NotificationsEnabled = true,
+        bool NotifyOnConnect = true,
+        bool NotifyOnDisconnect = true);
 }

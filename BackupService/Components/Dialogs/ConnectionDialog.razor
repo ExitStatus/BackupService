@@ -25,17 +25,52 @@
                 <InputText @bind-Value="Input.Name" />
             </label>
 
-            @switch (Input.Type)
+            @if (Input.Type == ConnectionType.Usb)
             {
-                case ConnectionType.Smb:
-                    <SmbConnectionEditor @ref="_smbEditor" Model="_smb" ConnectionId="ConnectionId" />
-                    break;
-                case ConnectionType.GoogleDrive:
-                    <GoogleDriveConnectionEditor @ref="_googleDriveEditor" Model="_googleDrive" ConnectionId="ConnectionId" />
-                    break;
-                case ConnectionType.Usb:
-                    <UsbConnectionEditor @ref="_usbEditor" Model="_usb" />
-                    break;
+                @* A USB connection adds a Notifications tab for its connect/disconnect balloons. Both panels
+                   stay rendered (inactive hidden) so the editor's @@ref and poll-timer survive a tab switch,
+                   and the wrapper is a fixed height so switching tabs doesn't resize the dialog. *@
+                <TabBar Items="_usbTabs" @bind-SelectedKey="_activeTab" />
+                <div class="profile-tab-content">
+                    <div style="@TabStyle("details")">
+                        <UsbConnectionEditor @ref="_usbEditor" Model="_usb" />
+                    </div>
+
+                    <div style="@TabStyle("notifications")">
+                        <label class="check">
+                            <input type="checkbox" @bind="Input.NotificationsEnabled" />
+                            Enable Notifications
+                        </label>
+                        <p class="help-text">
+                            Show a desktop notification when this device is connected or disconnected. Also requires
+                            the global <strong>Allow Notifications</strong> option (Settings → Options) to be on.
+                        </p>
+
+                        <div class="check-rows">
+                            <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")">
+                                <input type="checkbox" @bind="Input.NotifyOnConnect" disabled="@(!Input.NotificationsEnabled)" />
+                                Show notification on connection
+                            </label>
+
+                            <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")">
+                                <input type="checkbox" @bind="Input.NotifyOnDisconnect" disabled="@(!Input.NotificationsEnabled)" />
+                                Show notification on disconnection
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @switch (Input.Type)
+                {
+                    case ConnectionType.Smb:
+                        <SmbConnectionEditor @ref="_smbEditor" Model="_smb" ConnectionId="ConnectionId" />
+                        break;
+                    case ConnectionType.GoogleDrive:
+                        <GoogleDriveConnectionEditor @ref="_googleDriveEditor" Model="_googleDrive" ConnectionId="ConnectionId" />
+                        break;
+                }
             }
 
             <ValidationSummary />

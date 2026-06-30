@@ -200,6 +200,9 @@ namespace BackupService.Connections
                     MtpSerial = NullIfBlank(usb.MtpSerial),
                     DeviceLabel = NullIfBlank(usb.DeviceLabel),
                     RootFolder = NullIfBlank(usb.RootFolder),
+                    NotificationsEnabled = usb.NotificationsEnabled,
+                    NotifyOnConnect = usb.NotifyOnConnect,
+                    NotifyOnDisconnect = usb.NotifyOnDisconnect,
                 },
             };
 
@@ -234,7 +237,8 @@ namespace BackupService.Connections
                 VolumeSerial = usb.VolumeSerial,
             };
 
-            var oldSettings = (settings.DeviceLabel, settings.RootFolder);
+            var oldSettings = (settings.DeviceLabel, settings.RootFolder,
+                settings.NotificationsEnabled, settings.NotifyOnConnect, settings.NotifyOnDisconnect);
             var deviceChanged = settings.Kind != usb.Kind
                 || settings.VolumeSerial != usb.VolumeSerial
                 || settings.HardwareSerial != NullIfBlank(usb.HardwareSerial)
@@ -246,6 +250,9 @@ namespace BackupService.Connections
             settings.MtpSerial = NullIfBlank(usb.MtpSerial);
             settings.DeviceLabel = NullIfBlank(usb.DeviceLabel);
             settings.RootFolder = NullIfBlank(usb.RootFolder);
+            settings.NotificationsEnabled = usb.NotificationsEnabled;
+            settings.NotifyOnConnect = usb.NotifyOnConnect;
+            settings.NotifyOnDisconnect = usb.NotifyOnDisconnect;
 
             await db.SaveChangesAsync(cancellationToken);
 
@@ -478,7 +485,7 @@ namespace BackupService.Connections
         private async Task LogUsbUpdatedAsync(
             string oldName,
             string newName,
-            (string? DeviceLabel, string? RootFolder) old,
+            (string? DeviceLabel, string? RootFolder, bool NotificationsEnabled, bool NotifyOnConnect, bool NotifyOnDisconnect) old,
             UsbConnectionSettings now,
             bool deviceChanged,
             CancellationToken cancellationToken)
@@ -501,6 +508,18 @@ namespace BackupService.Connections
             {
                 changes.Add($"Root folder changed from '{DisplayText(old.RootFolder)}' to '{DisplayText(now.RootFolder)}'");
             }
+            if (old.NotificationsEnabled != now.NotificationsEnabled)
+            {
+                changes.Add($"Notifications {(now.NotificationsEnabled ? "enabled" : "disabled")}");
+            }
+            if (old.NotifyOnConnect != now.NotifyOnConnect)
+            {
+                changes.Add($"Notify on connect {(now.NotifyOnConnect ? "enabled" : "disabled")}");
+            }
+            if (old.NotifyOnDisconnect != now.NotifyOnDisconnect)
+            {
+                changes.Add($"Notify on disconnect {(now.NotifyOnDisconnect ? "enabled" : "disabled")}");
+            }
 
             var log = await operationLogFactory.CreateAsync($"Connection updated: {oldName}", cancellationToken: cancellationToken);
             await log.AppendAsync(changes.Count == 0 ? ["No changes detected."] : changes.ToArray());
@@ -513,6 +532,7 @@ namespace BackupService.Connections
             $"Device kind: {usb.Kind.GetDescription()}",
             $"Device: {DisplayText(usb.DeviceLabel)}",
             $"Root folder: {DisplayText(usb.RootFolder)}",
+            $"Notifications: {(usb.NotificationsEnabled ? $"on (connect: {(usb.NotifyOnConnect ? "yes" : "no")}, disconnect: {(usb.NotifyOnDisconnect ? "yes" : "no")})" : "off")}",
         ];
 
         // Never logs the client secret or refresh token.

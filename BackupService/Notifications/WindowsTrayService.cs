@@ -102,10 +102,10 @@ namespace BackupService.Notifications
             Enqueue("Scheduled task completed", $"'{taskName}' — {outcome.GetDescription()}", InfoFlagFor(outcome));
 
         public void NotifyDeviceConnected(string deviceName) =>
-            Enqueue("USB device connected", $"'{deviceName}' is connected.", NIIF_INFO);
+            Enqueue($"{deviceName} Connected", "The USB device is connected.", NIIF_INFO);
 
         public void NotifyDeviceDisconnected(string deviceName) =>
-            Enqueue("USB device disconnected", $"'{deviceName}' was disconnected.", NIIF_INFO);
+            Enqueue($"{deviceName} Disconnected", "The USB device was disconnected.", NIIF_INFO);
 
         private void Enqueue(string title, string message, int infoFlag)
         {

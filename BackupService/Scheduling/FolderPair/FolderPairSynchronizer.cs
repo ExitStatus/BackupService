@@ -212,6 +212,10 @@ namespace BackupService.Scheduling
                         sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(sourcePath);
                         destTime = ctx.TargetFs.GetLastWriteTimeUtc(destPath);
                     }
+                    catch (EndpointUnavailableException)
+                    {
+                        throw; // source endpoint gone — abort the run (handled by the handler)
+                    }
                     catch (Exception ex)
                     {
                         result.Errors++;
@@ -280,6 +284,10 @@ namespace BackupService.Scheduling
                     sourceDirs = ctx.SourceFs.GetDirectories(sourceDir);
                     targetDirs = pair.AllowDeletions ? ctx.TargetFs.GetDirectories(targetDir) : [];
                 }
+                catch (EndpointUnavailableException)
+                {
+                    throw; // source endpoint gone — abort the run
+                }
                 catch (Exception ex)
                 {
                     result.Errors++;
@@ -335,11 +343,15 @@ namespace BackupService.Scheduling
                     {
                         if (ContentEqual(ctx, source, dest))
                         {
-                            ctx.TargetFs.SetLastWriteTimeUtc(dest, sourceTime);
+                            TryStampWriteTime(ctx.TargetFs, dest, sourceTime);
                             result.Updated++;
                             await log.AppendAsync($"Synced timestamp of '{dest}' (content matched)");
                         }
                         // Content differs — leave the newer destination untouched (no change, no log).
+                    }
+                    catch (EndpointUnavailableException)
+                    {
+                        throw; // source endpoint gone — abort the run
                     }
                     catch (Exception ex)
                     {
@@ -378,7 +390,7 @@ namespace BackupService.Scheduling
 
                 // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
                 // timestamp across (a fresh-write "now" timestamp would look newer on the next run).
-                ctx.TargetFs.SetLastWriteTimeUtc(tempPath, sourceTime);
+                TryStampWriteTime(ctx.TargetFs, tempPath, sourceTime);
 
                 if (ctx.TargetFs.FileExists(dest))
                 {
@@ -392,6 +404,13 @@ namespace BackupService.Scheduling
             {
                 // Stopped mid-copy — drop the partial temp and let cancellation unwind the run. Not
                 // counted as an error or warning (it isn't a problem with the file).
+                TryDeleteTemp(ctx, tempPath);
+                throw;
+            }
+            catch (EndpointUnavailableException)
+            {
+                // The source endpoint went away (e.g. the camera was switched off). Clean up and let it
+                // propagate so the whole run aborts fast rather than failing every remaining file.
                 TryDeleteTemp(ctx, tempPath);
                 throw;
             }
@@ -411,6 +430,21 @@ namespace BackupService.Scheduling
                     await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
                 }
                 return false;
+            }
+        }
+
+        // Win32 FileTime (and thus File.SetLastWriteTimeUtc) only accepts times from 1601-01-01 UTC onward.
+        // A source that can't supply a usable timestamp — e.g. an MTP camera that exposes no modified date —
+        // yields DateTime.MinValue, which would otherwise throw "Not a valid Win32 FileTime." and fail the copy.
+        private static readonly DateTime MinFileTimeUtc = DateTime.FromFileTimeUtc(0);
+
+        // Carry the source's last-write-time onto a freshly copied file, but only when it's a stampable
+        // Win32 FileTime; if the source had no usable date we leave the new file's natural timestamp.
+        private static void TryStampWriteTime(IBackupFileSystem fs, string path, DateTime sourceTime)
+        {
+            if (sourceTime >= MinFileTimeUtc)
+            {
+                fs.SetLastWriteTimeUtc(path, sourceTime);
             }
         }
 

@@ -61,6 +61,37 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task SourceWithUnstampableTimestamp_StillCopies_WithoutError()
+        {
+            // An MTP camera that exposes no modified date yields DateTime.MinValue, which is not a valid
+            // Win32 FileTime. The copy must still succeed (data is the point), just without stamping the time.
+            _fs.AddFile(@"C:\src\a.txt", DateTime.MinValue, "hello");
+
+            var result = await Run(Pair());
+
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeTrue();
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("hello");
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        [Test]
+        public async Task SourceEndpointDisconnectedMidCopy_AbortsRun_LeavingNoTemp()
+        {
+            // A camera switched off mid-copy surfaces as EndpointUnavailableException from the source. The engine
+            // must let it propagate (fail fast) rather than swallow it as a per-file error, and leave no temp.
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            _fs.OpenReadOverride = _ => throw new EndpointUnavailableException("device gone");
+
+            Func<Task> act = () => Run(Pair());
+
+            await act.Should().ThrowAsync<EndpointUnavailableException>();
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        [Test]
         public async Task BytesCopied_SumsCopiedAndUpdatedFileSizes_SkippedFilesContributeNothing()
         {
             _fs.AddFile(@"C:\src\new.txt", T1, "hello");  // 5 bytes — new copy
@@ -673,6 +704,11 @@ namespace BackupService.UnitTests.Scheduling
                 if (!_files.TryGetValue(path, out var e))
                 {
                     throw new FileNotFoundException(path);
+                }
+                // Mirror File.SetLastWriteTimeUtc: a pre-1601 time is not a valid Win32 FileTime and throws.
+                if (value < DateTime.FromFileTimeUtc(0))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "Not a valid Win32 FileTime.");
                 }
                 _files[path] = e with { Time = value };
             }

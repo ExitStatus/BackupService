@@ -2,6 +2,7 @@ using System.Diagnostics;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
+using BackupService.FileSystem;
 using BackupService.Logging;
 using BackupService.Notifications;
 using BackupService.Profiles;
@@ -38,6 +39,7 @@ namespace BackupService.Scheduling
             var total = new BackupResult();
             var fatal = false;
             var cancelled = false;
+            var disconnected = false;
 
             var log = await operationLogFactory.CreateAsync(
                 $"{handlerName} called with {profile.FolderPairs.Count} folder pair(s).",
@@ -97,6 +99,15 @@ namespace BackupService.Scheduling
                 await log.AppendAsync(OperationLogLevel.Warning, "Run cancelled — stopped before completion.");
                 throw;
             }
+            catch (EndpointUnavailableException ex)
+            {
+                // The source endpoint went away mid-run (e.g. a USB camera switched off / unplugged). Stop fast
+                // and clean — partial results so far are valid. Treat it like a cancellation (a warning, profile
+                // returns to Idle) rather than a failure, and don't re-throw so the run winds down through the
+                // finally. Files already copied are intact; nothing partial is left behind.
+                disconnected = true;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Source device disconnected — run stopped. {ex.Message}");
+            }
             catch (Exception ex)
             {
                 // Catastrophic failure (something outside a pair's own try).
@@ -109,7 +120,7 @@ namespace BackupService.Scheduling
             {
                 stopwatch.Stop();
                 var duration = FormatDuration(stopwatch.Elapsed);
-                var outcome = cancelled ? RunOutcome.CompletedWithWarnings
+                var outcome = cancelled || disconnected ? RunOutcome.CompletedWithWarnings
                     : fatal ? RunOutcome.Failed
                     : total.Errors > 0 ? RunOutcome.CompletedWithErrors
                     : total.Warnings > 0 ? RunOutcome.CompletedWithWarnings
@@ -124,6 +135,8 @@ namespace BackupService.Scheduling
                 var counts = $"{total.Copied} copied, {total.Updated} updated, {total.Deleted} deleted";
                 var (summary, level) = cancelled
                     ? ($"{handlerName} was cancelled after {duration} — {counts}", OperationLogLevel.Warning)
+                    : disconnected
+                    ? ($"{handlerName} stopped after {duration} — source device disconnected — {counts}", OperationLogLevel.Warning)
                     : outcome switch
                     {
                         RunOutcome.Failed => ($"{handlerName} failed in {duration}", OperationLogLevel.Error),
@@ -134,8 +147,8 @@ namespace BackupService.Scheduling
                 await log.SetSummaryAsync(summary, level);
 
                 // Desktop notification for the completed run (a no-op unless on Windows with notifications on).
-                // A cancelled run isn't a completion, so it's skipped; honour the profile's notification settings.
-                if (!cancelled && profile.NotificationsEnabled && profile.NotifyOnComplete)
+                // A cancelled or disconnected run isn't a completion, so it's skipped; honour the profile's settings.
+                if (!cancelled && !disconnected && profile.NotificationsEnabled && profile.NotifyOnComplete)
                 {
                     notifier?.NotifyBackupCompleted(profile.Name, Type, outcome);
                 }
@@ -155,6 +168,13 @@ namespace BackupService.Scheduling
             catch (OperationCanceledException)
             {
                 // Mark the pair failed, then let cancellation bubble to the handler's catch.
+                await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, FolderPairLastRunStatus.Fail, CancellationToken.None);
+                throw;
+            }
+            catch (EndpointUnavailableException)
+            {
+                // Source endpoint gone — mark the pair failed and let it bubble to the handler so the whole run
+                // aborts (the remaining pairs share the same dead device).
                 await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, FolderPairLastRunStatus.Fail, CancellationToken.None);
                 throw;
             }

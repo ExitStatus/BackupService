@@ -149,7 +149,7 @@ namespace BackupService.Notifications
             ProfileType.ArchiveSync => "Creating archive",
             ProfileType.InstantSync => "Syncing",
             ProfileType.LightroomArchive => "Archiving",
-            _ => "Backing up",
+            _ => "Copying files",
         };
 
         // ---- The window-loop thread ----
@@ -349,7 +349,7 @@ namespace BackupService.Notifications
                 var subRect = new RECT { Left = Pad, Top = 36, Right = Width - Pad, Bottom = 54 };
                 SelectObject(hdc, _bodyFont);
                 SetTextColor(hdc, ColMuted);
-                DrawText(hdc, $"{info.Action} — {info.Percent}%", -1, ref subRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+                DrawText(hdc, $"{info.Action}: {info.Percent}%", -1, ref subRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 
                 // Progress bar: track then proportional fill.
                 var track = new RECT { Left = Pad, Top = Height - 22, Right = Width - Pad, Bottom = Height - 14 };

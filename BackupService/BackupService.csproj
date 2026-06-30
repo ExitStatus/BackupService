@@ -10,6 +10,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="BackupService.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Deployed next to the exe and read at runtime (BuildInfo); the publish profile bumps it on every deploy. -->
+    <Content Include="buildnumber.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Blazor-ApexCharts" Version="6.1.0" />
     <PackageReference Include="Cronos" Version="0.13.0" />
     <!-- Google Drive API client for the Google Drive connection type (OAuth 2.0 + Drive v3);
@@ -23,6 +32,9 @@
     <!-- MTP/PTP (Windows Portable Devices) access for the USB connection type's portable-device kind (cameras,
          phones). MIT, no dependencies, Windows-only at runtime (guarded with OperatingSystem.IsWindows()). -->
     <PackageReference Include="MediaDevices" Version="1.10.0" />
+    <!-- Reads EXIF "date taken" from camera files (incl. Sony ARW raw) as the last-resort timestamp source when
+         an MTP device exposes no WPD modified/authored/created date. Apache-2.0, netstandard2.0, no native deps. -->
+    <PackageReference Include="MetadataExtractor" Version="2.8.1" />
     <!-- SMB client (SMB2/3) for the Connections feature; netstandard2.0, works on net10.0. -->
     <PackageReference Include="SMBLibrary" Version="1.5.7" />
     <!-- ZIP writer with encryption (AES-256 / ZipCrypto) for password-protected ArchiveSync archives —
