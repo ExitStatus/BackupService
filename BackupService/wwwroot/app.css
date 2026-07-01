@@ -95,10 +95,20 @@ h3:focus {
 }
 
 .topbar .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     font-size: 1.05rem;
     font-weight: 600;
     color: var(--text);
     text-decoration: none;
+}
+
+/* App icon (favicon) shown to the left of the brand title. */
+.topbar .brand-icon {
+    width: 48px;
+    height: 48px;
+    display: block;
 }
 
 .topbar .brand:hover {
@@ -1547,6 +1557,19 @@ label.header-check input {
 .log-level-warning { background: var(--notify-warning); }
 .log-level-error { background: var(--danger); color: #1a1a1a; }
 .log-level-debug { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+
+/* "Running" chip shown after a profile name in the Logs table while that profile is running. */
+.running-chip {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    vertical-align: middle;
+}
 
 /* Sliding on/off toggle (knob left = false, right = true). */
 .toggle {

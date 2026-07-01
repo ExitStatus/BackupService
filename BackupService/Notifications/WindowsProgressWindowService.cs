@@ -95,7 +95,7 @@ namespace BackupService.Notifications
                     var profile = LoadProfile(profileId);
                     if (profile is { ShowProgressWindow: true })
                     {
-                        _state[profileId] = new ProgressInfo(profile.Name, ActionFor(profile.Type), Clamp(_status.GetProgress(profileId)));
+                        _state[profileId] = BuildInfo(profile.Name, ActionFor(profile.Type), _status.GetProgressDetail(profileId));
                     }
                     else
                     {
@@ -120,10 +120,21 @@ namespace BackupService.Notifications
         {
             if (_state.TryGetValue(profileId, out var info))
             {
-                _state[profileId] = info with { Percent = Clamp(_status.GetProgress(profileId)) };
+                var d = _status.GetProgressDetail(profileId);
+                _state[profileId] = info with
+                {
+                    StepName = d?.StepName,
+                    StepPercent = Clamp(d?.StepPercent),
+                    TotalPercent = Clamp(d?.TotalPercent),
+                    StepCount = d?.StepCount ?? 0,
+                };
                 Signal();
             }
         }
+
+        // Builds the shown info from a progress snapshot (null before the first report).
+        private static ProgressInfo BuildInfo(string title, string action, ProfileProgress? progress) =>
+            new(title, action, progress?.StepName, Clamp(progress?.StepPercent), Clamp(progress?.TotalPercent), progress?.StepCount ?? 0);
 
         private void Signal()
         {
@@ -332,7 +343,7 @@ namespace BackupService.Notifications
 
                 var info = _profileByWindow.TryGetValue(hWnd, out var id) && _shownInfo.TryGetValue(id, out var i)
                     ? i
-                    : new ProgressInfo(string.Empty, string.Empty, 0);
+                    : new ProgressInfo(string.Empty, string.Empty, null, 0, 0, 0);
 
                 FillRect(hdc, ref rc, _bgBrush);
                 FrameRect(hdc, ref rc, _borderBrush);
@@ -340,22 +351,37 @@ namespace BackupService.Notifications
                 SetBkMode(hdc, TRANSPARENT);
 
                 // Title (profile name).
-                var titleRect = new RECT { Left = Pad, Top = 12, Right = Width - Pad, Bottom = 34 };
+                var titleRect = new RECT { Left = Pad, Top = 12, Right = Width - Pad, Bottom = 32 };
                 SelectObject(hdc, _titleFont);
                 SetTextColor(hdc, ColTitle);
                 DrawText(hdc, info.Title, -1, ref titleRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 
-                // Sub-line: action + percent.
-                var subRect = new RECT { Left = Pad, Top = 36, Right = Width - Pad, Bottom = 54 };
+                // Body: the current step's name + percent. With more than one step, the step shows its own
+                // percent and a second "Total {overall}%" line is added; with one step it shows the overall.
                 SelectObject(hdc, _bodyFont);
                 SetTextColor(hdc, ColMuted);
-                DrawText(hdc, $"{info.Action}: {info.Percent}%", -1, ref subRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 
-                // Progress bar: track then proportional fill.
+                var label = string.IsNullOrEmpty(info.StepName) ? info.Action : info.StepName;
+                if (info.StepCount > 1)
+                {
+                    var stepRect = new RECT { Left = Pad, Top = 36, Right = Width - Pad, Bottom = 54 };
+                    DrawText(hdc, $"{label} {info.StepPercent}%", -1, ref stepRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+                    var totalRect = new RECT { Left = Pad, Top = 56, Right = Width - Pad, Bottom = 74 };
+                    DrawText(hdc, $"Total {info.TotalPercent}%", -1, ref totalRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+                }
+                else
+                {
+                    // Single step — one line, vertically centred between the title and the bar.
+                    var lineRect = new RECT { Left = Pad, Top = 46, Right = Width - Pad, Bottom = 64 };
+                    DrawText(hdc, $"{label} {info.TotalPercent}%", -1, ref lineRect, DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+                }
+
+                // Progress bar (overall run progress): track then proportional fill.
                 var track = new RECT { Left = Pad, Top = Height - 22, Right = Width - Pad, Bottom = Height - 14 };
                 FillRect(hdc, ref track, _trackBrush);
 
-                var fillWidth = (track.Right - track.Left) * info.Percent / 100;
+                var fillWidth = (track.Right - track.Left) * info.TotalPercent / 100;
                 if (fillWidth > 0)
                 {
                     var fill = track with { Right = track.Left + fillWidth };
@@ -395,12 +421,15 @@ namespace BackupService.Notifications
         private static readonly int ColTitle = Rgb(0xf2, 0xf4, 0xf8);
         private static readonly int ColMuted = Rgb(0x9a, 0xa4, 0xb2);
 
-        private sealed record ProgressInfo(string Title, string Action, int Percent);
+        // Title = profile name; Action = the fallback verb ("Copying files") shown when no step name is
+        // known yet; StepName/StepPercent = the current step; TotalPercent = overall; StepCount decides the
+        // one-line vs two-line layout.
+        private sealed record ProgressInfo(string Title, string Action, string? StepName, int StepPercent, int TotalPercent, int StepCount);
 
         // ---- Win32 interop ----
 
         private const int Width = 340;
-        private const int Height = 88;
+        private const int Height = 104;
         private const int ScreenMargin = 16;
         private const int Gap = 10;
         private const int Pad = 14;

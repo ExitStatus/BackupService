@@ -79,6 +79,10 @@ else
                         @if (log.Profile is not null)
                         {
                             @log.Profile.Name
+                            @if (IsProfileRunning(log.Profile.Id))
+                            {
+                                <span class="running-chip">Running</span>
+                            }
                         }
                         else
                         {

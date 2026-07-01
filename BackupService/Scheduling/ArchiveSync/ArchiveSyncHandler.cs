@@ -61,18 +61,26 @@ namespace BackupService.Scheduling
                 {
                     // Each item contributes an equal slice of the run; within a slice the processor reports a
                     // 0..1 completion fraction (75% files-zipped, 25% bytes-copied) so progress is granular.
+                    // Each archive item is one step. Within a step the processor reports a 0..1 completion
+                    // fraction (75% files-zipped, 25% bytes-copied) — surfaced as the step percent, with the
+                    // overall percent spread evenly across the items.
                     var totalItems = profile.ArchiveSyncItems.Count;
                     statusService.SetProgress(profile.Id, 0);
                     var completed = 0;
                     foreach (var item in profile.ArchiveSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        var itemIndex = completed; // captured for the closure below
+                        var itemIndex = completed;  // captured for the closure below
+                        var currentItem = item;     // captured for the closure below
                         var itemProgress = new DelegateProgress(fraction =>
-                            statusService.SetProgress(profile.Id, (int)((itemIndex + Math.Clamp(fraction, 0, 1)) * 100 / totalItems)));
+                        {
+                            var f = Math.Clamp(fraction, 0, 1);
+                            var totalPercent = (int)((itemIndex + f) * 100 / totalItems);
+                            statusService.SetProgress(profile.Id, new ProfileProgress(totalPercent, currentItem.Name, (int)(f * 100), totalItems));
+                        });
                         await RunItemAsync(item, profile.SourceConnectionId, profile.TargetConnectionId, log, total, itemProgress, cancellationToken);
                         completed++;
-                        statusService.SetProgress(profile.Id, completed * 100 / totalItems);
+                        statusService.SetProgress(profile.Id, new ProfileProgress(completed * 100 / totalItems, item.Name, 100, totalItems));
                     }
                 }
             }

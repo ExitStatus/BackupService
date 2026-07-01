@@ -4,7 +4,13 @@
     <AuthorizeView>
         <Authorized>
             <header class="topbar">
-                <a href="" class="brand">Backup Service</a>
+                @* data-enhance-nav="false" forces a full page load rather than an enhanced-navigation DOM
+                   morph — morphing the Dashboard re-patches over the ApexCharts JS-rendered SVG and corrupts
+                   the chart legends. A clean reload rebuilds the charts from scratch. *@
+                <a href="/" class="brand" data-enhance-nav="false">
+                    <img src="Icons/icon.ico" width="48" height="48" alt="" class="brand-icon" />
+                    <span>Backup Service</span>
+                </a>
                 <div class="user">
                     <span>@context.User.Identity?.Name</span>
                     <a href="settings" class="icon-btn" title="Settings" aria-label="Settings">

@@ -10,7 +10,7 @@ namespace BackupService.Profiles
     public sealed class ProfileStatusService : IProfileStatusService
     {
         private readonly ConcurrentDictionary<int, ProfileStatus> _statuses = new();
-        private readonly ConcurrentDictionary<int, int> _progress = new();
+        private readonly ConcurrentDictionary<int, ProfileProgress> _progress = new();
         private readonly ConcurrentDictionary<int, byte> _locked = new();
         private readonly object _runLock = new();
 
@@ -33,17 +33,32 @@ namespace BackupService.Profiles
         }
 
         public int? GetProgress(int profileId) =>
-            _progress.TryGetValue(profileId, out var percent) ? percent : null;
+            _progress.TryGetValue(profileId, out var p) ? p.TotalPercent : null;
+
+        public ProfileProgress? GetProgressDetail(int profileId) =>
+            _progress.TryGetValue(profileId, out var p) ? p : null;
 
         public void SetProgress(int profileId, int percent)
         {
-            percent = Math.Clamp(percent, 0, 100);
-            // Only notify when the integer percent actually changes (caps UI churn at ~100 updates per run).
-            if (_progress.TryGetValue(profileId, out var existing) && existing == percent)
+            var clamped = Math.Clamp(percent, 0, 100);
+            // A bare percent (no step detail) is a single-step snapshot: step percent tracks the total.
+            SetProgress(profileId, new ProfileProgress(clamped, null, clamped, 1));
+        }
+
+        public void SetProgress(int profileId, ProfileProgress progress)
+        {
+            progress = progress with
+            {
+                TotalPercent = Math.Clamp(progress.TotalPercent, 0, 100),
+                StepPercent = Math.Clamp(progress.StepPercent, 0, 100),
+            };
+            // Only notify when the snapshot actually changes (caps UI churn — the fields are all integers /
+            // the step name, so a run pushes a bounded number of updates).
+            if (_progress.TryGetValue(profileId, out var existing) && existing == progress)
             {
                 return;
             }
-            _progress[profileId] = percent;
+            _progress[profileId] = progress;
             ProgressChanged?.Invoke(profileId);
         }
 

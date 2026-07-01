@@ -43,6 +43,16 @@ namespace BackupService.Profiles
         void SetProgress(int profileId, int percent);
 
         /// <summary>
+        /// Records richer step-aware progress (the current step's name/percent plus the overall percent).
+        /// Raises <see cref="ProgressChanged"/> only when the snapshot actually changes. Cleared when the
+        /// profile leaves Running. The progress window reads this via <see cref="GetProgressDetail"/>.
+        /// </summary>
+        void SetProgress(int profileId, ProfileProgress progress);
+
+        /// <summary>The full progress snapshot (current step + overall), or null when not running / not yet known.</summary>
+        ProfileProgress? GetProgressDetail(int profileId);
+
+        /// <summary>
         /// Raised (with the affected profile id) when a running profile's percent changes. Distinct from
         /// <see cref="Changed"/> so the grid can update just the cell without reloading the page.
         /// </summary>

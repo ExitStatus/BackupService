@@ -27,6 +27,10 @@ namespace BackupService.Components.Pages.BackupServicePage
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
 
+        // The live per-profile run status, so a log row for a currently-running profile shows a "Running" chip.
+        [Inject]
+        private IProfileStatusService StatusService { get; set; } = default!;
+
         // Pushes a refresh whenever log data changes (debounced); replaces interval polling.
         [Inject]
         private ILogWatcher LogWatcher { get; set; } = default!;
@@ -164,6 +168,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             if (firstRender)
             {
                 LogWatcher.Changed += OnLogsChanged;
+                StatusService.Changed += OnProfileStatusChanged;
                 _subscribed = true;
             }
 
@@ -204,6 +209,12 @@ namespace BackupService.Components.Pages.BackupServicePage
                 }
             });
         }
+
+        // A profile started/finished running — re-render so its rows' "Running" chip appears/disappears.
+        // No data reload needed (the chip reads the live status service, not the loaded entity).
+        private void OnProfileStatusChanged(int profileId) => _ = InvokeAsync(StateHasChanged);
+
+        private bool IsProfileRunning(int profileId) => StatusService.Get(profileId) == ProfileStatus.Running;
 
         /// <summary>
         /// Re-reads the current page (and any expanded logs' details) in place, without collapsing the
@@ -313,6 +324,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             if (_subscribed)
             {
                 LogWatcher.Changed -= OnLogsChanged;
+                StatusService.Changed -= OnProfileStatusChanged;
             }
         }
     }

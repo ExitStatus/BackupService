@@ -61,13 +61,16 @@ namespace BackupService.Scheduling
                         .Select(item => (Item: item, Files: EnumerateSourceFiles(item.SourceFolder, item.IncludeSubFolders)))
                         .ToList();
 
-                    var totalFiles = work.Sum(w => w.Files.Count);
+                    // Each item is one step (its source-file count is the step weight).
+                    var steps = work.Select(w => (w.Item.Name, w.Files.Count)).ToList();
                     statusService.SetProgress(profile.Id, 0);
-                    var progress = new ProfileProgressReporter(statusService, profile.Id, totalFiles);
+                    var progress = new ProfileProgressReporter(statusService, profile.Id, steps);
 
+                    var stepIndex = 0;
                     foreach (var (item, files) in work)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        progress.BeginStep(stepIndex++);
                         await RunItemAsync(item, profile.TargetConnectionId, settings, files, log, total, progress, cancellationToken);
                     }
                 }

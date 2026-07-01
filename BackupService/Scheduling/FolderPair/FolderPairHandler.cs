@@ -59,16 +59,17 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
-                    // Pre-count the files to process so the grid can show a "Running - {percent}%" progress.
-                    // Counting is best-effort: a failure (e.g. an unreachable source) leaves it out of the
-                    // total — the sync itself reports the real error.
-                    var totalFiles = 0;
+                    // Pre-count each pair's files so the grid/progress window can show a per-step and overall
+                    // "{percent}%". Each folder pair is one step. Counting is best-effort: a failure (e.g. an
+                    // unreachable source) leaves that step at 0 — the sync itself reports the real error.
+                    var steps = new List<(string Name, int Count)>();
                     foreach (var pair in profile.FolderPairs)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        var count = 0;
                         try
                         {
-                            totalFiles += await synchronizer.CountFilesAsync(pair, profile.SourceConnectionId, cancellationToken);
+                            count = await synchronizer.CountFilesAsync(pair, profile.SourceConnectionId, cancellationToken);
                         }
                         catch (OperationCanceledException)
                         {
@@ -78,14 +79,17 @@ namespace BackupService.Scheduling
                         {
                             // Best-effort — uncounted files just won't move the bar.
                         }
+                        steps.Add((pair.Name, count));
                     }
 
                     statusService.SetProgress(profile.Id, 0);
-                    var progress = new ProfileProgressReporter(statusService, profile.Id, totalFiles);
+                    var progress = new ProfileProgressReporter(statusService, profile.Id, steps);
 
+                    var stepIndex = 0;
                     foreach (var pair in profile.FolderPairs)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        progress.BeginStep(stepIndex++);
                         await RunPairAsync(pair, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, cancellationToken);
                     }
                 }

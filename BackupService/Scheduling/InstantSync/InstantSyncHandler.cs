@@ -54,14 +54,16 @@ namespace BackupService.Scheduling
                 }
                 else
                 {
-                    // Pre-count files (best-effort) so the grid can show a "Running - {percent}%" progress.
-                    var totalFiles = 0;
+                    // Pre-count each item's files (best-effort) so the grid/progress window can show a per-step
+                    // and overall "{percent}%". Each item is one step.
+                    var steps = new List<(string Name, int Count)>();
                     foreach (var item in profile.InstantSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        var count = 0;
                         try
                         {
-                            totalFiles += await synchronizer.CountFilesAsync(ToPair(item), profile.SourceConnectionId, cancellationToken);
+                            count = await synchronizer.CountFilesAsync(ToPair(item), profile.SourceConnectionId, cancellationToken);
                         }
                         catch (OperationCanceledException)
                         {
@@ -71,14 +73,17 @@ namespace BackupService.Scheduling
                         {
                             // Best-effort — uncounted files just won't move the bar.
                         }
+                        steps.Add((item.Name, count));
                     }
 
                     statusService.SetProgress(profile.Id, 0);
-                    var progress = new ProfileProgressReporter(statusService, profile.Id, totalFiles);
+                    var progress = new ProfileProgressReporter(statusService, profile.Id, steps);
 
+                    var stepIndex = 0;
                     foreach (var item in profile.InstantSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        progress.BeginStep(stepIndex++);
                         await RunItemAsync(item, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, cancellationToken);
                     }
                 }
