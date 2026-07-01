@@ -7,6 +7,7 @@ using BackupService.Extensions;
 using BackupService.Profiles;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 
 namespace BackupService.Components.Dialogs
 {
@@ -39,6 +40,12 @@ namespace BackupService.Components.Dialogs
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
         private readonly List<ArchiveSyncItemModel> _archiveSyncItems = [];
         private readonly List<LightroomArchiveItemModel> _lightroomArchiveItems = [];
+        private InputText? _nameInput;
+
+        // Remembers the last folder browsed (per connection) for this dialog session, so browsing to a
+        // source/target for a subsequent item starts at the same level. Scoped to this one dialog instance.
+        private readonly FolderBrowseMemory _browseMemory = new();
+
         private FolderPairControl? _folderPairControl;
         private InstantSyncControl? _instantSyncControl;
         private ArchiveSyncControl? _archiveSyncControl;
@@ -231,6 +238,23 @@ namespace BackupService.Components.Dialogs
                     IncludeSubFolders = item.IncludeSubFolders,
                     AllowDeletions = item.AllowDeletions,
                 });
+            }
+        }
+
+        // When creating a new profile, put the cursor in the Name field so the user can start typing
+        // immediately. (On edit the field is pre-filled, so we leave focus alone.)
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            if (firstRender && !IsEdit && _nameInput?.Element is { } element)
+            {
+                try
+                {
+                    await element.FocusAsync();
+                }
+                catch
+                {
+                    // Best-effort — the element may not be focusable yet or the circuit may be tearing down.
+                }
             }
         }
 

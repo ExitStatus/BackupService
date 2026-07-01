@@ -158,6 +158,14 @@ h3:focus {
     padding: 2rem 1.5rem;
 }
 
+/* When a section opts into a full-height, internally-scrolled table (.table-page), make its
+   container a flex column so the table panel can fill the space down to the window bottom. Other
+   sections (Dashboard, Settings, …) keep the normal block-flow + container scroll. */
+.workspace-content:has(> .table-page) {
+    display: flex;
+    flex-direction: column;
+}
+
 .sidebar-item {
     display: flex;
     align-items: center;
@@ -1310,6 +1318,41 @@ label.header-check input {
     color: var(--text-muted);
     font-weight: 600;
     background: var(--surface-2);
+}
+
+/* A section (Backup Profiles / Scheduled Tasks / Connections / Logs) laid out as a full-height
+   flex column: the header/filters sit at the top and the table gets its own scroll panel that
+   fills the space down to the bottom of the window, instead of the page paging. */
+.table-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The scrollable table panel: fills the remaining height and scrolls internally. It owns the
+   border + rounding (the inner .table drops its own) so the sticky header sits flush inside. */
+.table-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.table-scroll .table {
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+}
+
+/* Keep the column headers visible while the body scrolls. The inset shadow redraws the bottom
+   divider (a collapsed-border cell drops its own border once it becomes sticky). */
+.table-scroll .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    box-shadow: inset 0 -1px 0 var(--border);
 }
 
 /* Sortable column header: a button styled to read as a plain header label. */

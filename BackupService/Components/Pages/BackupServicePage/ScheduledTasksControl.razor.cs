@@ -14,7 +14,8 @@ namespace BackupService.Components.Pages.BackupServicePage
     /// </summary>
     public partial class ScheduledTasksControl : ComponentBase, IDisposable
     {
-        private const int PageSize = 10;
+        // No paging — the table lives in a scroll panel, so load every row on one "page".
+        private const int PageSize = int.MaxValue;
 
         [Inject]
         private IScheduledTaskService TaskService { get; set; } = default!;
@@ -30,7 +31,6 @@ namespace BackupService.Components.Pages.BackupServicePage
         private ScheduledTask? _deleteTarget;
         private Notification _notification = default!;
 
-        private int _page = 1;
         private ScheduledTaskSortColumn _sortColumn = ScheduledTaskSortColumn.Name;
         private bool _descending;
         private PagedResult<ScheduledTask>? _tasks;
@@ -40,17 +40,17 @@ namespace BackupService.Components.Pages.BackupServicePage
             StatusService.Changed += OnStatusChanged;
         }
 
-        protected override Task OnInitializedAsync() => LoadAsync(_page);
+        protected override Task OnInitializedAsync() => LoadAsync();
 
         private void OnStatusChanged(int taskId)
         {
-            // When a task on the current page changes status, reload so DateLastRun (written by the runner)
-            // and the live Status cell both refresh.
+            // When a task changes status, reload so DateLastRun (written by the runner) and the live Status
+            // cell both refresh.
             if (_tasks?.Items.Any(t => t.Id == taskId) == true)
             {
                 InvokeAsync(async () =>
                 {
-                    await LoadAsync(_page);
+                    await LoadAsync();
                     StateHasChanged();
                 });
             }
@@ -67,10 +67,9 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
-        private async Task LoadAsync(int page)
+        private async Task LoadAsync()
         {
-            _tasks = await TaskService.GetPageAsync(page, PageSize, _sortColumn, _descending);
-            _page = _tasks.PageNumber;
+            _tasks = await TaskService.GetPageAsync(1, PageSize, _sortColumn, _descending);
         }
 
         private async Task SortByAsync(ScheduledTaskSortColumn column)
@@ -85,27 +84,11 @@ namespace BackupService.Components.Pages.BackupServicePage
                 _descending = false;
             }
 
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private string SortIndicator(ScheduledTaskSortColumn column) =>
             _sortColumn != column ? string.Empty : _descending ? " ▼" : " ▲";
-
-        private async Task PreviousPageAsync()
-        {
-            if (_page > 1)
-            {
-                await LoadAsync(_page - 1);
-            }
-        }
-
-        private async Task NextPageAsync()
-        {
-            if (_tasks is not null && _page < _tasks.TotalPages)
-            {
-                await LoadAsync(_page + 1);
-            }
-        }
 
         private bool IsRunning(int id) => StatusService.Get(id) == ProfileStatus.Running;
 
@@ -135,7 +118,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             var message = _editId is null ? "Scheduled task created" : "Scheduled task updated";
             _showDialog = false;
             _notification.Show(message, NotificationLevel.Success);
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         private void UnlockEditing()
@@ -193,13 +176,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             await TaskService.DeleteAsync(_deleteTarget.Id);
             _deleteTarget = null;
             _notification.Show("Scheduled task deleted", NotificationLevel.Success);
-
-            if (_tasks is not null && _tasks.Items.Count == 1 && _page > 1)
-            {
-                _page--;
-            }
-
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         private string StatusText(int taskId) => StatusService.Get(taskId) switch

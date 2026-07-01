@@ -97,6 +97,21 @@ namespace BackupService.Components.Controls
         [Parameter]
         public string? Error { get; set; }
 
+        /// <summary>
+        /// Optional per-profile-edit-session memory of the last folder browsed (provided by ProfileDialog).
+        /// When this field's folder is still blank, the picker opens at the remembered location instead of
+        /// the root. Null outside a profile edit (e.g. the scheduled-task working-directory field).
+        /// </summary>
+        [CascadingParameter]
+        private FolderBrowseMemory? BrowseMemory { get; set; }
+
+        /// <summary>
+        /// The path the picker should open at: this field's own folder if set, otherwise the last folder
+        /// browsed for this connection in the current session (so the next item starts where the last ended).
+        /// </summary>
+        private string EffectivePath =>
+            string.IsNullOrEmpty(Path) ? BrowseMemory?.Get(ConnectionId) ?? string.Empty : Path;
+
         private IReadOnlyList<ConnectionSummary> _connections = [];
         private List<int?> _options = [null];
         private bool _browsing;
@@ -193,6 +208,8 @@ namespace BackupService.Components.Controls
 
         private async Task OnSelected(string path)
         {
+            // Remember this level so the next item's browse (this session) starts here.
+            BrowseMemory?.Set(ConnectionId, path);
             await PathChanged.InvokeAsync(path);
             CancelBrowse();
         }
@@ -203,15 +220,19 @@ namespace BackupService.Components.Controls
             if (_usbMountPath is not null)
             {
                 var relative = System.IO.Path.GetRelativePath(_usbMountPath, absolutePath);
-                await PathChanged.InvokeAsync(relative is "." or "" ? string.Empty : relative);
+                var stored = relative is "." or "" ? string.Empty : relative;
+                BrowseMemory?.Set(ConnectionId, stored);
+                await PathChanged.InvokeAsync(stored);
             }
 
             CancelBrowse();
         }
 
+        // The USB picker takes an absolute path on the current drive; seed it from this field's folder or,
+        // when blank, the remembered relative path for this connection (both relative to the device root).
         private string? UsbBrowseInitialPath => _usbMountPath is null
             ? null
-            : string.IsNullOrEmpty(Path) ? _usbMountPath : System.IO.Path.Combine(_usbMountPath, Path);
+            : string.IsNullOrEmpty(EffectivePath) ? _usbMountPath : System.IO.Path.Combine(_usbMountPath, EffectivePath);
 
         private void CancelBrowse()
         {

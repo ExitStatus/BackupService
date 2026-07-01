@@ -130,9 +130,9 @@ namespace BackupService.Components.Controls
 
         public bool AllowDeletions { get; set; }
 
-        public bool IncludeSubFolders { get; set; }
+        public bool IncludeSubFolders { get; set; } = true;
 
-        public OverwriteBehaviour OverwriteBehaviour { get; set; }
+        public OverwriteBehaviour OverwriteBehaviour { get; set; } = OverwriteBehaviour.AlwaysOverwrite;
 
         /// <summary>Include rules (empty = back up everything).</summary>
         public List<FilterEntryModel> Includes { get; set; } = [];

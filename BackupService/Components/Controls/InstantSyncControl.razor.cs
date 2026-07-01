@@ -126,7 +126,7 @@ namespace BackupService.Components.Controls
         /// <summary>Debounce window in milliseconds; defaults to 5 seconds.</summary>
         public int DebounceMilliseconds { get; set; } = 5000;
 
-        public bool IncludeSubFolders { get; set; }
+        public bool IncludeSubFolders { get; set; } = true;
 
         public bool AllowDeletions { get; set; }
     }

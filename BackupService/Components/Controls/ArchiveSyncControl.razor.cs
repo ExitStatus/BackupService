@@ -139,7 +139,7 @@ namespace BackupService.Components.Controls
 
         public string FileName { get; set; } = string.Empty;
 
-        public bool IncludeSubFolders { get; set; }
+        public bool IncludeSubFolders { get; set; } = true;
 
         /// <summary>When true, only create a new archive when the source content has changed.</summary>
         public bool OnlyCopyOnChange { get; set; }

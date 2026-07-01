@@ -1,3 +1,4 @@
+<div class="table-page">
 <div class="content-header">
     <h1>Logs</h1>
 </div>
@@ -44,6 +45,7 @@ else
     }
     else
     {
+    <div class="table-scroll">
     <table class="table">
         <thead>
             <tr>
@@ -119,6 +121,11 @@ else
                                                    @onchange="e => OnDetailErrorChanged(log.Id, e)" />
                                             <span>Error (@ErrorCount(log.Id))</span>
                                         </label>
+                                        <label class="filter-check">
+                                            <input type="checkbox" checked="@DetailPausedChecked(log.Id)"
+                                                   @onchange="e => OnDetailPausedChanged(log.Id, e)" />
+                                            <span>Pause scrolling</span>
+                                        </label>
                                     </div>
                                     @if (filtered.Count == 0)
                                     {
@@ -126,7 +133,7 @@ else
                                     }
                                     else
                                     {
-                                        <div class="log-terminal" role="log" aria-label="Log output">
+                                        <div class="log-terminal" id="log-terminal-@log.Id" role="log" aria-label="Log output">
                                             <Virtualize Items="filtered" Context="detail" ItemSize="LineHeight">
                                                 <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.TimestampUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
                                             </Virtualize>
@@ -144,11 +151,7 @@ else
             }
         </tbody>
     </table>
-
-    <div class="pager">
-        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_logs.PageNumber <= 1)">Previous</button>
-        <span>Page @_logs.PageNumber of @_logs.TotalPages (@_logs.TotalCount total)</span>
-        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_logs.PageNumber >= _logs.TotalPages)">Next</button>
     </div>
     }
 }
+</div>

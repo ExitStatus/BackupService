@@ -8,7 +8,8 @@ namespace BackupService.Components.Pages.BackupServicePage
 {
     public partial class ConnectionsControl : ComponentBase, IDisposable
     {
-        private const int PageSize = 10;
+        // No paging — the table lives in a scroll panel, so load every row on one "page".
+        private const int PageSize = int.MaxValue;
 
         [Inject]
         private IConnectionService ConnectionService { get; set; } = default!;
@@ -21,7 +22,6 @@ namespace BackupService.Components.Pages.BackupServicePage
         private Connection? _deleteTarget;
         private Notification _notification = default!;
 
-        private int _page = 1;
         private ConnectionSortColumn _sortColumn = ConnectionSortColumn.Name;
         private bool _descending;
         private PagedResult<Connection>? _connections;
@@ -49,15 +49,14 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         protected override async Task OnInitializedAsync()
         {
-            await LoadAsync(_page);
+            await LoadAsync();
             // Poll the live "Active" state; the grid re-renders only when a connection's Yes/No actually changes.
             _activeTimer = new Timer(_ => _ = InvokeAsync(() => RunActiveChecks(initial: false)), null, ActivePollMs, ActivePollMs);
         }
 
-        private async Task LoadAsync(int page)
+        private async Task LoadAsync()
         {
-            _connections = await ConnectionService.GetPageAsync(page, PageSize, _sortColumn, _descending);
-            _page = _connections.PageNumber;
+            _connections = await ConnectionService.GetPageAsync(1, PageSize, _sortColumn, _descending);
             StartSpaceLoad();
             RunActiveChecks(initial: true);
             StartUsageLoad();
@@ -231,27 +230,11 @@ namespace BackupService.Components.Pages.BackupServicePage
                 _descending = false;
             }
 
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private string SortIndicator(ConnectionSortColumn column) =>
             _sortColumn != column ? string.Empty : _descending ? " ▼" : " ▲";
-
-        private async Task PreviousPageAsync()
-        {
-            if (_page > 1)
-            {
-                await LoadAsync(_page - 1);
-            }
-        }
-
-        private async Task NextPageAsync()
-        {
-            if (_connections is not null && _page < _connections.TotalPages)
-            {
-                await LoadAsync(_page + 1);
-            }
-        }
 
         private int ProfileCount(int connectionId) => _profileUsage.GetValueOrDefault(connectionId);
 
@@ -279,7 +262,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             var message = _editId is null ? "Connection created" : "Connection updated";
             _showDialog = false;
             _notification.Show(message, NotificationLevel.Success);
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         private void OpenDelete(Connection connection) => _deleteTarget = connection;
@@ -303,14 +286,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
 
             _notification.Show("Connection deleted", NotificationLevel.Success);
-
-            // Step back a page if we just removed the last row on it.
-            if (_connections is not null && _connections.Items.Count == 1 && _page > 1)
-            {
-                _page--;
-            }
-
-            await LoadAsync(_page);
+            await LoadAsync();
         }
     }
 }

@@ -12,7 +12,8 @@ namespace BackupService.Components.Pages.BackupServicePage
 {
     public partial class Profiles : ComponentBase, IDisposable
     {
-        private const int PageSize = 10;
+        // No paging — the table lives in a scroll panel, so load every matching row on one "page".
+        private const int PageSize = int.MaxValue;
         private const string ArrangeByTypeKey = "profiles.arrangeByType";
 
         // The "Arrange by Type" tabs, in display order, with their literal labels (suffixed with a count).
@@ -44,7 +45,6 @@ namespace BackupService.Components.Pages.BackupServicePage
         private Profile? _deleteTarget;
         private Notification _notification = default!;
 
-        private int _page = 1;
         private ProfileSortColumn _sortColumn = ProfileSortColumn.Name;
         private bool _descending;
         private PagedResult<Profile>? _profiles;
@@ -108,7 +108,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             _arrangeByType = saved == "1";
             _connections = await ConnectionService.GetSummariesAsync();
             _connectionOptions = new List<int?> { null }.Concat(_connections.Select(c => (int?)c.Id)).ToList();
-            await LoadAsync(1);
+            await LoadAsync();
             _initialised = true;
             StateHasChanged();
         }
@@ -122,7 +122,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             {
                 InvokeAsync(async () =>
                 {
-                    await LoadAsync(_page);
+                    await LoadAsync();
                     StateHasChanged();
                 });
             }
@@ -151,7 +151,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
-        private async Task LoadAsync(int page)
+        private async Task LoadAsync()
         {
             _typeCounts = await ProfileService.GetCountsByTypeAsync();
 
@@ -165,38 +165,37 @@ namespace BackupService.Components.Pages.BackupServicePage
             // grouped, or the type dropdown when flat.
             var typeFilter = _arrangeByType ? (HasAnyProfiles ? (ProfileType?)_activeType : null) : _filterType;
             _profiles = await ProfileService.GetPageAsync(
-                page, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled, _filterConnection);
-            _page = _profiles.PageNumber;
+                1, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled, _filterConnection);
         }
 
         private async Task OnFilterTextChanged(ChangeEventArgs e)
         {
             _filterText = e.Value?.ToString() ?? string.Empty;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task ClearFilterText()
         {
             _filterText = string.Empty;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task OnFilterTypeChanged(ProfileType? type)
         {
             _filterType = type;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task OnFilterEnabledChanged(bool? enabled)
         {
             _filterEnabled = enabled;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task OnFilterConnectionChanged(int? connectionId)
         {
             _filterConnection = connectionId;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task ClearFilters()
@@ -205,14 +204,14 @@ namespace BackupService.Components.Pages.BackupServicePage
             _filterType = null;
             _filterEnabled = null;
             _filterConnection = null;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task ToggleArrangeByTypeAsync(ChangeEventArgs e)
         {
             _arrangeByType = e.Value is true;
             await JS.InvokeVoidAsync("localStorage.setItem", ArrangeByTypeKey, _arrangeByType ? "1" : "0");
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task SelectTypeAsync(string key)
@@ -220,7 +219,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             if (Enum.TryParse<ProfileType>(key, out var type) && type != _activeType)
             {
                 _activeType = type;
-                await LoadAsync(1);
+                await LoadAsync();
             }
         }
 
@@ -242,27 +241,11 @@ namespace BackupService.Components.Pages.BackupServicePage
                 _descending = false;
             }
 
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private string SortIndicator(ProfileSortColumn column) =>
             _sortColumn != column ? string.Empty : _descending ? " ▼" : " ▲";
-
-        private async Task PreviousPageAsync()
-        {
-            if (_page > 1)
-            {
-                await LoadAsync(_page - 1);
-            }
-        }
-
-        private async Task NextPageAsync()
-        {
-            if (_profiles is not null && _page < _profiles.TotalPages)
-            {
-                await LoadAsync(_page + 1);
-            }
-        }
 
         private bool IsRunning(int id) => StatusService.Get(id) == ProfileStatus.Running;
 
@@ -298,7 +281,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             var message = _editId is null ? "Profile created" : "Profile updated";
             _showDialog = false;
             _notification.Show(message, NotificationLevel.Success);
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         private void UnlockEditing()
@@ -365,14 +348,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             await ProfileService.DeleteAsync(_deleteTarget.Id);
             _deleteTarget = null;
             _notification.Show("Profile deleted", NotificationLevel.Success);
-
-            // Step back a page if we just removed the last row on it.
-            if (_profiles is not null && _profiles.Items.Count == 1 && _page > 1)
-            {
-                _page--;
-            }
-
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         // The live Status cell text: a running profile shows its progress percent when known.

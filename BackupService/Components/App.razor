@@ -39,6 +39,14 @@
                 }
             });
         }, true);
+
+        // Scroll a log terminal (a scrollable .log-terminal container, by element id) to the bottom,
+        // so newly-appended lines from a running backup stay in view. Called from Logs.razor.cs after a
+        // refresh adds lines (unless the user paused scrolling for that log).
+        window.scrollLogTerminalToBottom = function (id) {
+            var el = document.getElementById(id);
+            if (el) { el.scrollTop = el.scrollHeight; }
+        };
     </script>
 </body>
 

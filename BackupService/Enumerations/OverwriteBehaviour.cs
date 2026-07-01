@@ -13,7 +13,7 @@ namespace BackupService.Enumerations
         [HelpText("If a file on the destination is newer, compare the content and if it matches update the date stamp of the destination file to match the source file")]
         UpdateOnlyIfContentMatches = 1,
 
-        [Description("Update newer files always")]
+        [Description("Always overwrite target files")]
         [HelpText("Always overwrite files at the destination regardless of if they are newer or not")]
         AlwaysOverwrite = 2,
     }

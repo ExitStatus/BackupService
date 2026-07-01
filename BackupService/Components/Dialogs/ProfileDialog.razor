@@ -10,6 +10,7 @@
 
         <p class="modal-intro">@IntroText</p>
 
+        <CascadingValue Value="_browseMemory" IsFixed="true">
         <EditForm Model="Input" OnValidSubmit="SubmitAsync">
             <DataAnnotationsValidator />
 
@@ -23,7 +24,7 @@
 
             <label>
                 Name
-                <InputText @bind-Value="Input.Name" />
+                <InputText @ref="_nameInput" @bind-Value="Input.Name" />
             </label>
 
             @if (!IsEdit)
@@ -166,6 +167,7 @@
                 <button type="submit">@(IsEdit ? "Save" : "Create")</button>
             </div>
         </EditForm>
+        </CascadingValue>
     </div>
 </div>
 

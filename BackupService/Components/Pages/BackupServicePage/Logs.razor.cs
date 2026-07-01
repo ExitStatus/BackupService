@@ -4,12 +4,14 @@ using BackupService.Extensions;
 using BackupService.Logging;
 using BackupService.Profiles;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace BackupService.Components.Pages.BackupServicePage
 {
     public partial class Logs : ComponentBase, IDisposable
     {
-        private const int PageSize = 10;
+        // No paging — the log headers live in a scroll panel, so load every matching row on one "page".
+        private const int PageSize = int.MaxValue;
 
         // Terminal line height in px — must match .log-terminal-line in app.css (the control caps at
         // ~20 of these before scrolling). Used as the Virtualize ItemSize for the detail output.
@@ -29,7 +31,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         [Inject]
         private ILogWatcher LogWatcher { get; set; } = default!;
 
-        private int _page = 1;
+        [Inject]
+        private IJSRuntime JS { get; set; } = default!;
+
         private PagedResult<OperationLog>? _logs;
 
         private string _filter = string.Empty;
@@ -67,11 +71,21 @@ namespace BackupService.Components.Pages.BackupServicePage
         private readonly HashSet<int> _detailWarning = [];
         private readonly HashSet<int> _detailError = [];
 
+        // Log ids whose terminal has "Pause scrolling" ticked — a refresh that adds lines won't
+        // auto-scroll them to the bottom.
+        private readonly HashSet<int> _detailPaused = [];
+
+        // Log ids whose terminal grew on the last refresh and should be scrolled to the bottom after the
+        // next render (auto-scroll to follow a running backup); drained in OnAfterRenderAsync.
+        private readonly List<int> _scrollQueue = [];
+
         private string DetailFilterText(int logId) => _detailFilters.GetValueOrDefault(logId, string.Empty);
 
         private bool DetailWarningChecked(int logId) => _detailWarning.Contains(logId);
 
         private bool DetailErrorChecked(int logId) => _detailError.Contains(logId);
+
+        private bool DetailPausedChecked(int logId) => _detailPaused.Contains(logId);
 
         // The number of cached lines at each level, shown beside the checkbox label.
         private int WarningCount(int logId) => DetailLevelCount(logId, OperationLogLevel.Warning);
@@ -89,6 +103,8 @@ namespace BackupService.Components.Pages.BackupServicePage
         private void OnDetailWarningChanged(int logId, ChangeEventArgs e) => Toggle(_detailWarning, logId, e.Value is true);
 
         private void OnDetailErrorChanged(int logId, ChangeEventArgs e) => Toggle(_detailError, logId, e.Value is true);
+
+        private void OnDetailPausedChanged(int logId, ChangeEventArgs e) => Toggle(_detailPaused, logId, e.Value is true);
 
         private static void Toggle(HashSet<int> set, int logId, bool on)
         {
@@ -138,17 +154,37 @@ namespace BackupService.Components.Pages.BackupServicePage
             _profileNames = summaries.ToDictionary(s => s.Id, s => s.Name);
             _profileOptions = [null, .. summaries.Select(s => (int?)s.Id)];
 
-            await LoadAsync(_page);
+            await LoadAsync();
         }
 
         // Subscribe once the component is live (OnAfterRender doesn't run during prerender, so we only
         // attach in the interactive circuit). The watcher debounces, so we just refresh on each push.
-        protected override void OnAfterRender(bool firstRender)
+        protected override async Task OnAfterRenderAsync(bool firstRender)
         {
             if (firstRender)
             {
                 LogWatcher.Changed += OnLogsChanged;
                 _subscribed = true;
+            }
+
+            // Auto-scroll any expanded terminal that gained lines on the last refresh. Runs after render
+            // so the new rows (and the grown scroll height) exist in the DOM; drained so it fires once.
+            if (_scrollQueue.Count > 0)
+            {
+                var ids = _scrollQueue.ToArray();
+                _scrollQueue.Clear();
+
+                foreach (var id in ids)
+                {
+                    try
+                    {
+                        await JS.InvokeVoidAsync("scrollLogTerminalToBottom", $"log-terminal-{id}");
+                    }
+                    catch
+                    {
+                        // Best-effort — the terminal may have collapsed or the circuit torn down.
+                    }
+                }
             }
         }
 
@@ -183,18 +219,25 @@ namespace BackupService.Components.Pages.BackupServicePage
             _refreshing = true;
             try
             {
-                _logs = await OperationLogService.GetPageAsync(_page, PageSize, _filter, _includeMessages, _level, _profileId);
-                _page = _logs.PageNumber;
+                _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
 
-                // Drop expansion state for logs that have scrolled off this page (e.g. pushed down by
-                // newer entries); refresh the details of those still shown so a running log stays live.
+                // Drop expansion state for logs no longer in the result (e.g. filtered out); refresh the
+                // details of those still shown so a running log stays live.
                 var visibleIds = _logs.Items.Select(l => l.Id).ToHashSet();
                 _expanded.RemoveWhere(id => !visibleIds.Contains(id));
 
                 foreach (var id in _expanded)
                 {
+                    var oldCount = _details.TryGetValue(id, out var existing) ? existing.Count : 0;
                     var details = await OperationLogService.GetDetailsAsync(id);
-                    _details[id] = details as List<OperationLogDetail> ?? details.ToList();
+                    var list = details as List<OperationLogDetail> ?? details.ToList();
+                    _details[id] = list;
+
+                    // New lines arrived — follow them to the bottom unless the user paused this terminal.
+                    if (list.Count > oldCount && !_detailPaused.Contains(id))
+                    {
+                        _scrollQueue.Add(id);
+                    }
                 }
 
                 StateHasChanged();
@@ -205,25 +248,24 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
-        private async Task LoadAsync(int page)
+        private async Task LoadAsync()
         {
-            _logs = await OperationLogService.GetPageAsync(page, PageSize, _filter, _includeMessages, _level, _profileId);
-            _page = _logs.PageNumber;
+            _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
 
-            // Collapse everything when the page changes — ids on this page differ.
+            // Collapse everything when the filter changes — the visible set differs.
             _expanded.Clear();
         }
 
         private async Task OnFilterChanged(ChangeEventArgs e)
         {
             _filter = e.Value?.ToString() ?? string.Empty;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task ClearFilter()
         {
             _filter = string.Empty;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task OnIncludeMessagesChanged(ChangeEventArgs e)
@@ -233,36 +275,20 @@ namespace BackupService.Components.Pages.BackupServicePage
             // Only re-query if a filter is active — the checkbox has no effect without one.
             if (!string.IsNullOrWhiteSpace(_filter))
             {
-                await LoadAsync(1);
+                await LoadAsync();
             }
         }
 
         private async Task OnLevelChanged(OperationLogLevel? level)
         {
             _level = level;
-            await LoadAsync(1);
+            await LoadAsync();
         }
 
         private async Task OnProfileChanged(int? profileId)
         {
             _profileId = profileId;
-            await LoadAsync(1);
-        }
-
-        private async Task PreviousPageAsync()
-        {
-            if (_page > 1)
-            {
-                await LoadAsync(_page - 1);
-            }
-        }
-
-        private async Task NextPageAsync()
-        {
-            if (_logs is not null && _page < _logs.TotalPages)
-            {
-                await LoadAsync(_page + 1);
-            }
+            await LoadAsync();
         }
 
         private async Task ToggleAsync(int logId)

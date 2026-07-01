@@ -61,7 +61,7 @@ else
     @if (_smbInfo is not null)
     {
         <SmbFolderBrowserDialog Info="_smbInfo"
-                                InitialRelativePath="@Path"
+                                InitialRelativePath="@EffectivePath"
                                 ConfineToRoot="true"
                                 AllowCreateFolder="AllowCreateFolder"
                                 OnSelect="OnSelected"
@@ -70,7 +70,7 @@ else
     else if (_googleDriveInfo is not null)
     {
         <GoogleDriveFolderBrowserDialog Info="_googleDriveInfo"
-                                        InitialRelativePath="@Path"
+                                        InitialRelativePath="@EffectivePath"
                                         ConfineToRoot="true"
                                         AllowCreateFolder="AllowCreateFolder"
                                         OnSelect="OnSelected"
@@ -89,13 +89,13 @@ else
         @* MTP confined browse returns a path relative to the connection's root — exactly what we store. *@
         <MtpFolderBrowserDialog Serial="@_usbMtpSerial"
                                 ConfineRoot="@_usbMtpRoot"
-                                InitialPath="@Path"
+                                InitialPath="@EffectivePath"
                                 OnSelect="OnSelected"
                                 OnCancel="CancelBrowse" />
     }
     else
     {
-        <FolderBrowserDialog InitialPath="@Path"
+        <FolderBrowserDialog InitialPath="@EffectivePath"
                              AllowCreateFolder="@(AllowCreateFolder && ConnectionId is null)"
                              OnSelect="OnSelected"
                              OnCancel="CancelBrowse" />

@@ -1,3 +1,4 @@
+<div class="table-page">
 <div class="content-header">
     <h1>Backup Profiles</h1>
     <div class="header-actions">
@@ -69,6 +70,7 @@ else
     }
     else
     {
+    <div class="table-scroll">
     <table class="table">
         <thead>
             <tr>
@@ -133,14 +135,10 @@ else
             }
         </tbody>
     </table>
-
-    <div class="pager">
-        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_profiles!.PageNumber <= 1)">Previous</button>
-        <span>Page @_profiles!.PageNumber of @_profiles.TotalPages (@_profiles.TotalCount total)</span>
-        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_profiles!.PageNumber >= _profiles.TotalPages)">Next</button>
     </div>
     }
 }
+</div>
 
 @if (_showDialog)
 {

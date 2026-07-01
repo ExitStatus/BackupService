@@ -1,5 +1,6 @@
 @namespace BackupService.Components.Pages.BackupServicePage
 
+<div class="table-page">
 <div class="content-header">
     <h1>Connections</h1>
     <button @onclick="OpenCreate">Create Connection</button>
@@ -15,6 +16,7 @@ else if (_connections.TotalCount == 0)
 }
 else
 {
+    <div class="table-scroll">
     <table class="table">
         <thead>
             <tr>
@@ -101,13 +103,9 @@ else
             }
         </tbody>
     </table>
-
-    <div class="pager">
-        <button class="btn-secondary" @onclick="PreviousPageAsync" disabled="@(_connections.PageNumber <= 1)">Previous</button>
-        <span>Page @_connections.PageNumber of @_connections.TotalPages (@_connections.TotalCount total)</span>
-        <button class="btn-secondary" @onclick="NextPageAsync" disabled="@(_connections.PageNumber >= _connections.TotalPages)">Next</button>
     </div>
 }
+</div>
 
 @if (_showDialog)
 {
