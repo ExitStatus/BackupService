@@ -48,6 +48,7 @@ namespace BackupService.Profiles
             ProfileType? type = null,
             string? filter = null,
             bool? enabled = null,
+            int? connectionId = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>

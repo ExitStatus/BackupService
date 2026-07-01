@@ -580,6 +580,30 @@ namespace BackupService.UnitTests.Profiles
         }
 
         [Test]
+        public async Task GetPageAsync_FiltersByConnection_MatchingSourceOrTarget()
+        {
+            int connA;
+            await using (var context = new BackupDbContext(_options))
+            {
+                var a = new Connection { Name = "Drive A", Type = ConnectionType.Usb, DateCreated = DateTimeOffset.UtcNow };
+                var b = new Connection { Name = "Drive B", Type = ConnectionType.Usb, DateCreated = DateTimeOffset.UtcNow };
+                context.Connections.AddRange(a, b);
+                context.Profiles.AddRange(
+                    new Profile { Name = "Src-A", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow, SourceConnection = a },
+                    new Profile { Name = "Tgt-A", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow, TargetConnection = a },
+                    new Profile { Name = "Uses-B", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow, SourceConnection = b },
+                    new Profile { Name = "Local", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow });
+                await context.SaveChangesAsync();
+                connA = a.Id;
+            }
+
+            var page = await _service.GetPageAsync(1, 10, ProfileSortColumn.Name, descending: false, connectionId: connA);
+
+            page.TotalCount.Should().Be(2);
+            page.Items.Select(p => p.Name).Should().BeEquivalentTo(["Src-A", "Tgt-A"]);
+        }
+
+        [Test]
         public async Task GetCountsByTypeAsync_ReturnsPerTypeCountsAndOmitsTypesWithNone()
         {
             await SeedTypedProfilesAsync(

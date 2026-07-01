@@ -43,6 +43,16 @@ else
                           DisplayText="TypeLabel" />
             </div>
         }
+        @if (_connections.Count > 0)
+        {
+            <div class="filter-connection">
+                <Dropdown TValue="int?"
+                          Value="_filterConnection"
+                          ValueChanged="OnFilterConnectionChanged"
+                          Items="_connectionOptions"
+                          DisplayText="ConnectionLabel" />
+            </div>
+        }
         <div class="filter-enabled">
             <Dropdown TValue="bool?"
                       Value="_filterEnabled"

@@ -382,8 +382,16 @@ textarea:focus {
     cursor: default;
 }
 
+.dropdown-value {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
 .dropdown-caret {
     color: var(--text-muted);
+    flex: 0 0 auto;
 }
 
 .dropdown-menu {
@@ -952,6 +960,7 @@ label.header-check input {
 .filter-bar .filter-level,
 .filter-bar .filter-profile,
 .filter-bar .filter-ptype,
+.filter-bar .filter-connection,
 .filter-bar .filter-enabled {
     width: 12rem;
 }
@@ -959,6 +968,7 @@ label.header-check input {
 .filter-bar .filter-level .dropdown,
 .filter-bar .filter-profile .dropdown,
 .filter-bar .filter-ptype .dropdown,
+.filter-bar .filter-connection .dropdown,
 .filter-bar .filter-enabled .dropdown {
     margin-top: 0;
 }

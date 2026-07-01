@@ -180,6 +180,7 @@ namespace BackupService.Profiles
             ProfileType? type = null,
             string? filter = null,
             bool? enabled = null,
+            int? connectionId = null,
             CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1)
@@ -201,6 +202,11 @@ namespace BackupService.Profiles
             if (enabled is { } en)
             {
                 query = query.Where(p => p.Enabled == en);
+            }
+            if (connectionId is { } cid)
+            {
+                // A profile "uses" a connection as its source or its target.
+                query = query.Where(p => p.SourceConnectionId == cid || p.TargetConnectionId == cid);
             }
             if (!string.IsNullOrWhiteSpace(filter))
             {

@@ -1,4 +1,5 @@
 using BackupService.Components.Controls;
+using BackupService.Connections;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -25,6 +26,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
+
+        [Inject]
+        private IConnectionService ConnectionService { get; set; } = default!;
 
         [Inject]
         private IProfileStatusService StatusService { get; set; } = default!;
@@ -62,6 +66,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         private string _filterText = string.Empty;
         private ProfileType? _filterType;
         private bool? _filterEnabled;
+        private int? _filterConnection;
+
+        // Connection filter options (null = "All connections"), plus the summaries for their labels.
+        private IReadOnlyList<ConnectionSummary> _connections = [];
+        private IReadOnlyList<int?> _connectionOptions = [null];
 
         // Dropdown options: null is the "All …" choice.
         private static readonly ProfileType?[] TypeOptions =
@@ -76,8 +85,11 @@ namespace BackupService.Components.Pages.BackupServicePage
             null => "All states",
         };
 
+        private string ConnectionLabel(int? id) =>
+            id is { } cid ? _connections.FirstOrDefault(c => c.Id == cid)?.Name ?? $"Connection {cid}" : "All connections";
+
         private bool HasActiveFilter =>
-            !string.IsNullOrWhiteSpace(_filterText) || _filterType is not null || _filterEnabled is not null;
+            !string.IsNullOrWhiteSpace(_filterText) || _filterType is not null || _filterEnabled is not null || _filterConnection is not null;
 
         protected override void OnInitialized()
         {
@@ -94,6 +106,8 @@ namespace BackupService.Components.Pages.BackupServicePage
 
             var saved = await JS.InvokeAsync<string?>("localStorage.getItem", ArrangeByTypeKey);
             _arrangeByType = saved == "1";
+            _connections = await ConnectionService.GetSummariesAsync();
+            _connectionOptions = new List<int?> { null }.Concat(_connections.Select(c => (int?)c.Id)).ToList();
             await LoadAsync(1);
             _initialised = true;
             StateHasChanged();
@@ -151,7 +165,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             // grouped, or the type dropdown when flat.
             var typeFilter = _arrangeByType ? (HasAnyProfiles ? (ProfileType?)_activeType : null) : _filterType;
             _profiles = await ProfileService.GetPageAsync(
-                page, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled);
+                page, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled, _filterConnection);
             _page = _profiles.PageNumber;
         }
 
@@ -179,11 +193,18 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync(1);
         }
 
+        private async Task OnFilterConnectionChanged(int? connectionId)
+        {
+            _filterConnection = connectionId;
+            await LoadAsync(1);
+        }
+
         private async Task ClearFilters()
         {
             _filterText = string.Empty;
             _filterType = null;
             _filterEnabled = null;
+            _filterConnection = null;
             await LoadAsync(1);
         }
 
