@@ -107,6 +107,9 @@ namespace BackupService.Notifications
         public void NotifyDeviceDisconnected(string deviceName) =>
             Enqueue($"{deviceName} Disconnected", "The USB device was disconnected.", NIIF_INFO);
 
+        public void NotifyDeviceEjected(string deviceName) =>
+            Enqueue($"{deviceName} Ejected", "The backup finished and the USB device is safe to remove.", NIIF_INFO);
+
         private void Enqueue(string title, string message, int infoFlag)
         {
             if (!_allowNotifications || _hwnd == IntPtr.Zero)

@@ -45,12 +45,22 @@
                                          @bind-ConnectionId="Input.SourceConnectionId" />
             }
 
-            <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="false"
+            @* FolderPair/ArchiveSync may target a read/write USB mass-storage drive (but not a read-only MTP camera);
+               the watcher-driven types can't target USB at all. *@
+            <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="@TargetAllowsUsb" AllowMtp="false"
                                      @bind-ConnectionId="Input.TargetConnectionId" />
 
             @if (IsDeviceTriggered)
             {
-                <p class="help-text">Automatically runs when the device is plugged in.</p>
+                <p class="help-text">@DeviceTriggeredNote</p>
+
+                @if (ShowEjectOption)
+                {
+                    <label class="check" title="Safely remove the USB drive(s) once the run finishes, so they can be unplugged.">
+                        <input type="checkbox" @bind="Input.EjectAfterRun" />
+                        Eject device(s) after automatic run
+                    </label>
+                }
             }
             else if (!IsWatcherDriven)
             {
@@ -126,6 +136,16 @@
                         <input type="checkbox" @bind="Input.NotifyOnComplete" disabled="@(!Input.NotificationsEnabled)" />
                         @NotifyLabel("completed")
                     </label>
+
+                    @* Only FolderPair/ArchiveSync can eject a USB drive after an automatic run. *@
+                    @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync)
+                    {
+                        <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")"
+                               title="Show a notification when this profile ejects a USB drive after an automatic run.">
+                            <input type="checkbox" @bind="Input.NotifyOnEject" disabled="@(!Input.NotificationsEnabled)" />
+                            Notify on eject
+                        </label>
+                    }
                 </div>
 
                 <label class="check">

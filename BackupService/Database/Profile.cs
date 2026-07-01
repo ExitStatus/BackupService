@@ -45,6 +45,10 @@ namespace BackupService.Database
         /// <summary>Notify when a run for this profile completes. Defaults on via a store default.</summary>
         public bool NotifyOnComplete { get; set; } = true;
 
+        /// <summary>Notify when this profile ejects a USB drive after a run (only relevant with <see cref="EjectAfterRun"/>;
+        /// off by default).</summary>
+        public bool NotifyOnEject { get; set; }
+
         /// <summary>When true, a borderless on-screen progress window is shown (bottom-right) while this profile
         /// runs. Windows-only (rendered by <c>WindowsProgressWindowService</c>); off by default.</summary>
         public bool ShowProgressWindow { get; set; }
@@ -84,6 +88,13 @@ namespace BackupService.Database
         /// on the next startup (catch-up). Only meaningful for scheduled profile types.
         /// </summary>
         public bool HandleMissedSync { get; set; }
+
+        /// <summary>
+        /// When true, after a device-triggered (USB plug-in) run the profile's non-MTP USB device(s) — its source
+        /// and/or target mass-storage drives — are safely ejected so they can be unplugged. Only meaningful when a
+        /// source/target is a mass-storage USB connection. Off by default.
+        /// </summary>
+        public bool EjectAfterRun { get; set; }
 
         public DateTimeOffset DateCreated { get; set; }
 

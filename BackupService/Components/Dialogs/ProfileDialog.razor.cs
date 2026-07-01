@@ -48,6 +48,7 @@ namespace BackupService.Components.Dialogs
         private bool _showSchedule;
         private bool _lightroomFolderError;
         private IReadOnlyDictionary<int, ConnectionType> _connectionTypes = new Dictionary<int, ConnectionType>();
+        private IReadOnlyDictionary<int, UsbDeviceKind> _connectionUsbKinds = new Dictionary<int, UsbDeviceKind>();
 
         private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
         [
@@ -81,14 +82,33 @@ namespace BackupService.Components.Dialogs
         // Handle-missed-sync fields are hidden/disabled for them.
         private bool IsWatcherDriven => Input.Type is ProfileType.InstantSync or ProfileType.LightroomArchive;
 
-        // A FolderPair/ArchiveSync profile whose (profile-level) source is a USB connection is run when the
+        // FolderPair/ArchiveSync may target a read/write USB mass-storage drive (read-only MTP is excluded by the
+        // target picker).
+        private bool TargetAllowsUsb => Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync;
+
+        // A FolderPair/ArchiveSync profile whose (profile-level) source OR target is a USB connection is run when the
         // device is plugged in, not on a schedule — so the Schedule field is replaced with a note and no cron is
-        // saved. Recomputed on render, so it reflects the source connection picked above.
+        // saved. Recomputed on render, so it reflects the source/target connections picked above.
         private bool IsDeviceTriggered =>
             Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync
-            && Input.SourceConnectionId is { } id
-            && _connectionTypes.TryGetValue(id, out var type)
-            && type == ConnectionType.Usb;
+            && (IsUsbConnection(Input.SourceConnectionId) || IsUsbConnection(Input.TargetConnectionId));
+
+        private bool IsUsbConnection(int? connectionId) =>
+            connectionId is { } id && _connectionTypes.TryGetValue(id, out var type) && type == ConnectionType.Usb;
+
+        // Mass-storage USB (a Windows-drive device), as opposed to a read-only MTP camera.
+        private bool IsMassStorageUsb(int? connectionId) =>
+            connectionId is { } id && _connectionUsbKinds.TryGetValue(id, out var kind) && kind == UsbDeviceKind.MassStorage;
+
+        // The "Eject after run" option applies when a source or target is a (non-MTP) mass-storage USB drive.
+        private bool ShowEjectOption =>
+            IsMassStorageUsb(Input.SourceConnectionId) || IsMassStorageUsb(Input.TargetConnectionId);
+
+        // Plural when both source and target are USB devices (both must be connected to run).
+        private string DeviceTriggeredNote =>
+            IsUsbConnection(Input.SourceConnectionId) && IsUsbConnection(Input.TargetConnectionId)
+                ? "Automatically runs when both devices are plugged in."
+                : "Automatically runs when the device is plugged in.";
 
         private string DialogTitle => IsEdit
             ? $"Edit {Input.Type.GetDescription()} Profile"
@@ -109,8 +129,11 @@ namespace BackupService.Components.Dialogs
 
         protected override async Task OnInitializedAsync()
         {
-            // Connection types let the dialog tell when a source is a USB connection (device-triggered).
-            _connectionTypes = (await ConnectionService.GetSummariesAsync()).ToDictionary(c => c.Id, c => c.Type);
+            // Connection types let the dialog tell when a source/target is a USB connection (device-triggered), and
+            // the USB kinds let it offer the eject option only for non-MTP (mass-storage) USB devices.
+            var summaries = await ConnectionService.GetSummariesAsync();
+            _connectionTypes = summaries.ToDictionary(c => c.Id, c => c.Type);
+            _connectionUsbKinds = summaries.Where(c => c.UsbKind is not null).ToDictionary(c => c.Id, c => c.UsbKind!.Value);
 
             if (ProfileId is not { } id)
             {
@@ -132,7 +155,9 @@ namespace BackupService.Components.Dialogs
             Input.NotificationsEnabled = profile.NotificationsEnabled;
             Input.NotifyOnStart = profile.NotifyOnStart;
             Input.NotifyOnComplete = profile.NotifyOnComplete;
+            Input.NotifyOnEject = profile.NotifyOnEject;
             Input.ShowProgressWindow = profile.ShowProgressWindow;
+            Input.EjectAfterRun = profile.EjectAfterRun;
             Input.LightroomFolder = profile.LightroomFolder ?? string.Empty;
             Input.RawFormats = string.IsNullOrWhiteSpace(profile.RawFormats) ? LightroomArchiveSettings.DefaultRawFormats : profile.RawFormats;
             Input.RawFolderName = string.IsNullOrWhiteSpace(profile.RawFolderName) ? LightroomArchiveSettings.DefaultRawFolderName : profile.RawFolderName;
@@ -254,14 +279,14 @@ namespace BackupService.Components.Dialogs
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
-                    showProgressWindow: Input.ShowProgressWindow);
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
-                    showProgressWindow: Input.ShowProgressWindow);
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
 
             return true;
@@ -316,14 +341,14 @@ namespace BackupService.Components.Dialogs
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
-                    showProgressWindow: Input.ShowProgressWindow);
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
-                    showProgressWindow: Input.ShowProgressWindow);
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
 
             return true;
@@ -408,8 +433,14 @@ namespace BackupService.Components.Dialogs
 
             public bool NotifyOnComplete { get; set; } = true;
 
+            /// <summary>Notify when the profile ejects a USB drive after a run (FolderPair/ArchiveSync).</summary>
+            public bool NotifyOnEject { get; set; }
+
             /// <summary>Show a borderless on-screen progress window while the profile runs (Windows only).</summary>
             public bool ShowProgressWindow { get; set; }
+
+            /// <summary>Eject the profile's non-MTP USB device(s) after a device-triggered run (FolderPair/ArchiveSync).</summary>
+            public bool EjectAfterRun { get; set; }
 
             // LightroomArchive only — the profile-level Lightroom settings shared by all the profile's items.
             public string LightroomFolder { get; set; } = string.Empty;

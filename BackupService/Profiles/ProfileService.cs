@@ -41,7 +41,9 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool notifyOnEject = false,
             bool showProgressWindow = false,
+            bool ejectAfterRun = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -62,7 +64,9 @@ namespace BackupService.Profiles
                 NotificationsEnabled = notificationsEnabled,
                 NotifyOnStart = notifyOnStart,
                 NotifyOnComplete = notifyOnComplete,
+                NotifyOnEject = notifyOnEject,
                 ShowProgressWindow = showProgressWindow,
+                EjectAfterRun = ejectAfterRun,
                 DateCreated = DateTimeOffset.UtcNow,
             };
 
@@ -90,7 +94,7 @@ namespace BackupService.Profiles
             var sourceLabel = await ConnectionLabelAsync(db, sourceConnectionId, cancellationToken);
             var targetLabel = await ConnectionLabelAsync(db, targetConnectionId, cancellationToken);
             await LogProfileCreatedAsync(profile.Id, name, type, scheduleCron, enabled, handleMissedSync, sourceLabel, targetLabel,
-                notificationsEnabled, notifyOnStart, notifyOnComplete, showProgressWindow, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
+                notificationsEnabled, notifyOnStart, notifyOnComplete, notifyOnEject, showProgressWindow, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
 
             // Track the new profile's status (starts Idle), then register it with all drivers — the
             // scheduler (cron-driven types) and the watcher managers (watcher-driven types). Each is a
@@ -135,6 +139,7 @@ namespace BackupService.Profiles
             bool notificationsEnabled,
             bool notifyOnStart,
             bool notifyOnComplete,
+            bool notifyOnEject,
             bool showProgressWindow,
             IReadOnlyList<FolderPairInput> folderPairs,
             IReadOnlyList<InstantSyncInput> instantSyncItems,
@@ -151,7 +156,7 @@ namespace BackupService.Profiles
                 $"Target connection: {targetConnectionLabel}",
                 $"Schedule: {ScheduleDefinition.Describe(scheduleCron)}",
                 $"Handle missed sync: {YesNo(handleMissedSync)}",
-                $"Notifications: {NotificationsSummary(notificationsEnabled, notifyOnStart, notifyOnComplete, showProgressWindow)}",
+                $"Notifications: {NotificationsSummary(notificationsEnabled, notifyOnStart, notifyOnComplete, notifyOnEject, showProgressWindow)}",
                 $"Enabled: {YesNo(enabled)}");
 
             var itemLines = type switch
@@ -340,7 +345,9 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool notifyOnEject = false,
             bool showProgressWindow = false,
+            bool ejectAfterRun = false,
             CancellationToken cancellationToken = default)
         {
             var instantItems = instantSyncItems ?? [];
@@ -368,7 +375,7 @@ namespace BackupService.Profiles
             var oldHandleMissedSync = profile.HandleMissedSync;
             var oldSourceConnectionId = profile.SourceConnectionId;
             var oldTargetConnectionId = profile.TargetConnectionId;
-            var oldNotifications = NotificationsSummary(profile.NotificationsEnabled, profile.NotifyOnStart, profile.NotifyOnComplete, profile.ShowProgressWindow);
+            var oldNotifications = NotificationsSummary(profile.NotificationsEnabled, profile.NotifyOnStart, profile.NotifyOnComplete, profile.NotifyOnEject, profile.ShowProgressWindow);
 
             profile.Name = name;
             profile.Schedule = scheduleCron;
@@ -379,7 +386,9 @@ namespace BackupService.Profiles
             profile.NotificationsEnabled = notificationsEnabled;
             profile.NotifyOnStart = notifyOnStart;
             profile.NotifyOnComplete = notifyOnComplete;
+            profile.NotifyOnEject = notifyOnEject;
             profile.ShowProgressWindow = showProgressWindow;
+            profile.EjectAfterRun = ejectAfterRun;
 
             // The type-specific item data (and the description of what changed within it) is owned by
             // the matching data service; the profile type is fixed, so only that one runs.
@@ -402,7 +411,7 @@ namespace BackupService.Profiles
                 oldEnabled, enabled, oldHandleMissedSync, handleMissedSync,
                 oldSourceConnectionId, sourceConnectionId, oldSourceLabel, newSourceLabel,
                 oldTargetConnectionId, targetConnectionId, oldTargetLabel, newTargetLabel,
-                oldNotifications, NotificationsSummary(notificationsEnabled, notifyOnStart, notifyOnComplete, showProgressWindow),
+                oldNotifications, NotificationsSummary(notificationsEnabled, notifyOnStart, notifyOnComplete, notifyOnEject, showProgressWindow),
                 itemChanges, cancellationToken);
 
             await scheduler.SyncAsync(id, cancellationToken);
@@ -488,7 +497,7 @@ namespace BackupService.Profiles
         private static string YesNo(bool value) => value ? "Yes" : "No";
 
         // A short human-readable summary of a profile's notification-tab settings for the operation log.
-        private static string NotificationsSummary(bool enabled, bool onStart, bool onComplete, bool showProgressWindow)
+        private static string NotificationsSummary(bool enabled, bool onStart, bool onComplete, bool onEject, bool showProgressWindow)
         {
             string balloon;
             if (!enabled)
@@ -505,6 +514,10 @@ namespace BackupService.Profiles
                 if (onComplete)
                 {
                     events.Add("completed");
+                }
+                if (onEject)
+                {
+                    events.Add("ejected");
                 }
                 balloon = events.Count == 0 ? "On (no events)" : $"On ({string.Join(", ", events)})";
             }

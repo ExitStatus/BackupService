@@ -115,6 +115,7 @@ namespace BackupService
                     builder.Services.AddSingleton<Notifications.IDesktopNotifier, Notifications.NullDesktopNotifier>();
                     builder.Services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.NullUsbDeviceInspector>();
                     builder.Services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.NullMtpDeviceInspector>();
+                    builder.Services.AddSingleton<Connections.Usb.IUsbEjector, Connections.Usb.NullUsbEjector>();
                 }
 
                 // Connections (remote resources, e.g. SMB shares). SMB passwords are encrypted at rest via
@@ -153,6 +154,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
+                builder.Services.AddSingleton<Scheduling.Usb.IUsbRunGate, Scheduling.Usb.UsbRunGate>();
                 builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
                 builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
                 builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());
@@ -305,6 +307,7 @@ namespace BackupService
                 // USB device detection: read device identity + watch for connect/disconnect to trigger backups.
                 services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.WindowsUsbDeviceInspector>();
                 services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.WindowsMtpDeviceInspector>();
+                services.AddSingleton<Connections.Usb.IUsbEjector, Connections.Usb.WindowsUsbEjector>();
                 services.AddSingleton<Scheduling.Usb.UsbDeviceWatcherService>();
                 services.AddHostedService(sp => sp.GetRequiredService<Scheduling.Usb.UsbDeviceWatcherService>());
 #pragma warning restore CA1416

@@ -108,6 +108,21 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task DestinationSlightlyNewer_WithinFatGranularity_IsTreatedAsUnchanged()
+        {
+            // A FAT/exFAT USB target rounds a stamped write-time up to 2-second granularity, so the destination
+            // reads back slightly newer than the source. The file is unchanged and must not be re-copied — even
+            // with AlwaysOverwrite (the reported bug: every unchanged file re-copied "destination was newer").
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            _fs.AddFile(@"C:\dst\a.txt", T1.AddSeconds(1.5), "hello");
+
+            var result = await Run(Pair(overwrite: OverwriteBehaviour.AlwaysOverwrite));
+
+            result.Copied.Should().Be(0);
+            result.Updated.Should().Be(0);
+        }
+
+        [Test]
         public async Task SourceNewer_OverwritesDestination()
         {
             _fs.AddFile(@"C:\src\a.txt", T2, "new");

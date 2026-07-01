@@ -322,7 +322,7 @@ namespace BackupService.Connections
             return await db.Connections
                 .AsNoTracking()
                 .OrderBy(c => c.Name)
-                .Select(c => new ConnectionSummary(c.Id, c.Name, c.Type))
+                .Select(c => new ConnectionSummary(c.Id, c.Name, c.Type, c.Usb != null ? c.Usb.Kind : (UsbDeviceKind?)null))
                 .ToListAsync(cancellationToken);
         }
 

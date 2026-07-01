@@ -24,5 +24,8 @@ namespace BackupService.Notifications
 
         /// <summary>A registered USB device was disconnected.</summary>
         void NotifyDeviceDisconnected(string deviceName);
+
+        /// <summary>A profile safely ejected a USB device after an automatic run (it's safe to unplug).</summary>
+        void NotifyDeviceEjected(string deviceName);
     }
 }

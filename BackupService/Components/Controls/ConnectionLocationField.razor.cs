@@ -66,11 +66,18 @@ namespace BackupService.Components.Controls
         public bool LocalOnly { get; set; }
 
         /// <summary>
-        /// When false, USB connections are not offered in the location dropdown. USB connections are source-only
-        /// (the target-side fields pass <c>AllowUsb="false"</c>).
+        /// When false, USB connections are not offered in the location dropdown at all. (Used for the target side of
+        /// the watcher-driven types, which can't target USB.)
         /// </summary>
         [Parameter]
         public bool AllowUsb { get; set; } = true;
+
+        /// <summary>
+        /// When false, USB <b>MTP</b> connections are excluded (they're read-only — valid as a source, not a target),
+        /// while USB mass-storage stays offered. The target side of FolderPair/ArchiveSync passes <c>AllowMtp="false"</c>.
+        /// </summary>
+        [Parameter]
+        public bool AllowMtp { get; set; } = true;
 
         /// <summary>
         /// When false, only the location dropdown is rendered (no folder textbox / Browse). Used for the
@@ -108,11 +115,12 @@ namespace BackupService.Components.Controls
             }
 
             _connections = await ConnectionService.GetSummariesAsync();
-            // The location options: null = this machine (local), then each configured connection. USB connections
-            // are source-only, so they're hidden when AllowUsb is false (the target side).
-            var selectable = AllowUsb
-                ? _connections
-                : _connections.Where(c => c.Type != ConnectionType.Usb).ToList();
+            // The location options: null = this machine (local), then each configured connection. USB is hidden
+            // entirely when !AllowUsb; read-only MTP is hidden when !AllowMtp (so a target offers mass-storage USB
+            // but not a camera).
+            var selectable = _connections.Where(c =>
+                (AllowUsb || c.Type != ConnectionType.Usb)
+                && (AllowMtp || c.UsbKind != UsbDeviceKind.Mtp));
             _options = new List<int?> { null };
             _options.AddRange(selectable.Select(c => (int?)c.Id));
         }

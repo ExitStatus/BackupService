@@ -13,14 +13,19 @@ namespace BackupService.Scheduling.Usb
     /// Watches for USB drive connect/disconnect (a hidden top-level window receiving <c>WM_DEVICECHANGE</c> volume
     /// broadcasts on a dedicated message-loop thread, mirroring <c>WindowsTrayService</c>). On connect it identifies
     /// the arriving drive, matches it against the registered USB connections (<see cref="UsbDeviceMatcher"/>), logs +
-    /// notifies, and runs any enabled FolderPair/ArchiveSync profile that uses the connection as a source. On
-    /// disconnect it logs + notifies. Windows-only; registered as a singleton + hosted service.
+    /// notifies, and runs any enabled FolderPair/ArchiveSync profile that uses the connection as its source <b>or</b>
+    /// target — provided every USB connection the profile references is currently connected (so a both-USB profile
+    /// waits for both devices). On disconnect it logs + notifies. Windows-only; registered as a singleton + hosted
+    /// service.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public sealed class UsbDeviceWatcherService(
         IDatabaseContextFactory contextFactory,
         IUsbDeviceInspector inspector,
         IMtpDeviceInspector mtpInspector,
+        IUsbConnector usbConnector,
+        IUsbEjector usbEjector,
+        IUsbRunGate usbRunGate,
         IBackupRunner backupRunner,
         IOperationLogFactory operationLogFactory,
         IDesktopNotifier notifier,
@@ -245,7 +250,9 @@ namespace BackupService.Scheduling.Usb
         }
 
         // Shared "matched connection(s) arrived" path: log + notify, then run the enabled FolderPair/ArchiveSync
-        // profiles whose source is one of them. Used by both the mass-storage (volume) and MTP arrival paths.
+        // profiles whose source or target is one of them — but only when every USB device the profile references is
+        // currently connected (so a both-USB profile fires when the second device arrives). Used by both the
+        // mass-storage (volume) and MTP arrival paths.
         private async Task HandleMatchedAsync(Database.BackupDbContext db, List<MatchedConnection> matched)
         {
             foreach (var connection in matched)
@@ -258,19 +265,123 @@ namespace BackupService.Scheduling.Usb
             }
 
             var connectionIds = matched.Select(m => m.ConnectionId).ToList();
-            var profileIds = await db.Profiles
+
+            // Candidates: enabled FolderPair/ArchiveSync whose source OR target is one of the arrived connections.
+            var candidates = await db.Profiles
                 .AsNoTracking()
                 .Where(p => p.Enabled
                     && (p.Type == ProfileType.FolderPair || p.Type == ProfileType.ArchiveSync)
-                    && p.SourceConnectionId != null && connectionIds.Contains(p.SourceConnectionId.Value))
-                .Select(p => p.Id)
+                    && ((p.SourceConnectionId != null && connectionIds.Contains(p.SourceConnectionId.Value))
+                        || (p.TargetConnectionId != null && connectionIds.Contains(p.TargetConnectionId.Value))))
+                .Select(p => new { p.Id, p.SourceConnectionId, p.TargetConnectionId, p.EjectAfterRun, p.NotificationsEnabled, p.NotifyOnEject })
                 .ToListAsync();
 
-            foreach (var profileId in profileIds)
+            if (candidates.Count == 0)
             {
-                logger.LogInformation("USB device connected — running profile {ProfileId}.", profileId);
-                _ = Task.Run(() => backupRunner.RunAsync(profileId, manual: false));
+                return;
             }
+
+            // Load every USB connection a candidate references (source or target) so each can be checked for "plugged in".
+            var referencedIds = candidates
+                .SelectMany(c => new[] { c.SourceConnectionId, c.TargetConnectionId })
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+            var usbConnections = await db.Connections
+                .AsNoTracking()
+                .Where(c => c.Type == ConnectionType.Usb && referencedIds.Contains(c.Id))
+                .Include(c => c.Usb)
+                .ToListAsync();
+
+            var usbById = usbConnections.Where(c => c.Usb is not null).ToDictionary(c => c.Id, c => c.Usb!);
+            var connectivity = new Dictionary<int, bool>();
+            bool IsConnected(int id)
+            {
+                if (connectivity.TryGetValue(id, out var known))
+                {
+                    return known;
+                }
+                var result = usbById.TryGetValue(id, out var usb) && IsUsbDeviceConnected(usb);
+                connectivity[id] = result;
+                return result;
+            }
+
+            // Split into the profiles that can run now (all their USB devices connected) and those still waiting.
+            var runnable = new List<int>();
+            var ejectPlan = new Dictionary<int, bool>(); // mass-storage USB connection id -> notify on eject
+            foreach (var candidate in candidates)
+            {
+                if (!UsbTriggerEvaluator.AllRequiredUsbConnected(
+                        candidate.SourceConnectionId, candidate.TargetConnectionId, usbById.ContainsKey, IsConnected))
+                {
+                    logger.LogInformation("USB connected — profile {ProfileId} is waiting for its other USB device.", candidate.Id);
+                    continue;
+                }
+
+                logger.LogInformation("USB device connected — running profile {ProfileId}.", candidate.Id);
+                runnable.Add(candidate.Id);
+
+                if (candidate.EjectAfterRun)
+                {
+                    var notify = candidate.NotificationsEnabled && candidate.NotifyOnEject;
+                    foreach (var connectionId in new[] { candidate.SourceConnectionId, candidate.TargetConnectionId })
+                    {
+                        if (connectionId is { } id && usbById.TryGetValue(id, out var usb) && usb.Kind == UsbDeviceKind.MassStorage)
+                        {
+                            ejectPlan[id] = ejectPlan.GetValueOrDefault(id) || notify;
+                        }
+                    }
+                }
+            }
+
+            if (runnable.Count == 0)
+            {
+                return;
+            }
+
+            var usbSnapshot = usbById;
+            _ = Task.Run(async () =>
+            {
+                // Run the whole batch (they serialise per device via IUsbRunGate) and only eject once ALL of them
+                // have finished, so a profile that asked to eject can't pull the drive out from under another
+                // profile still queued for it.
+                await Task.WhenAll(runnable.Select(id => backupRunner.RunAsync(id, manual: false)));
+                await EjectDevicesAsync(ejectPlan, usbSnapshot);
+            });
+        }
+
+        // Safely removes each mass-storage USB device the batch asked to eject, notifying (when opted in) so the user
+        // knows it's safe to unplug. Takes the device's run-gate first, so any run still using the shared device
+        // (e.g. one queued from an overlapping trigger) finishes before the eject.
+        private async Task EjectDevicesAsync(Dictionary<int, bool> ejectPlan, Dictionary<int, UsbConnectionSettings> usbById)
+        {
+            foreach (var (connectionId, notify) in ejectPlan)
+            {
+                if (!usbById.TryGetValue(connectionId, out var usb))
+                {
+                    continue;
+                }
+
+                await using var gate = await usbRunGate.AcquireAsync([connectionId], CancellationToken.None);
+
+                var info = new UsbConnectionInfo(usb.Kind, usb.HardwareSerial, usb.VolumeSerial, usb.MtpSerial, usb.RootFolder);
+                if (usbConnector.FindMountPath(info) is { } mountPath && usbEjector.TryEject(mountPath) && notify)
+                {
+                    notifier.NotifyDeviceEjected(string.IsNullOrEmpty(usb.DeviceLabel) ? mountPath : usb.DeviceLabel);
+                }
+            }
+        }
+
+        // Whether the device a USB connection is bound to is currently connected (mass-storage: a current mount path;
+        // MTP: enumerable as a portable device).
+        private bool IsUsbDeviceConnected(UsbConnectionSettings usb)
+        {
+            if (usb.Kind == UsbDeviceKind.Mtp)
+            {
+                return !string.IsNullOrEmpty(usb.MtpSerial) && mtpInspector.IsConnected(usb.MtpSerial);
+            }
+
+            var info = new UsbConnectionInfo(usb.Kind, usb.HardwareSerial, usb.VolumeSerial, usb.MtpSerial, usb.RootFolder);
+            return usbConnector.FindMountPath(info) is not null;
         }
 
         // ---- MTP (portable-device) detection ----

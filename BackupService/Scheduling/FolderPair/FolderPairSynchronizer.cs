@@ -223,7 +223,11 @@ namespace BackupService.Scheduling
                         continue;
                     }
 
-                    if (sourceTime > destTime)
+                    if (WriteTimesEqual(sourceTime, destTime))
+                    {
+                        // Same timestamp (within filesystem granularity) — no change, nothing logged.
+                    }
+                    else if (sourceTime > destTime)
                     {
                         if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
                         {
@@ -231,13 +235,9 @@ namespace BackupService.Scheduling
                             await log.AppendAsync($"Updated '{destPath}' (source is newer)");
                         }
                     }
-                    else if (sourceTime == destTime)
-                    {
-                        // Same timestamp — no change, nothing logged.
-                    }
                     else
                     {
-                        // Destination is newer — the overwrite behaviour decides.
+                        // Destination is meaningfully newer — the overwrite behaviour decides.
                         await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result, ct);
                     }
                 }
@@ -437,6 +437,13 @@ namespace BackupService.Scheduling
         // A source that can't supply a usable timestamp — e.g. an MTP camera that exposes no modified date —
         // yields DateTime.MinValue, which would otherwise throw "Not a valid Win32 FileTime." and fail the copy.
         private static readonly DateTime MinFileTimeUtc = DateTime.FromFileTimeUtc(0);
+
+        // FAT/exFAT (common on USB drives) store modification times at 2-second granularity, rounding up, so a copied
+        // file reads back a slightly *newer* timestamp than its source. Treat write-times within this window as equal
+        // (like robocopy /FFT) so an unchanged file isn't re-copied every run because of the filesystem's rounding.
+        private static readonly TimeSpan WriteTimeTolerance = TimeSpan.FromSeconds(2);
+
+        private static bool WriteTimesEqual(DateTime a, DateTime b) => (a - b).Duration() <= WriteTimeTolerance;
 
         // Carry the source's last-write-time onto a freshly copied file, but only when it's a stampable
         // Win32 FileTime; if the source had no usable date we leave the new file's natural timestamp.

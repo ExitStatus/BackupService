@@ -32,7 +32,9 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool notifyOnEject = false,
             bool showProgressWindow = false,
+            bool ejectAfterRun = false,
             CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -98,7 +100,9 @@ namespace BackupService.Profiles
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
+            bool notifyOnEject = false,
             bool showProgressWindow = false,
+            bool ejectAfterRun = false,
             CancellationToken cancellationToken = default);
     }
 }

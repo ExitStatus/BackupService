@@ -3,6 +3,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
 using BackupService.Profiles;
+using BackupService.Scheduling.Usb;
 using Microsoft.EntityFrameworkCore;
 
 namespace BackupService.Scheduling
@@ -17,6 +18,7 @@ namespace BackupService.Scheduling
         private readonly IDatabaseContextFactory _contextFactory;
         private readonly IOperationLogFactory _operationLogFactory;
         private readonly IProfileStatusService _statusService;
+        private readonly IUsbRunGate _usbRunGate;
         private readonly ILogger<BackupRunner> _logger;
         private readonly IReadOnlyDictionary<ProfileType, IProfileTypeHandler> _handlers;
 
@@ -28,12 +30,14 @@ namespace BackupService.Scheduling
             IDatabaseContextFactory contextFactory,
             IOperationLogFactory operationLogFactory,
             IProfileStatusService statusService,
+            IUsbRunGate usbRunGate,
             IEnumerable<IProfileTypeHandler> handlers,
             ILogger<BackupRunner> logger)
         {
             _contextFactory = contextFactory;
             _operationLogFactory = operationLogFactory;
             _statusService = statusService;
+            _usbRunGate = usbRunGate;
             _logger = logger;
             _handlers = handlers.ToDictionary(h => h.Type);
         }
@@ -41,6 +45,7 @@ namespace BackupService.Scheduling
         public async Task RunAsync(int profileId, bool manual = false, CancellationToken cancellationToken = default)
         {
             Profile? profile;
+            IReadOnlyCollection<int> usbConnectionIds;
             await using (var db = _contextFactory.CreateDbContext())
             {
                 profile = await db.Profiles
@@ -49,12 +54,23 @@ namespace BackupService.Scheduling
                     .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                     .Include(p => p.LightroomArchiveItems)
                     .FirstOrDefaultAsync(p => p.Id == profileId, cancellationToken);
-            }
 
-            if (profile is null)
-            {
-                _logger.LogWarning("Scheduled run skipped: profile {ProfileId} no longer exists.", profileId);
-                return;
+                if (profile is null)
+                {
+                    _logger.LogWarning("Scheduled run skipped: profile {ProfileId} no longer exists.", profileId);
+                    return;
+                }
+
+                // Which of the profile's connections are USB devices — used to serialise runs that share a slow
+                // USB device (see IUsbRunGate) so they don't thrash it by running at once.
+                var connectionIds = new[] { profile.SourceConnectionId, profile.TargetConnectionId }
+                    .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+                usbConnectionIds = connectionIds.Count == 0
+                    ? []
+                    : await db.Connections
+                        .Where(c => connectionIds.Contains(c.Id) && c.Type == ConnectionType.Usb)
+                        .Select(c => c.Id)
+                        .ToListAsync(cancellationToken);
             }
 
             // Don't run while an admin has the profile open in an edit/delete dialog.
@@ -96,6 +112,9 @@ namespace BackupService.Scheduling
             _running[profile.Id] = cts;
             try
             {
+                // Serialise access to any shared USB device(s): wait here until other runs using the same slow
+                // device have finished, then take exclusive use of it for this run (released on dispose).
+                await using var usbGate = await _usbRunGate.AcquireAsync(usbConnectionIds, cts.Token);
                 await handler.HandleAsync(profile, manual, cts.Token);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)

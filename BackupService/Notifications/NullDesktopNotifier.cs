@@ -29,5 +29,10 @@ namespace BackupService.Notifications
         {
             // No desktop notifications on this platform.
         }
+
+        public void NotifyDeviceEjected(string deviceName)
+        {
+            // No desktop notifications on this platform.
+        }
     }
 }
