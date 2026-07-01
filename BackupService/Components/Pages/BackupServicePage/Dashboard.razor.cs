@@ -27,6 +27,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
 
+        [Inject]
+        private IStorageUsageService StorageUsageService { get; set; } = default!;
+
         // Live "running now" count comes from the in-memory status tracker.
         [Inject]
         private IProfileStatusService ProfileStatusService { get; set; } = default!;
@@ -35,9 +38,16 @@ namespace BackupService.Components.Pages.BackupServicePage
         [Inject]
         private ILogWatcher LogWatcher { get; set; } = default!;
 
+        // How often the storage-usage chart re-polls drives + connections so new/removed devices appear/vanish.
+        private const int StoragePollMs = 10000;
+
         private DashboardData? _data;
         private int _days = 14;
         private List<int> _profileIds = [];
+
+        private IReadOnlyList<StorageUsage> _storage = [];
+        private Timer? _storageTimer;
+        private bool _storageRefreshing;
 
         private bool _refreshing;
         private bool _subscribed;
@@ -49,16 +59,20 @@ namespace BackupService.Components.Pages.BackupServicePage
         private ApexChart<DailyOutcome>? _outcomesChart;
         private ApexChart<DailyBytes>? _bytesChart;
         private ApexChart<ProfileDuration>? _durationChart;
-        private ApexChart<OutcomeSlice>? _donutChart;
+        private ApexChart<StorageUsage>? _spaceChart;
 
         private ApexChartOptions<DailyOutcome> _outcomesOptions = default!;
         private ApexChartOptions<DailyBytes> _bytesOptions = default!;
         private ApexChartOptions<ProfileDuration> _durationOptions = default!;
-        private ApexChartOptions<OutcomeSlice> _donutOptions = default!;
-
-        private IReadOnlyList<OutcomeSlice> _slices = [];
+        private ApexChartOptions<StorageUsage> _spaceOptions = default!;
 
         private int RunningNow => _profileIds.Count(ProfileStatusService.IsRunning);
+
+        // Per-device free-space split into health buckets so each bar's free segment is coloured by how full
+        // it is: green ≥30%, amber 10–30%, red <10%. A device populates exactly one bucket (0 in the others).
+        private static long FreeHealthy(StorageUsage s) => s.FreePercent >= 30 ? s.FreeBytes : 0;
+        private static long FreeWarning(StorageUsage s) => s.FreePercent is < 30 and >= 10 ? s.FreeBytes : 0;
+        private static long FreeCritical(StorageUsage s) => s.FreePercent < 10 ? s.FreeBytes : 0;
 
         // Horizontal bars need vertical room per profile.
         private int DurationChartHeight => Math.Max(200, (_data?.DurationByProfile.Count ?? 0) * 40 + 60);
@@ -81,16 +95,74 @@ namespace BackupService.Components.Pages.BackupServicePage
                 LogWatcher.Changed += OnDataChanged;
                 ProfileStatusService.Changed += OnStatusChanged;
                 _subscribed = true;
+
+                // Poll drives + connections for the storage chart, immediately then on an interval, so newly
+                // plugged-in / removed devices and connections appear and disappear on their own.
+                _storageTimer = new Timer(_ => _ = RefreshStorageAsync(), null, 0, StoragePollMs);
             }
         }
 
         private async Task LoadAsync()
         {
             _data = await DashboardService.GetAsync(_days);
-            _slices = BuildSlices(_data);
 
             var summaries = await ProfileService.GetSummariesAsync();
             _profileIds = summaries.Select(s => s.Id).ToList();
+        }
+
+        // Re-reads the live storage picture (best-effort, off the UI thread) and pushes it into the chart,
+        // rescaling the y-axis to the largest device's capacity. Guarded against overlapping polls.
+        private async Task RefreshStorageAsync()
+        {
+            if (_disposed || _storageRefreshing)
+            {
+                return;
+            }
+
+            _storageRefreshing = true;
+            try
+            {
+                var usage = await StorageUsageService.GetUsageAsync();
+                if (_disposed)
+                {
+                    return;
+                }
+
+                await InvokeAsync(async () =>
+                {
+                    _storage = usage;
+
+                    // Y-axis 0..largest capacity (each bar stacks to its own capacity, so this caps the tallest).
+                    var max = usage.Count > 0 ? usage.Max(s => s.TotalBytes) : 0L;
+                    if (_spaceOptions.Yaxis is { Count: > 0 })
+                    {
+                        _spaceOptions.Yaxis[0].Max = max > 0 ? max : null;
+                    }
+
+                    StateHasChanged();
+
+                    if (_spaceChart is not null)
+                    {
+                        try
+                        {
+                            await _spaceChart.UpdateOptionsAsync(false, true, false);
+                            await _spaceChart.UpdateSeriesAsync(true);
+                        }
+                        catch
+                        {
+                            // Chart not ready / just removed — ignore.
+                        }
+                    }
+                });
+            }
+            catch
+            {
+                // Best-effort — the next poll will try again.
+            }
+            finally
+            {
+                _storageRefreshing = false;
+            }
         }
 
         private async Task OnPeriodChanged(int days)
@@ -148,7 +220,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             await TryUpdate(_outcomesChart);
             await TryUpdate(_bytesChart);
             await TryUpdate(_durationChart);
-            await TryUpdate(_donutChart);
+            // The storage chart isn't period-driven; it refreshes on its own timer (RefreshStorageAsync).
 
             static async Task TryUpdate<T>(ApexChart<T>? chart) where T : class
             {
@@ -166,13 +238,6 @@ namespace BackupService.Components.Pages.BackupServicePage
                 }
             }
         }
-
-        private static IReadOnlyList<OutcomeSlice> BuildSlices(DashboardData d) =>
-        [
-            new("Success", d.TotalSuccess),
-            new("Warnings", d.TotalCompletedWithWarnings),
-            new("Errors", d.TotalCompletedWithErrors + d.TotalFailed),
-        ];
 
         private void BuildChartOptions()
         {
@@ -209,12 +274,19 @@ namespace BackupService.Components.Pages.BackupServicePage
                 Legend = new Legend { Position = LegendPosition.Top },
             };
 
-            _donutOptions = new ApexChartOptions<OutcomeSlice>
+            // Storage usage: stacked bar per device — Used (blue) + the free space in one of three health
+            // buckets (green ≥30% / amber 10–30% / red <10%). The y-axis Max is set per-refresh to the
+            // largest device's capacity (RefreshStorageAsync), with byte-scaled labels + tooltip.
+            _spaceOptions = new ApexChartOptions<StorageUsage>
             {
                 Theme = new Theme { Mode = Mode.Dark },
-                Chart = new Chart { Background = "transparent" },
-                Colors = [SuccessColor, WarningColor, DangerColor],
-                Legend = new Legend { Position = LegendPosition.Bottom },
+                Chart = new Chart { Stacked = true, Background = "transparent", Toolbar = new Toolbar { Show = false } },
+                Colors = [AccentColor, SuccessColor, WarningColor, DangerColor],
+                PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { ColumnWidth = "55%", BorderRadius = 3 } },
+                DataLabels = new ApexCharts.DataLabels { Enabled = false },
+                Legend = new Legend { Position = LegendPosition.Top },
+                Yaxis = [new YAxis { Min = 0, Labels = new YAxisLabels { Formatter = BytesFormatter } }],
+                Tooltip = new Tooltip { Y = new TooltipY { Formatter = BytesFormatter } },
             };
         }
 
@@ -231,6 +303,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         public void Dispose()
         {
             _disposed = true;
+            _storageTimer?.Dispose();
             if (_subscribed)
             {
                 LogWatcher.Changed -= OnDataChanged;
@@ -238,7 +311,4 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
     }
-
-    /// <summary>A slice of the overall-outcome donut (label + count).</summary>
-    public sealed record OutcomeSlice(string Label, int Count);
 }

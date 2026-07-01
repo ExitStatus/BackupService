@@ -64,16 +64,22 @@ else
         </div>
 
         <div class="card chart-card">
-            <h2 class="chart-title">Overall outcome</h2>
-            @if (_data.RunsInPeriod == 0)
+            <h2 class="chart-title">Storage usage <span class="chart-note">(capacity &amp; free space)</span></h2>
+            @if (_storage.Count == 0)
             {
-                <p class="chart-empty">No runs in this period yet.</p>
+                <p class="chart-empty">No drives or connections available.</p>
             }
             else
             {
-                <ApexChart TItem="OutcomeSlice" Options="_donutOptions" Height="@(260)" @ref="_donutChart">
-                    <ApexPointSeries TItem="OutcomeSlice" Items="_slices" Name="Outcomes" SeriesType="SeriesType.Donut"
-                                     XValue="@(s => s.Label)" YValue="@(s => (decimal?)s.Count)" />
+                <ApexChart TItem="StorageUsage" Options="_spaceOptions" Height="@(260)" @ref="_spaceChart">
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Used" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)s.UsedBytes)" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeHealthy(s))" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (low)" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeWarning(s))" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (critical)" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeCritical(s))" />
                 </ApexChart>
             }
         </div>

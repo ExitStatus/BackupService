@@ -101,6 +101,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
                 builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
                 builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
+                builder.Services.AddSingleton<Dashboard.IStorageUsageService, Dashboard.StorageUsageService>();
                 builder.Services.AddSingleton<Options.IAppOptionsService, Options.AppOptionsService>();
 
                 // Desktop integration (Settings → Options): autostart + system-tray icon/notifications. These are
