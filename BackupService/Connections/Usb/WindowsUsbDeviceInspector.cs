@@ -17,7 +17,16 @@ namespace BackupService.Connections.Usb
             var devices = new List<UsbDevice>();
             foreach (var drive in DriveInfo.GetDrives())
             {
-                if (drive.DriveType != DriveType.Removable || !drive.IsReady)
+                if (!drive.IsReady)
+                {
+                    continue;
+                }
+
+                // Removable media (USB sticks, card readers) is always a candidate. External NVMe/SSD enclosures over
+                // a USB Attached SCSI bridge report DriveType.Fixed, so those are included only when the storage bus
+                // is USB — which excludes the internal system disk (NVMe/SATA bus) while catching external drives.
+                if (drive.DriveType != DriveType.Removable &&
+                    !(drive.DriveType == DriveType.Fixed && IsUsbBusDrive(drive.Name)))
                 {
                     continue;
                 }
@@ -32,15 +41,16 @@ namespace BackupService.Connections.Usb
             return devices;
         }
 
+        private bool IsUsbBusDrive(string driveLetter)
+        {
+            var letter = NormaliseLetter(driveLetter);
+            return letter is not null && TryReadStorageDescriptor(letter, out _, out var busType) && busType == BusTypeUsb;
+        }
+
         public UsbDevice? Inspect(string driveLetter)
         {
-            // Normalise "D:\", "D:" or "D" to the letter ("D:") and the root path ("D:\").
-            var letter = driveLetter.TrimEnd('\\', '/');
-            if (letter.Length >= 1 && !letter.EndsWith(':'))
-            {
-                letter = letter[..1] + ":";
-            }
-            if (letter.Length < 2)
+            var letter = NormaliseLetter(driveLetter);
+            if (letter is null)
             {
                 return null;
             }
@@ -52,8 +62,19 @@ namespace BackupService.Connections.Usb
                 return null;
             }
 
-            var hardwareSerial = TryReadHardwareSerial(letter);
+            TryReadStorageDescriptor(letter, out var hardwareSerial, out _);
             return new UsbDevice(letter, rootPath, label, volumeSerial, hardwareSerial);
+        }
+
+        // Normalise "D:\", "D:" or "D" to the drive letter ("D:"), or null if it isn't a usable letter.
+        private static string? NormaliseLetter(string driveLetter)
+        {
+            var letter = driveLetter.TrimEnd('\\', '/');
+            if (letter.Length >= 1 && !letter.EndsWith(':'))
+            {
+                letter = letter[..1] + ":";
+            }
+            return letter.Length < 2 ? null : letter;
         }
 
         private bool TryReadVolume(string rootPath, out string volumeSerial, out string label)
@@ -74,14 +95,18 @@ namespace BackupService.Connections.Usb
             return true;
         }
 
-        private string? TryReadHardwareSerial(string letter)
+        // Reads the STORAGE_DEVICE_DESCRIPTOR for a volume: the (optional) hardware serial and the storage BusType.
+        private bool TryReadStorageDescriptor(string letter, out string? serial, out int busType)
         {
+            serial = null;
+            busType = BusTypeUnknown;
+
             // Open the volume device (no access rights needed for a metadata query IOCTL).
             using var handle = CreateFile($@"\\.\{letter}", 0,
                 FileShare.ReadWrite, IntPtr.Zero, FileMode.Open, 0, IntPtr.Zero);
             if (handle.IsInvalid)
             {
-                return null;
+                return false;
             }
 
             try
@@ -92,35 +117,40 @@ namespace BackupService.Connections.Usb
 
                 if (!DeviceIoControl(handle, IOCTL_STORAGE_QUERY_PROPERTY,
                         query, query.Length, output, output.Length, out var returned, IntPtr.Zero)
-                    || returned < 28)
+                    || returned < 32)
                 {
-                    return null;
+                    return false;
                 }
+
+                // STORAGE_DEVICE_DESCRIPTOR.BusType is the uint at byte 28.
+                busType = (int)BitConverter.ToUInt32(output, 28);
 
                 // STORAGE_DEVICE_DESCRIPTOR.SerialNumberOffset is the uint at byte 24.
                 var serialOffset = BitConverter.ToUInt32(output, 24);
-                if (serialOffset == 0 || serialOffset >= output.Length)
+                if (serialOffset != 0 && serialOffset < output.Length)
                 {
-                    return null;
+                    var end = (int)serialOffset;
+                    while (end < output.Length && output[end] != 0)
+                    {
+                        end++;
+                    }
+
+                    var read = Encoding.ASCII.GetString(output, (int)serialOffset, end - (int)serialOffset).Trim();
+                    serial = string.IsNullOrEmpty(read) ? null : read;
                 }
 
-                var end = (int)serialOffset;
-                while (end < output.Length && output[end] != 0)
-                {
-                    end++;
-                }
-
-                var serial = Encoding.ASCII.GetString(output, (int)serialOffset, end - (int)serialOffset).Trim();
-                return string.IsNullOrEmpty(serial) ? null : serial;
+                return true;
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Could not read the USB hardware serial for {Drive}.", letter);
-                return null;
+                logger.LogDebug(ex, "Could not read the storage descriptor for {Drive}.", letter);
+                return false;
             }
         }
 
         private const uint IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400;
+        private const int BusTypeUnknown = 0x00;
+        private const int BusTypeUsb = 0x07;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool GetVolumeInformation(
