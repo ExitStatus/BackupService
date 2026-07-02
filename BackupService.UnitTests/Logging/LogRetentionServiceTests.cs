@@ -17,6 +17,7 @@ namespace BackupService.UnitTests.Logging
         private IDatabaseContextFactory _dbFactory = null!;
         private FakeTimeProvider _time = null!;
         private LogRetentionService _service = null!;
+        private TempLogStore _logStore = null!;
 
         // A fixed "now" for deterministic cutoffs.
         private static readonly DateTimeOffset Now = new(2026, 6, 17, 12, 0, 0, TimeSpan.Zero);
@@ -41,11 +42,16 @@ namespace BackupService.UnitTests.Logging
             _dbFactory = factoryMock.Object;
 
             _time = new FakeTimeProvider { UtcNow = Now };
-            _service = new LogRetentionService(_dbFactory, _time, NullLogger<LogRetentionService>.Instance);
+            _logStore = new TempLogStore();
+            _service = new LogRetentionService(_dbFactory, _logStore.Store, _time, NullLogger<LogRetentionService>.Instance);
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         [Test]
         public async Task GetSettingsAsync_SeedsDefaults_WhenNoneExist()
@@ -82,23 +88,26 @@ namespace BackupService.UnitTests.Logging
         public async Task PurgeIfDueAsync_DeletesRowsOlderThanRetention_KeepsNewer()
         {
             // Defaults: auth 7 days, operation 30 days. Insert oldest first so Id order matches time.
+            int oldId, recentId;
             using (var db = new BackupDbContext(_options))
             {
                 db.AuthenticationHistory.Add(new AuthenticationHistory { EventType = AuthenticationEventType.LoginFailed, TimestampUtc = Now.AddDays(-10) }); // old
                 db.AuthenticationHistory.Add(new AuthenticationHistory { EventType = AuthenticationEventType.LoginSucceeded, TimestampUtc = Now.AddDays(-1) }); // recent
 
-                db.OperationLogs.Add(new OperationLog
-                {
-                    Name = "old", TimestampUtc = Now.AddDays(-40),
-                    Details = { new OperationLogDetail { Message = "old line", TimestampUtc = Now.AddDays(-40), Sequence = 1 } },
-                });
-                db.OperationLogs.Add(new OperationLog
-                {
-                    Name = "recent", TimestampUtc = Now.AddDays(-5),
-                    Details = { new OperationLogDetail { Message = "recent line", TimestampUtc = Now.AddDays(-5), Sequence = 1 } },
-                });
+                var old = new OperationLog { Name = "old", TimestampUtc = Now.AddDays(-40) };
+                var recent = new OperationLog { Name = "recent", TimestampUtc = Now.AddDays(-5) };
+                db.OperationLogs.AddRange(old, recent);
+                db.SaveChanges();
+                oldId = old.Id;
+                recentId = recent.Id;
+
+                old.LogFile = _logStore.Store.FileNameFor(oldId);
+                recent.LogFile = _logStore.Store.FileNameFor(recentId);
                 db.SaveChanges();
             }
+
+            await _logStore.Store.AppendAsync(oldId, OperationLogLevel.Info, ["old line"]);
+            await _logStore.Store.AppendAsync(recentId, OperationLogLevel.Info, ["recent line"]);
 
             await _service.PurgeIfDueAsync();
 
@@ -109,28 +118,32 @@ namespace BackupService.UnitTests.Logging
             var logs = await verify.OperationLogs.ToListAsync();
             logs.Should().ContainSingle().Which.Name.Should().Be("recent");
 
-            var details = await verify.OperationLogDetails.ToListAsync();
-            details.Should().ContainSingle().Which.Message.Should().Be("recent line");
+            // The purged log's file is gone; the surviving log's file remains.
+            (await _logStore.Store.ReadAsync(oldId)).Should().BeEmpty();
+            (await _logStore.Store.ReadAsync(recentId)).Should().ContainSingle()
+                .Which.Message.Should().Be("recent line");
         }
 
         [Test]
         public async Task ClearOperationLogsAsync_DeletesAllOperationLogs_Details_AndRunHistory_LeavesAuthHistory()
         {
+            int withLinesId;
             using (var db = new BackupDbContext(_options))
             {
                 db.AuthenticationHistory.Add(new AuthenticationHistory { EventType = AuthenticationEventType.LoginSucceeded, TimestampUtc = Now });
-                db.OperationLogs.Add(new OperationLog
-                {
-                    Name = "a", TimestampUtc = Now.AddDays(-1),
-                    Details = { new OperationLogDetail { Message = "line", TimestampUtc = Now.AddDays(-1), Sequence = 1 } },
-                });
+                var a = new OperationLog { Name = "a", TimestampUtc = Now.AddDays(-1) };
+                db.OperationLogs.Add(a);
                 db.OperationLogs.Add(new OperationLog { Name = "b", TimestampUtc = Now }); // detail-less
                 var profile = new Profile { Name = "p", Type = ProfileType.FolderPair };
                 db.Profiles.Add(profile);
                 db.SaveChanges();
+                withLinesId = a.Id;
+                a.LogFile = _logStore.Store.FileNameFor(withLinesId);
                 db.BackupRuns.Add(new BackupRun { ProfileId = profile.Id, Type = ProfileType.FolderPair, StartedUtc = Now, Outcome = RunOutcome.Success });
                 db.SaveChanges();
             }
+
+            await _logStore.Store.AppendAsync(withLinesId, OperationLogLevel.Info, ["line"]);
 
             var removed = await _service.ClearOperationLogsAsync();
 
@@ -138,7 +151,7 @@ namespace BackupService.UnitTests.Logging
 
             await using var verify = new BackupDbContext(_options);
             (await verify.OperationLogs.CountAsync()).Should().Be(0);
-            (await verify.OperationLogDetails.CountAsync()).Should().Be(0);
+            (await _logStore.Store.ReadAsync(withLinesId)).Should().BeEmpty(); // log files cleared
             (await verify.BackupRuns.CountAsync()).Should().Be(0); // dashboard stats cleared
             (await verify.AuthenticationHistory.CountAsync()).Should().Be(1); // unaffected
         }

@@ -19,6 +19,7 @@ namespace BackupService.UnitTests.ScheduledTasks
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private ScheduledTaskStatusService _statusService = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -39,10 +40,15 @@ namespace BackupService.UnitTests.ScheduledTasks
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
             _statusService = new ScheduledTaskStatusService();
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         private async Task<int> SeedTaskAsync(params (string Command, bool Shell)[] steps)
         {
@@ -68,7 +74,7 @@ namespace BackupService.UnitTests.ScheduledTasks
         }
 
         private ScheduledTaskRunner Runner(IProcessRunner processRunner, IBackupRunRecorder recorder) =>
-            new(_dbFactory, new OperationLogFactory(_dbFactory), _statusService, processRunner, recorder, NullLogger<ScheduledTaskRunner>.Instance);
+            new(_dbFactory, new OperationLogFactory(_dbFactory, _logStore.Store), _statusService, processRunner, recorder, NullLogger<ScheduledTaskRunner>.Instance);
 
         [Test]
         public async Task RunAsync_RunsStepsInOrder_RecordsSuccess()
@@ -115,7 +121,8 @@ namespace BackupService.UnitTests.ScheduledTasks
             await Runner(processor, new FakeRecorder()).RunAsync(taskId, manual: false, CancellationToken.None);
 
             await using var verify = new BackupDbContext(_options);
-            var details = await verify.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
+            var log = await verify.OperationLogs.SingleAsync();
+            var details = await _logStore.Store.ReadAsync(log.Id);
             details.Should().Contain(d => d.Message.Contains("hello out") && d.Level == OperationLogLevel.Info);
             details.Should().Contain(d => d.Message.Contains("a warning on stderr") && d.Level == OperationLogLevel.Error);
         }

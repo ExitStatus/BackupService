@@ -97,9 +97,13 @@ namespace BackupService
                 builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
                 builder.Services.AddSingleton(TimeProvider.System);
                 builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
+                // Operation-log detail lines live in per-log files under {data dir}\operation-logs (not the DB).
+                builder.Services.AddSingleton<Logging.IOperationLogFileStore>(_ =>
+                    new Logging.OperationLogFileStore(Path.Combine(Database.BackupDatabaseLocation.GetDataDirectory(), "operation-logs")));
                 builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
                 builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
                 builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();
+                builder.Services.AddSingleton<Logging.OperationLogFileMigrator>();
                 builder.Services.AddSingleton<Dashboard.IDashboardService, Dashboard.DashboardService>();
                 builder.Services.AddSingleton<Dashboard.IStorageUsageService, Dashboard.StorageUsageService>();
                 builder.Services.AddSingleton<Options.IAppOptionsService, Options.AppOptionsService>();
@@ -203,6 +207,10 @@ namespace BackupService
                 {
                     db.Database.Migrate();
                 }
+
+                // One-time: move any legacy OperationLogDetails rows into per-log files and drop the table.
+                app.Services.GetRequiredService<Logging.OperationLogFileMigrator>()
+                    .MigrateAsync().GetAwaiter().GetResult();
 
                 // Migrate any legacy (DPAPI) SMB passwords to the cross-platform Data Protection format.
                 app.Services.GetRequiredService<Connections.ConnectionSecretMigrator>().Migrate();

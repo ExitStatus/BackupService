@@ -14,6 +14,7 @@ namespace BackupService.UnitTests.Logging
         private SqliteConnection _connection = null!;
         private DbContextOptions<BackupDbContext> _options = null!;
         private OperationLogService _service = null!;
+        private TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -32,11 +33,16 @@ namespace BackupService.UnitTests.Logging
 
             var dbFactory = new Mock<IDatabaseContextFactory>();
             dbFactory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
-            _service = new OperationLogService(dbFactory.Object);
+            _logStore = new TempLogStore();
+            _service = new OperationLogService(dbFactory.Object, _logStore.Store);
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         [Test]
         public async Task GetPageAsync_ReturnsHeadersNewestFirstAndPages()
@@ -71,9 +77,10 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
-        public async Task GetDetailsAsync_ReturnsOnlyTargetLogDetailsOrderedBySequence()
+        public async Task GetDetailsAsync_ReturnsOnlyTargetLogLinesInFileOrder()
         {
             int targetId;
+            int otherId;
             using (var context = new BackupDbContext(_options))
             {
                 var target = new OperationLog { Name = "Target", TimestampUtc = DateTimeOffset.UtcNow, Level = OperationLogLevel.Info };
@@ -81,19 +88,18 @@ namespace BackupService.UnitTests.Logging
                 context.OperationLogs.AddRange(target, other);
                 await context.SaveChangesAsync();
                 targetId = target.Id;
-
-                context.OperationLogDetails.AddRange(
-                    new OperationLogDetail { OperationLogId = target.Id, Message = "third", Sequence = 3, TimestampUtc = DateTimeOffset.UtcNow },
-                    new OperationLogDetail { OperationLogId = target.Id, Message = "first", Sequence = 1, TimestampUtc = DateTimeOffset.UtcNow },
-                    new OperationLogDetail { OperationLogId = target.Id, Message = "second", Sequence = 2, TimestampUtc = DateTimeOffset.UtcNow },
-                    new OperationLogDetail { OperationLogId = other.Id, Message = "other", Sequence = 1, TimestampUtc = DateTimeOffset.UtcNow });
-                await context.SaveChangesAsync();
+                otherId = other.Id;
             }
+
+            // Lines are stored in the log's file in write order (no explicit sequence any more).
+            await _logStore.Store.AppendAsync(targetId, OperationLogLevel.Info, ["first"]);
+            await _logStore.Store.AppendAsync(targetId, OperationLogLevel.Info, ["second"]);
+            await _logStore.Store.AppendAsync(targetId, OperationLogLevel.Info, ["third"]);
+            await _logStore.Store.AppendAsync(otherId, OperationLogLevel.Info, ["other"]);
 
             var details = await _service.GetDetailsAsync(targetId);
 
             details.Select(d => d.Message).Should().Equal("first", "second", "third");
-            details.Should().OnlyContain(d => d.OperationLogId == targetId);
         }
 
         [Test]
@@ -181,7 +187,7 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
-        public async Task GetPageAsync_PopulatesDetailCount()
+        public async Task GetPageAsync_ExposesLogFileReference_ForLogsWithLines()
         {
             await SeedAsync(
                 ("With detail", "a line"),
@@ -189,8 +195,8 @@ namespace BackupService.UnitTests.Logging
 
             var result = await _service.GetPageAsync(1, 10);
 
-            result.Items.Single(l => l.Name == "With detail").DetailCount.Should().Be(1);
-            result.Items.Single(l => l.Name == "Without detail").DetailCount.Should().Be(0);
+            result.Items.Single(l => l.Name == "With detail").LogFile.Should().NotBeNullOrEmpty();
+            result.Items.Single(l => l.Name == "Without detail").LogFile.Should().BeNull();
         }
 
         [Test]
@@ -220,27 +226,39 @@ namespace BackupService.UnitTests.Logging
 
         private async Task SeedAsync(params (string Name, string? Message)[] logs)
         {
-            using var context = new BackupDbContext(_options);
-            foreach (var (name, message) in logs)
+            var withMessages = new List<(int Id, string Message)>();
+
+            using (var context = new BackupDbContext(_options))
             {
-                var log = new OperationLog
+                foreach (var (name, message) in logs)
                 {
-                    Name = name,
-                    TimestampUtc = DateTimeOffset.UtcNow,
-                    Level = OperationLogLevel.Info,
-                };
-                if (message is not null)
-                {
-                    log.Details.Add(new OperationLogDetail
+                    var log = new OperationLog
                     {
-                        Message = message,
+                        Name = name,
                         TimestampUtc = DateTimeOffset.UtcNow,
-                        Sequence = 1,
-                    });
+                        Level = OperationLogLevel.Info,
+                    };
+                    if (message is not null)
+                    {
+                        // A log with lines carries a LogFile reference; the lines live in the file.
+                        log.LogFile = _logStore.Store.FileNameFor(0); // placeholder, fixed up once Id is known
+                    }
+                    context.OperationLogs.Add(log);
+                    await context.SaveChangesAsync();
+
+                    if (message is not null)
+                    {
+                        log.LogFile = _logStore.Store.FileNameFor(log.Id);
+                        await context.SaveChangesAsync();
+                        withMessages.Add((log.Id, message));
+                    }
                 }
-                context.OperationLogs.Add(log);
             }
-            await context.SaveChangesAsync();
+
+            foreach (var (id, message) in withMessages)
+            {
+                await _logStore.Store.AppendAsync(id, OperationLogLevel.Info, [message]);
+            }
         }
     }
 }

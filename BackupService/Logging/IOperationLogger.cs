@@ -4,10 +4,9 @@ namespace BackupService.Logging
 {
     /// <summary>
     /// A live handle to an <see cref="Database.OperationLog"/> record. Append detail lines via
-    /// <see cref="AppendAsync(string[])"/>; each <c>message</c> becomes its own
-    /// <see cref="Database.OperationLogDetail"/> row with the next sequence number (so passing
-    /// several messages in one call writes several rows rather than one delimited string). Each
-    /// line carries a <see cref="OperationLogLevel"/> and the header's
+    /// <see cref="AppendAsync(string[])"/>; each <c>message</c> becomes its own line in the log's
+    /// on-disk file (so passing several messages in one call writes several lines rather than one
+    /// delimited string). Each line carries a <see cref="OperationLogLevel"/> and the header's
     /// <see cref="Database.OperationLog.Level"/> is kept in step as the most severe line seen.
     /// </summary>
     public interface IOperationLogger
@@ -15,11 +14,11 @@ namespace BackupService.Logging
         /// <summary>Id of the OperationLog record this logger appends detail lines to.</summary>
         int OperationLogId { get; }
 
-        /// <summary>Appends one <see cref="OperationLogLevel.Info"/> detail row per supplied message.</summary>
+        /// <summary>Appends one <see cref="OperationLogLevel.Info"/> detail line per supplied message.</summary>
         Task AppendAsync(params string[] messages);
 
         /// <summary>
-        /// Appends one detail row per supplied message at the given <paramref name="level"/>,
+        /// Appends one detail line per supplied message at the given <paramref name="level"/>,
         /// raising the header's <see cref="Database.OperationLog.Level"/> if the line is more severe.
         /// </summary>
         Task AppendAsync(OperationLogLevel level, params string[] messages);
@@ -39,5 +38,9 @@ namespace BackupService.Logging
         /// the stack trace) is appended to the message.
         /// </summary>
         Task ErrorAsync(string message, Exception? exception = null);
+
+        // Note: detail lines are persisted to the log's on-disk file (see IOperationLogFileStore),
+        // not to the database — the header row is only touched to record the file reference and to
+        // raise its level.
     }
 }

@@ -18,6 +18,7 @@ namespace BackupService.UnitTests.Scheduling
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private ProfileStatusService _statusService = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -38,10 +39,15 @@ namespace BackupService.UnitTests.Scheduling
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
             _statusService = new ProfileStatusService();
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         private async Task<Profile> SeedAndLoadProfileAsync()
         {
@@ -62,7 +68,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private FolderPairHandler Handler(IFolderPairSynchronizer synchronizer) =>
-            new(new OperationLogFactory(_dbFactory), synchronizer, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory, _logStore.Store), synchronizer, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachPair_WritesSummaryAndPersistsSuccess()
@@ -83,8 +89,8 @@ namespace BackupService.UnitTests.Scheduling
             log.Level.Should().Be(OperationLogLevel.Info);
             log.ProfileId.Should().Be(profile.Id);
 
-            // The pair header line was written under that same log.
-            var details = await verify.OperationLogDetails.Where(d => d.OperationLogId == log.Id).ToListAsync();
+            // The pair header line was written to that same log's file.
+            var details = await _logStore.Store.ReadAsync(log.Id);
             details.Should().ContainSingle(d => d.Message == @"Folder pair 'P': C:\a -> D:\b");
 
             // Per-pair status persisted.

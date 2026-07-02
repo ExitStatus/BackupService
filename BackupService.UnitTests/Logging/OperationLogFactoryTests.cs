@@ -14,6 +14,7 @@ namespace BackupService.UnitTests.Logging
         private SqliteConnection _connection = null!;
         private DbContextOptions<BackupDbContext> _options = null!;
         private OperationLogFactory _factory = null!;
+        private TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -32,11 +33,16 @@ namespace BackupService.UnitTests.Logging
 
             var dbFactory = new Mock<IDatabaseContextFactory>();
             dbFactory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
-            _factory = new OperationLogFactory(dbFactory.Object);
+            _logStore = new TempLogStore();
+            _factory = new OperationLogFactory(dbFactory.Object, _logStore.Store);
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         [Test]
         public async Task CreateAsync_InsertsOperationLogWithLevelAndRecordsItsId()
@@ -72,12 +78,9 @@ namespace BackupService.UnitTests.Logging
             await logger.AppendAsync("more");
             await logger.ErrorAsync("boom");
 
-            await using var context = new BackupDbContext(_options);
-            var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
+            var details = await _logStore.Store.ReadAsync(logger.OperationLogId);
 
-            details.Select(d => d.Sequence).Should().Equal(1, 2, 3);
             details.Select(d => d.Message).Should().Equal("started", "more", "boom");
-            details.Should().OnlyContain(d => d.OperationLogId == logger.OperationLogId);
         }
 
         [Test]
@@ -93,8 +96,8 @@ namespace BackupService.UnitTests.Logging
             log.Name.Should().Be("Op failed in 5ms");
             log.Level.Should().Be(OperationLogLevel.Error);
 
-            // Still a single log header with its detail lines intact.
-            (await context.OperationLogDetails.CountAsync()).Should().Be(1);
+            // Still a single log header with its detail line intact in the file.
+            (await _logStore.Store.ReadAsync(logger.OperationLogId)).Should().ContainSingle();
         }
 
         [Test]
@@ -104,11 +107,9 @@ namespace BackupService.UnitTests.Logging
 
             await logger.AppendAsync("line 1", "line 2", "line 3");
 
-            await using var context = new BackupDbContext(_options);
-            var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
+            var details = await _logStore.Store.ReadAsync(logger.OperationLogId);
 
             details.Select(d => d.Message).Should().Equal("line 1", "line 2", "line 3");
-            details.Select(d => d.Sequence).Should().Equal(1, 2, 3);
         }
 
         [Test]
@@ -120,8 +121,7 @@ namespace BackupService.UnitTests.Logging
             await logger.AppendAsync(OperationLogLevel.Warning, "warn line");
             await logger.ErrorAsync("error line");
 
-            await using var context = new BackupDbContext(_options);
-            var details = await context.OperationLogDetails.OrderBy(d => d.Sequence).ToListAsync();
+            var details = await _logStore.Store.ReadAsync(logger.OperationLogId);
 
             details.Select(d => d.Level).Should()
                 .Equal(OperationLogLevel.Info, OperationLogLevel.Warning, OperationLogLevel.Error);
@@ -197,7 +197,7 @@ namespace BackupService.UnitTests.Logging
 
             await using var context = new BackupDbContext(_options);
             var log = await context.OperationLogs.SingleAsync();
-            var detail = await context.OperationLogDetails.SingleAsync();
+            var detail = (await _logStore.Store.ReadAsync(logger.OperationLogId)).Single();
 
             log.Level.Should().Be(OperationLogLevel.Error);
             detail.Message.Should().Be("failed: kaboom"); // exception message only

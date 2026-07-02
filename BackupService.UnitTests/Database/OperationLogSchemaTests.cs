@@ -30,7 +30,7 @@ namespace BackupService.UnitTests.Database
         public void TearDown() => _connection.Dispose();
 
         [Test]
-        public async Task OperationLog_WithDetails_RoundTrips()
+        public async Task OperationLog_Header_RoundTrips()
         {
             var now = DateTimeOffset.UtcNow;
 
@@ -41,68 +41,19 @@ namespace BackupService.UnitTests.Database
                     Name = "Nightly backup",
                     TimestampUtc = now,
                     Level = OperationLogLevel.Warning,
-                    Details =
-                    {
-                        new OperationLogDetail
-                        {
-                            Message = "Started",
-                            TimestampUtc = now,
-                            Sequence = 1,
-                        },
-                        new OperationLogDetail
-                        {
-                            Message = "Disk nearly full",
-                            TimestampUtc = now,
-                            Sequence = 2,
-                        },
-                    },
+                    LogFile = "42.log", // detail lines live in this file now, not the database
                 });
                 await context.SaveChangesAsync();
             }
 
             await using (var context = new BackupDbContext(_options))
             {
-                var log = await context.OperationLogs.Include(l => l.Details).SingleAsync();
+                var log = await context.OperationLogs.SingleAsync();
 
                 log.Name.Should().Be("Nightly backup");
                 log.TimestampUtc.Should().BeCloseTo(now, TimeSpan.FromSeconds(1));
                 log.Level.Should().Be(OperationLogLevel.Warning);
-
-                log.Details.Should().HaveCount(2);
-                var ordered = log.Details.OrderBy(d => d.Sequence).ToList();
-                ordered[0].Message.Should().Be("Started");
-                ordered[1].Message.Should().Be("Disk nearly full");
-            }
-        }
-
-        [Test]
-        public async Task DeletingOperationLog_CascadeDeletesItsDetails()
-        {
-            await using (var context = new BackupDbContext(_options))
-            {
-                context.OperationLogs.Add(new OperationLog
-                {
-                    Name = "Op",
-                    TimestampUtc = DateTimeOffset.UtcNow,
-                    Details =
-                    {
-                        new OperationLogDetail { Message = "a", Sequence = 1 },
-                        new OperationLogDetail { Message = "b", Sequence = 2 },
-                    },
-                });
-                await context.SaveChangesAsync();
-            }
-
-            await using (var context = new BackupDbContext(_options))
-            {
-                context.OperationLogs.Remove(await context.OperationLogs.SingleAsync());
-                await context.SaveChangesAsync();
-            }
-
-            await using (var context = new BackupDbContext(_options))
-            {
-                (await context.OperationLogs.CountAsync()).Should().Be(0);
-                (await context.OperationLogDetails.CountAsync()).Should().Be(0);
+                log.LogFile.Should().Be("42.log");
             }
         }
 

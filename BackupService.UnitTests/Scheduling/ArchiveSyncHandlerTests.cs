@@ -18,6 +18,7 @@ namespace BackupService.UnitTests.Scheduling
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private ProfileStatusService _statusService = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -38,10 +39,15 @@ namespace BackupService.UnitTests.Scheduling
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
             _statusService = new ProfileStatusService();
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         private async Task<Profile> SeedAndLoadProfileAsync(int runCount = 0)
         {
@@ -70,7 +76,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private ArchiveSyncHandler Handler(IArchiveSyncProcessor processor) =>
-            new(new OperationLogFactory(_dbFactory), processor, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<ArchiveSyncHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory, _logStore.Store), processor, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<ArchiveSyncHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachItem_WritesSummaryWithCounts_AndAdvancesRunCount()

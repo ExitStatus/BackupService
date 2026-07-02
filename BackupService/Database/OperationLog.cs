@@ -1,11 +1,12 @@
-using System.ComponentModel.DataAnnotations.Schema;
 using BackupService.Enumerations;
 
 namespace BackupService.Database
 {
     /// <summary>
-    /// A logged operation (e.g. a backup run). Has one-to-many <see cref="OperationLogDetail"/>
-    /// lines (cascade delete). The severity of the operation as a whole is the header-level
+    /// A logged operation (e.g. a backup run). Its detail lines are no longer stored as database rows
+    /// (they were far too many and too write-heavy); instead they are appended to a per-log text file
+    /// referenced by <see cref="LogFile"/> and read back on demand for the Logs terminal view (see
+    /// <c>IOperationLogFileStore</c>). The severity of the operation as a whole is the header-level
     /// <see cref="Level"/>, derived as the most severe of its detail lines' levels (maintained as
     /// lines are appended; see <c>OperationLogger</c>).
     /// </summary>
@@ -33,13 +34,12 @@ namespace BackupService.Database
 
         public Profile? Profile { get; set; }
 
-        public ICollection<OperationLogDetail> Details { get; set; } = new List<OperationLogDetail>();
-
         /// <summary>
-        /// Number of detail lines, populated by <c>IOperationLogService.GetPageAsync</c> for the
-        /// grid (so a detail-less log doesn't show an expand control). Not persisted.
+        /// The name of the on-disk log file holding this log's detail lines (relative to the operation-logs
+        /// directory; see <c>IOperationLogFileStore</c>). Null for a self-describing/detail-less log (the
+        /// message lives entirely in <see cref="Name"/>), which the Logs grid renders with no expand control.
+        /// Set when the first line is written.
         /// </summary>
-        [NotMapped]
-        public int DetailCount { get; set; }
+        public string? LogFile { get; set; }
     }
 }

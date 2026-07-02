@@ -17,6 +17,7 @@ namespace BackupService.UnitTests.Profiles
         private SqliteConnection _connection = null!;
         private DbContextOptions<BackupDbContext> _options = null!;
         private ProfileService _service = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -35,9 +36,10 @@ namespace BackupService.UnitTests.Profiles
 
             var factory = new Mock<IDatabaseContextFactory>();
             factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
             _service = new ProfileService(
                 factory.Object,
-                new OperationLogFactory(factory.Object),
+                new OperationLogFactory(factory.Object, _logStore.Store),
                 new FolderPairService(),
                 new InstantSyncItemService(),
                 new ArchiveSyncItemService(new ReversibleProtector()),
@@ -49,7 +51,11 @@ namespace BackupService.UnitTests.Profiles
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         [Test]
         public async Task CreateAsync_PersistsProfileWithOneFolderPair()
@@ -184,12 +190,12 @@ namespace BackupService.UnitTests.Profiles
             ]);
 
             await using var context = new BackupDbContext(_options);
-            var log = await context.OperationLogs.Include(l => l.Details).SingleAsync();
+            var log = await context.OperationLogs.SingleAsync();
 
             log.Name.Should().Be("Profile created: Docs");
             log.ProfileId.Should().Be(await GetOnlyProfileIdAsync());
 
-            var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
+            var messages = (await _logStore.Store.ReadAsync(log.Id)).Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
             messages.Should().Contain(m => m.StartsWith("Type:"));
             messages.Should().Contain(m => m.StartsWith("Schedule:"));
@@ -261,10 +267,10 @@ namespace BackupService.UnitTests.Profiles
                 [new FolderPairInput(pairId, "Src pair", @"C:\Src", @"E:\Backup", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
 
             await using var context = new BackupDbContext(_options);
-            var log = await context.OperationLogs.Include(l => l.Details)
+            var log = await context.OperationLogs
                 .SingleAsync(l => l.Name == "Profile updated: Docs");
 
-            var messages = log.Details.OrderBy(d => d.Sequence).Select(d => d.Message).ToList();
+            var messages = (await _logStore.Store.ReadAsync(log.Id)).Select(d => d.Message).ToList();
             messages.Should().Contain("Name changed from 'Docs' to 'Photos'");
             messages.Should().Contain("Enabled changed from 'Yes' to 'No'");
             messages.Should().Contain(@"Folder pair 'Src pair' target changed from 'D:\Dst' to 'E:\Backup'");
@@ -332,11 +338,11 @@ namespace BackupService.UnitTests.Profiles
             // The "Profile created" log was associated with the profile and is cascade-deleted
             // with it; only the unassociated deletion log survives.
             (await context.OperationLogs.CountAsync()).Should().Be(1);
-            var log = await context.OperationLogs.Include(l => l.Details)
+            var log = await context.OperationLogs
                 .SingleAsync(l => l.Name == "Profile deleted: Docs");
             log.ProfileId.Should().BeNull();
 
-            var messages = log.Details.Select(d => d.Message).ToList();
+            var messages = (await _logStore.Store.ReadAsync(log.Id)).Select(d => d.Message).ToList();
             messages.Should().Contain("Name: Docs");
             messages.Should().Contain(m => m.StartsWith("Type:"));
         }
@@ -381,10 +387,10 @@ namespace BackupService.UnitTests.Profiles
             await _service.SetEnabledAsync(id, false);
 
             await using var context = new BackupDbContext(_options);
-            var log = await context.OperationLogs.Include(l => l.Details)
+            var log = await context.OperationLogs
                 .SingleAsync(l => l.Name == "Profile Docs was disabled");
             log.ProfileId.Should().Be(id);
-            log.Details.Should().BeEmpty(); // self-describing: message in the name, no sub-entries
+            (await _logStore.Store.ReadAsync(log.Id)).Should().BeEmpty(); // self-describing: message in the name, no lines
         }
 
         [Test]
@@ -403,7 +409,7 @@ namespace BackupService.UnitTests.Profiles
             factory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             var service = new ProfileService(
                 factory.Object,
-                new OperationLogFactory(factory.Object),
+                new OperationLogFactory(factory.Object, _logStore.Store),
                 new FolderPairService(),
                 new InstantSyncItemService(),
                 new ArchiveSyncItemService(new ReversibleProtector()),

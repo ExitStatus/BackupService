@@ -19,6 +19,7 @@ namespace BackupService.UnitTests.Scheduling
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private ProfileStatusService _statusService = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
 
         [SetUp]
         public void SetUp()
@@ -39,10 +40,15 @@ namespace BackupService.UnitTests.Scheduling
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
             _statusService = new ProfileStatusService();
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         private async Task<Profile> SeedAndLoadProfileAsync()
         {
@@ -66,7 +72,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         private LightroomArchiveHandler Handler(ILightroomArchiveProcessor processor) =>
-            new(new OperationLogFactory(_dbFactory), processor, Mock.Of<IBackupFileSystem>(), _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<LightroomArchiveHandler>.Instance);
+            new(new OperationLogFactory(_dbFactory, _logStore.Store), processor, Mock.Of<IBackupFileSystem>(), _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<LightroomArchiveHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachItem_WritesSummaryWithCounts()
@@ -86,7 +92,7 @@ namespace BackupService.UnitTests.Scheduling
             log.Level.Should().Be(OperationLogLevel.Info);
             log.ProfileId.Should().Be(profile.Id);
 
-            var details = await verify.OperationLogDetails.Where(d => d.OperationLogId == log.Id).ToListAsync();
+            var details = await _logStore.Store.ReadAsync(log.Id);
             details.Should().ContainSingle(d => d.Message == @"Lightroom archive 'L': C:\a -> D:\b");
         }
 

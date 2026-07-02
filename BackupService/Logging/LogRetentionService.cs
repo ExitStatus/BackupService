@@ -13,6 +13,7 @@ namespace BackupService.Logging
     /// </summary>
     public sealed class LogRetentionService(
         IDatabaseContextFactory contextFactory,
+        IOperationLogFileStore fileStore,
         TimeProvider timeProvider,
         ILogger<LogRetentionService> logger) : ILogRetentionService
     {
@@ -77,10 +78,10 @@ namespace BackupService.Logging
         {
             await using var db = contextFactory.CreateDbContext();
 
-            // Delete detail lines first, then the headers, so we don't rely on SQLite FK cascade under
-            // ExecuteDelete (which issues a single raw DELETE) — the same ordering as the retention purge.
-            await db.OperationLogDetails.ExecuteDeleteAsync(cancellationToken);
             var deleted = await db.OperationLogs.ExecuteDeleteAsync(cancellationToken);
+
+            // The detail lines live in per-log files — remove them all.
+            fileStore.DeleteAll();
 
             // Also clear the structured run history that drives the dashboard stats/charts, so "Clear logs"
             // resets the dashboard too.
@@ -135,15 +136,20 @@ namespace BackupService.Logging
                 return;
             }
 
-            // Delete detail lines first, then the headers, so we don't rely on SQLite FK cascade under
-            // ExecuteDelete (which issues a single raw DELETE).
-            await db.OperationLogDetails
-                .Where(d => d.OperationLogId <= id)
-                .ExecuteDeleteAsync(cancellationToken);
+            // Collect the ids of the logs being purged so their on-disk files can be removed too.
+            var purgedIds = await db.OperationLogs
+                .Where(l => l.Id <= id && l.LogFile != null)
+                .Select(l => l.Id)
+                .ToListAsync(cancellationToken);
 
             var deleted = await db.OperationLogs
                 .Where(l => l.Id <= id)
                 .ExecuteDeleteAsync(cancellationToken);
+
+            foreach (var purgedId in purgedIds)
+            {
+                fileStore.Delete(purgedId);
+            }
 
             if (deleted > 0)
             {

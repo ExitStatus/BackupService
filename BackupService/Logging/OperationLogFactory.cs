@@ -9,6 +9,7 @@ namespace BackupService.Logging
     /// </summary>
     public sealed class OperationLogFactory(
         IDatabaseContextFactory contextFactory,
+        IOperationLogFileStore fileStore,
         ILogWatcher? logWatcher = null,
         ILogRetentionService? logRetentionService = null) : IOperationLogFactory
     {
@@ -40,7 +41,7 @@ namespace BackupService.Logging
             _ = logRetentionService?.PurgeIfDueAsync();
 
             // EF populates log.Id after SaveChanges.
-            return new OperationLogger(contextFactory, log.Id, level, logWatcher);
+            return new OperationLogger(contextFactory, fileStore, log.Id, level, logWatcher);
         }
     }
 }

@@ -62,7 +62,7 @@ else
                 var expanded = _expanded.Contains(log.Id);
                 <tr>
                     <td class="expand-col">
-                        @if (log.DetailCount > 0)
+                        @if (!string.IsNullOrEmpty(log.LogFile))
                         {
                             <button type="button" class="icon-btn expand-btn @(expanded ? "expanded" : null)"
                                     title="@(expanded ? "Collapse" : "Expand")"
@@ -79,7 +79,7 @@ else
                         @if (log.Profile is not null)
                         {
                             @log.Profile.Name
-                            @if (IsProfileRunning(log.Profile.Id))
+                            @if (ShowRunningChip(log))
                             {
                                 <span class="running-chip">Running</span>
                             }
@@ -139,7 +139,7 @@ else
                                     {
                                         <div class="log-terminal" id="log-terminal-@log.Id" role="log" aria-label="Log output">
                                             <Virtualize Items="filtered" Context="detail" ItemSize="LineHeight">
-                                                <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.TimestampUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
+                                                <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
                                             </Virtualize>
                                         </div>
                                     }

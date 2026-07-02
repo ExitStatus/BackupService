@@ -19,6 +19,7 @@ namespace BackupService.UnitTests.Scheduling
         private DbContextOptions<BackupDbContext> _options = null!;
         private IDatabaseContextFactory _dbFactory = null!;
         private OperationLogFactory _logFactory = null!;
+        private BackupService.UnitTests.Logging.TempLogStore _logStore = null!;
         private ProfileStatusService _statusService = null!;
 
         [SetUp]
@@ -39,12 +40,17 @@ namespace BackupService.UnitTests.Scheduling
             var factoryMock = new Mock<IDatabaseContextFactory>();
             factoryMock.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
             _dbFactory = factoryMock.Object;
-            _logFactory = new OperationLogFactory(_dbFactory);
+            _logStore = new BackupService.UnitTests.Logging.TempLogStore();
+            _logFactory = new OperationLogFactory(_dbFactory, _logStore.Store);
             _statusService = new ProfileStatusService();
         }
 
         [TearDown]
-        public void TearDown() => _connection.Dispose();
+        public void TearDown()
+        {
+            _connection.Dispose();
+            _logStore.Dispose();
+        }
 
         private int SeedProfile(ProfileType type = ProfileType.FolderPair)
         {

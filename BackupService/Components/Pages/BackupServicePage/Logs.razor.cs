@@ -40,6 +40,10 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private PagedResult<OperationLog>? _logs;
 
+        // The newest (highest-Id) loaded log per profile — the run's live log is the most recent one,
+        // so the "Running" chip is shown only on this row, not on every past log of a running profile.
+        private Dictionary<int, int> _latestLogIdByProfile = new();
+
         private string _filter = string.Empty;
         private bool _includeMessages;
         private OperationLogLevel? _level;
@@ -65,7 +69,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         // Which logs are expanded, and a cache of their detail lines (lazy-loaded on first expand).
         // Stored as List so the terminal view can feed them to <Virtualize Items=...>.
         private readonly HashSet<int> _expanded = [];
-        private readonly Dictionary<int, List<OperationLogDetail>> _details = [];
+        private readonly Dictionary<int, List<OperationLogLine>> _details = [];
 
         // Per-expanded-log filters for the detail (terminal) view: a free-text line filter, plus
         // Warning/Error level toggles. All keyed by log id (each expanded log keeps its own). The two
@@ -123,14 +127,14 @@ namespace BackupService.Components.Pages.BackupServicePage
         }
 
         /// <summary>The cached lines for a log, narrowed by its text filter and Warning/Error toggles.</summary>
-        private List<OperationLogDetail> FilteredDetails(int logId)
+        private List<OperationLogLine> FilteredDetails(int logId)
         {
             if (!_details.TryGetValue(logId, out var all))
             {
                 return [];
             }
 
-            IEnumerable<OperationLogDetail> query = all;
+            IEnumerable<OperationLogLine> query = all;
 
             var text = _detailFilters.GetValueOrDefault(logId);
             if (!string.IsNullOrWhiteSpace(text))
@@ -214,7 +218,21 @@ namespace BackupService.Components.Pages.BackupServicePage
         // No data reload needed (the chip reads the live status service, not the loaded entity).
         private void OnProfileStatusChanged(int profileId) => _ = InvokeAsync(StateHasChanged);
 
-        private bool IsProfileRunning(int profileId) => StatusService.Get(profileId) == ProfileStatus.Running;
+        // Show the chip only when the profile is running AND this is its newest loaded log (the one the
+        // active run is populating) — otherwise every historical log of that profile would show it.
+        private bool ShowRunningChip(OperationLog log) =>
+            log.Profile is not null
+            && StatusService.Get(log.Profile.Id) == ProfileStatus.Running
+            && _latestLogIdByProfile.TryGetValue(log.Profile.Id, out var latestId)
+            && latestId == log.Id;
+
+        // Recompute the newest-log-per-profile map from the current page (logs come back newest-first).
+        private void RebuildLatestLogIds() =>
+            _latestLogIdByProfile = _logs?.Items
+                .Where(l => l.Profile is not null)
+                .GroupBy(l => l.Profile!.Id)
+                .ToDictionary(g => g.Key, g => g.Max(l => l.Id))
+                ?? new Dictionary<int, int>();
 
         /// <summary>
         /// Re-reads the current page (and any expanded logs' details) in place, without collapsing the
@@ -231,6 +249,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             try
             {
                 _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
+                RebuildLatestLogIds();
 
                 // Drop expansion state for logs no longer in the result (e.g. filtered out); refresh the
                 // details of those still shown so a running log stays live.
@@ -241,7 +260,7 @@ namespace BackupService.Components.Pages.BackupServicePage
                 {
                     var oldCount = _details.TryGetValue(id, out var existing) ? existing.Count : 0;
                     var details = await OperationLogService.GetDetailsAsync(id);
-                    var list = details as List<OperationLogDetail> ?? details.ToList();
+                    var list = details as List<OperationLogLine> ?? details.ToList();
                     _details[id] = list;
 
                     // New lines arrived — follow them to the bottom unless the user paused this terminal.
@@ -262,6 +281,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         private async Task LoadAsync()
         {
             _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
+            RebuildLatestLogIds();
 
             // Collapse everything when the filter changes — the visible set differs.
             _expanded.Clear();
@@ -311,7 +331,7 @@ namespace BackupService.Components.Pages.BackupServicePage
                 if (!_details.ContainsKey(logId))
                 {
                     var details = await OperationLogService.GetDetailsAsync(logId);
-                    _details[logId] = details as List<OperationLogDetail> ?? details.ToList();
+                    _details[logId] = details as List<OperationLogLine> ?? details.ToList();
                 }
             }
         }

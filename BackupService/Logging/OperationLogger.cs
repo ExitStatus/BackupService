@@ -5,20 +5,25 @@ using Microsoft.EntityFrameworkCore;
 namespace BackupService.Logging
 {
     /// <summary>
-    /// Default <see cref="IOperationLogger"/>. Writes detail lines through the DbContext factory
-    /// (a short-lived context per call, per the project convention), one row per message, tracking
-    /// the next sequence number internally. Each line carries a level; the header's
-    /// <see cref="OperationLog.Level"/> is kept in step as the most severe line seen — Debug/Info
-    /// count as Info, any Warning escalates the header to Warning, any Error to Error. The header
-    /// only ever rises (severity is never lowered). <see cref="SetSummaryAsync"/> revises the header
-    /// message in place (its level acts as a floor).
+    /// Default <see cref="IOperationLogger"/>. Detail lines are appended to the log's on-disk file via
+    /// <see cref="IOperationLogFileStore"/> (a cheap file append per line, not a database insert). The
+    /// database header row (<see cref="OperationLog"/>) is touched only when it needs to change: once on
+    /// the first write to record the <see cref="OperationLog.LogFile"/> reference, and thereafter only when
+    /// a line actually raises the header's <see cref="OperationLog.Level"/> (Debug/Info count as Info, any
+    /// Warning escalates to Warning, any Error to Error — the header only ever rises).
+    /// <see cref="SetSummaryAsync"/> revises the header message in place (its level acts as a floor).
     /// </summary>
-    public sealed class OperationLogger(IDatabaseContextFactory contextFactory, int operationLogId, OperationLogLevel initialLevel, ILogWatcher? logWatcher = null)
+    public sealed class OperationLogger(
+        IDatabaseContextFactory contextFactory,
+        IOperationLogFileStore fileStore,
+        int operationLogId,
+        OperationLogLevel initialLevel,
+        ILogWatcher? logWatcher = null)
         : IOperationLogger
     {
         private readonly object _levelGate = new();
-        private int _sequence;
         private int _headerRank = HeaderRank(initialLevel);
+        private int _fileStarted; // 0 until the first line is written (then the header records LogFile once).
 
         public int OperationLogId { get; } = operationLogId;
 
@@ -64,31 +69,30 @@ namespace BackupService.Logging
                 return;
             }
 
-            await using var db = contextFactory.CreateDbContext();
+            // The line(s) go to the file — the write-heavy part, and no database round-trip.
+            await fileStore.AppendAsync(OperationLogId, level, messages);
 
-            foreach (var message in messages)
+            // Touch the header only when something about it changed: the first write records the LogFile
+            // reference, and any write that escalated the severity updates the level.
+            var firstWrite = Interlocked.Exchange(ref _fileStarted, 1) == 0;
+            var raised = TryRaiseHeader(level);
+            if (firstWrite || raised)
             {
-                db.OperationLogDetails.Add(new OperationLogDetail
-                {
-                    OperationLogId = OperationLogId,
-                    Message = message,
-                    Level = level,
-                    TimestampUtc = DateTimeOffset.UtcNow,
-                    Sequence = Interlocked.Increment(ref _sequence),
-                });
-            }
-
-            // Only touch the header row when this line actually raises its severity.
-            if (TryRaiseHeader(level))
-            {
+                await using var db = contextFactory.CreateDbContext();
                 var log = await db.OperationLogs.FirstOrDefaultAsync(l => l.Id == OperationLogId);
                 if (log is not null)
                 {
-                    log.Level = CurrentHeaderLevel;
+                    if (firstWrite)
+                    {
+                        log.LogFile = fileStore.FileNameFor(OperationLogId);
+                    }
+                    if (raised)
+                    {
+                        log.Level = CurrentHeaderLevel;
+                    }
+                    await db.SaveChangesAsync();
                 }
             }
-
-            await db.SaveChangesAsync();
 
             logWatcher?.Notify();
         }

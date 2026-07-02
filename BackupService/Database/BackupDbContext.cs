@@ -29,8 +29,6 @@ namespace BackupService.Database
 
         public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
 
-        public DbSet<OperationLogDetail> OperationLogDetails => Set<OperationLogDetail>();
-
         public DbSet<LogRetentionSettings> LogRetentionSettings => Set<LogRetentionSettings>();
 
         public DbSet<AppOptions> AppOptions => Set<AppOptions>();
