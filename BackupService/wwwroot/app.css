@@ -1494,11 +1494,12 @@ label.header-check input {
     margin: 0;
 }
 
-/* Terminal output: monospace lines [timestamp] message, capped at ~20 lines then scrolls.
-   Lines don't wrap (like a real terminal) — long messages scroll horizontally. */
+/* Terminal output: monospace lines [timestamp] message, capped at ~400px tall then scrolls vertically.
+   Long lines wrap within the panel width (rather than scrolling off the side). */
 .log-terminal {
-    max-height: 400px; /* 20 lines * 20px (LineHeight in Logs.razor.cs) */
-    overflow: auto;
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -1508,10 +1509,20 @@ label.header-check input {
 }
 
 .log-terminal-line {
-    min-height: 20px; /* a single line is 20px (matches Virtualize ItemSize); a CRLF-joined message grows */
+    min-height: 20px;
     line-height: 20px;
-    white-space: pre;
+    /* Preserve embedded newlines (CRLF-joined messages) but wrap long lines to the panel width,
+       breaking even unbroken runs (e.g. long paths without spaces) so nothing overflows sideways. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     color: var(--text);
+    /* Skip layout/paint for off-screen lines so a large log (thousands of lines) renders fast without a
+       fixed-height virtualizer — content-visibility allows the wrapped, variable-height rows above.
+       contain-intrinsic-size gives off-screen rows an estimated height (remembered once measured) so
+       the scrollbar stays roughly right. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 20px;
 }
 
 .log-terminal-time,

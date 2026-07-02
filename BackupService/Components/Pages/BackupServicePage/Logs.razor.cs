@@ -13,10 +13,6 @@ namespace BackupService.Components.Pages.BackupServicePage
         // No paging — the log headers live in a scroll panel, so load every matching row on one "page".
         private const int PageSize = int.MaxValue;
 
-        // Terminal line height in px — must match .log-terminal-line in app.css (the control caps at
-        // ~20 of these before scrolling). Used as the Virtualize ItemSize for the detail output.
-        private const float LineHeight = 20f;
-
         private bool _refreshing;
         private bool _subscribed;
         private bool _disposed;

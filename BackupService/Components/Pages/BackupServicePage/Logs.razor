@@ -138,9 +138,10 @@ else
                                     else
                                     {
                                         <div class="log-terminal" id="log-terminal-@log.Id" role="log" aria-label="Log output">
-                                            <Virtualize Items="filtered" Context="detail" ItemSize="LineHeight">
+                                            @foreach (var detail in filtered)
+                                            {
                                                 <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
-                                            </Virtualize>
+                                            }
                                         </div>
                                     }
                                 }
