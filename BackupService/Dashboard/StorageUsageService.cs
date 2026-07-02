@@ -1,16 +1,20 @@
 using BackupService.Connections;
+using BackupService.Connections.Usb;
 
 namespace BackupService.Dashboard
 {
     /// <summary>
-    /// Default <see cref="IStorageUsageService"/>. Enumerates local + mapped drives via
+    /// Default <see cref="IStorageUsageService"/>. Enumerates local <b>internal</b> drives via
     /// <see cref="DriveInfo"/> and queries each connection's space via <see cref="IConnectionSpaceService"/>
-    /// (in parallel, best-effort). Unreachable connections, unlimited-quota connections (no finite capacity
-    /// to plot) and inaccessible drives are left out.
+    /// (in parallel, best-effort). USB drives (removable, or external NVMe/SSD enclosures that report as
+    /// fixed) and mapped network drives are deliberately excluded from the direct-drive list — those are
+    /// surfaced instead through the connections that reference them, so they aren't shown twice. Unreachable
+    /// connections, unlimited-quota connections (no finite capacity to plot) and inaccessible drives are left out.
     /// </summary>
     public sealed class StorageUsageService(
         IConnectionService connectionService,
         IConnectionSpaceService spaceService,
+        IUsbDeviceInspector usbDeviceInspector,
         ILogger<StorageUsageService> logger) : IStorageUsageService
     {
         public async Task<IReadOnlyList<StorageUsage>> GetUsageAsync(CancellationToken cancellationToken = default)
@@ -46,7 +50,8 @@ namespace BackupService.Dashboard
             return result;
         }
 
-        // Local (fixed) + mapped (network) drives that are ready and report a capacity.
+        // Internal fixed drives that are ready and report a capacity. USB drives (removable, or NVMe/SSD
+        // enclosures reported as fixed) and mapped network drives are excluded — they show as connections.
         private List<StorageUsage> GetLocalDrives()
         {
             var drives = new List<StorageUsage>();
@@ -62,11 +67,29 @@ namespace BackupService.Dashboard
                 return drives;
             }
 
+            // Drive letters currently backed by a USB device (removable sticks + USB-bus fixed enclosures),
+            // so they can be skipped below and only surface through their connection.
+            var usbLetters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var device in usbDeviceInspector.EnumerateConnectedDevices())
+                {
+                    usbLetters.Add(device.MountPath.TrimEnd('\\', '/'));
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Could not enumerate USB devices to exclude them from the storage-usage chart.");
+            }
+
             foreach (var drive in all)
             {
                 try
                 {
-                    if (!drive.IsReady || drive.DriveType is not (DriveType.Fixed or DriveType.Network) || drive.TotalSize <= 0)
+                    // Only internal fixed drives — not mapped network drives, and not USB (removable or
+                    // fixed-bus enclosure) drives, which are represented by their connections instead.
+                    if (!drive.IsReady || drive.DriveType is not DriveType.Fixed || drive.TotalSize <= 0
+                        || usbLetters.Contains(drive.Name.TrimEnd('\\', '/')))
                     {
                         continue;
                     }

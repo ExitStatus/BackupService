@@ -11,10 +11,9 @@ namespace BackupService.Database.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // NOTE: the OperationLogDetails table is intentionally NOT dropped here. Its rows must first be
-            // copied into per-log files by OperationLogFileMigrator (runtime, after Database.Migrate), which
-            // then drops the table itself — a migration can't do the file I/O, and dropping the table in this
-            // same Migrate() pass would destroy the data before it could be copied.
+            // NOTE: the OperationLogDetails table is intentionally NOT dropped here — its rows are first
+            // copied into per-log files (the one-time copy ran in the deployed build) and the table is
+            // dropped by the later DropOperationLogDetails migration.
             migrationBuilder.AddColumn<string>(
                 name: "LogFile",
                 table: "OperationLogs",

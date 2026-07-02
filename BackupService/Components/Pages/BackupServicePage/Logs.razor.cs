@@ -66,7 +66,8 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _hasActiveFilter =>
             !string.IsNullOrWhiteSpace(_filter) || _level is not null || _profileId is not null;
 
-        // Which logs are expanded, and a cache of their detail lines (lazy-loaded on first expand).
+        // Which logs are expanded, and the loaded lines of the currently-expanded ones (loaded lazily on
+        // expand, released on collapse — see ReleaseDetailState — so only open terminals hold their data).
         // Stored as List so the terminal view can feed them to <Virtualize Items=...>.
         private readonly HashSet<int> _expanded = [];
         private readonly Dictionary<int, List<OperationLogLine>> _details = [];
@@ -251,10 +252,14 @@ namespace BackupService.Components.Pages.BackupServicePage
                 _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
                 RebuildLatestLogIds();
 
-                // Drop expansion state for logs no longer in the result (e.g. filtered out); refresh the
-                // details of those still shown so a running log stays live.
+                // Drop expansion state for logs no longer in the result (e.g. filtered out), releasing
+                // their cached lines; refresh the details of those still shown so a running log stays live.
                 var visibleIds = _logs.Items.Select(l => l.Id).ToHashSet();
-                _expanded.RemoveWhere(id => !visibleIds.Contains(id));
+                foreach (var goneId in _expanded.Where(id => !visibleIds.Contains(id)).ToList())
+                {
+                    _expanded.Remove(goneId);
+                    ReleaseDetailState(goneId);
+                }
 
                 foreach (var id in _expanded)
                 {
@@ -283,8 +288,10 @@ namespace BackupService.Components.Pages.BackupServicePage
             _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
             RebuildLatestLogIds();
 
-            // Collapse everything when the filter changes — the visible set differs.
+            // Collapse everything when the filter changes — the visible set differs — releasing all
+            // cached terminal data.
             _expanded.Clear();
+            ClearAllDetailState();
         }
 
         private async Task OnFilterChanged(ChangeEventArgs e)
@@ -324,20 +331,48 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private async Task ToggleAsync(int logId)
         {
-            if (!_expanded.Remove(logId))
+            if (_expanded.Remove(logId))
             {
-                _expanded.Add(logId);
-
-                if (!_details.ContainsKey(logId))
-                {
-                    var details = await OperationLogService.GetDetailsAsync(logId);
-                    _details[logId] = details as List<OperationLogLine> ?? details.ToList();
-                }
+                // Collapsed — release the loaded lines (and this log's view state) so the terminal's
+                // data isn't held in memory while it isn't showing. Re-expanding reloads from the file.
+                ReleaseDetailState(logId);
+                return;
             }
+
+            _expanded.Add(logId);
+
+            // Loaded lazily, only on expand.
+            var details = await OperationLogService.GetDetailsAsync(logId);
+            _details[logId] = details as List<OperationLogLine> ?? details.ToList();
         }
 
-        // Tearing down the component (e.g. selecting another sidebar panel) unsubscribes, so the watcher
-        // no longer pushes refreshes to this instance.
+        /// <summary>Drops the cached lines and per-log view state for one log (on collapse, or when the
+        /// log leaves the visible page), so the potentially large line list is freed.</summary>
+        private void ReleaseDetailState(int logId)
+        {
+            _details.Remove(logId);
+            _detailFilters.Remove(logId);
+            _detailWarning.Remove(logId);
+            _detailError.Remove(logId);
+            _detailPaused.Remove(logId);
+            _scrollQueue.Remove(logId);
+        }
+
+        /// <summary>Releases every log's cached lines and view state (e.g. when the filter changes and
+        /// all rows collapse).</summary>
+        private void ClearAllDetailState()
+        {
+            _details.Clear();
+            _detailFilters.Clear();
+            _detailWarning.Clear();
+            _detailError.Clear();
+            _detailPaused.Clear();
+            _scrollQueue.Clear();
+        }
+
+        // Tearing down the component (e.g. selecting another sidebar panel, or navigating away from the
+        // Logs page) unsubscribes, so the watcher no longer pushes refreshes to this instance, and releases
+        // any loaded log data so it isn't retained after the page closes.
         public void Dispose()
         {
             _disposed = true;
@@ -346,6 +381,15 @@ namespace BackupService.Components.Pages.BackupServicePage
                 LogWatcher.Changed -= OnLogsChanged;
                 StatusService.Changed -= OnProfileStatusChanged;
             }
+
+            // Drop the cached lines of any still-open terminals and the loaded page of headers.
+            _expanded.Clear();
+            ClearAllDetailState();
+            _latestLogIdByProfile.Clear();
+            _logs = null;
+
+            // Explicitly reclaim the (potentially large) log-line buffers now that the page is gone.
+            GC.Collect();
         }
     }
 }

@@ -64,27 +64,6 @@ else
         </div>
 
         <div class="card chart-card">
-            <h2 class="chart-title">Storage usage <span class="chart-note">(capacity &amp; free space)</span></h2>
-            @if (_storage.Count == 0)
-            {
-                <p class="chart-empty">No drives or connections available.</p>
-            }
-            else
-            {
-                <ApexChart TItem="StorageUsage" Options="_spaceOptions" Height="@(260)" @ref="_spaceChart">
-                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Used" SeriesType="SeriesType.Bar"
-                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)s.UsedBytes)" />
-                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free" SeriesType="SeriesType.Bar"
-                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeHealthy(s))" />
-                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (low)" SeriesType="SeriesType.Bar"
-                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeWarning(s))" />
-                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (critical)" SeriesType="SeriesType.Bar"
-                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeCritical(s))" />
-                </ApexChart>
-            }
-        </div>
-
-        <div class="card chart-card">
             <h2 class="chart-title">Data copied <span class="chart-note">(per day)</span></h2>
             @if (_data.BytesCopiedInPeriod == 0)
             {
@@ -95,6 +74,28 @@ else
                 <ApexChart TItem="DailyBytes" Options="_bytesOptions" Height="@(260)" @ref="_bytesChart">
                     <ApexPointSeries TItem="DailyBytes" Items="_data.BytesByDay" Name="Data copied" SeriesType="SeriesType.Bar"
                                      XValue="@(b => b.Date.ToString("dd MMM"))" YValue="@(b => (decimal?)b.Bytes)" />
+                </ApexChart>
+            }
+        </div>
+
+        <div class="card chart-card">
+            <h2 class="chart-title">Storage usage <span class="chart-note">(capacity &amp; free space)</span></h2>
+            @if (_storage.Count == 0)
+            {
+                <p class="chart-empty">No drives or connections available.</p>
+            }
+            else
+            {
+                @* Match the "Run time by profile" chart (its row-mate) so the storage chart fills the panel vertically. *@
+                <ApexChart TItem="StorageUsage" Options="_spaceOptions" Height="@DurationChartHeight" @ref="_spaceChart">
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Used" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)s.UsedBytes)" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeHealthy(s))" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (low)" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeWarning(s))" />
+                    <ApexPointSeries TItem="StorageUsage" Items="_storage" Name="Free (critical)" SeriesType="SeriesType.Bar"
+                                     XValue="@(s => s.Name)" YValue="@(s => (decimal?)FreeCritical(s))" />
                 </ApexChart>
             }
         </div>
