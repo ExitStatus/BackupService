@@ -104,10 +104,9 @@ namespace BackupService.Components.Dialogs
                 StatusService.Changed -= OnStatusChanged;
             }
 
-            // Drop the cached snapshot and reclaim the terminal's line buffers (freed by the child
-            // LogTerminal's own Dispose) now that the dialog is gone.
+            // Drop the cached snapshot; the terminal's line buffers are freed by the child
+            // LogTerminal's own Dispose.
             _last = null;
-            GC.Collect();
         }
     }
 }

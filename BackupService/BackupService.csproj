@@ -7,6 +7,11 @@
     <UserSecretsId>dotnet-BackupService-758110aa-479a-45c2-8874-e787c3e8c688</UserSecretsId>
     <!-- Embedded into BackupService.exe (the apphost); the system-tray icon reads it back via ExtractIconEx. -->
     <ApplicationIcon>wwwroot\Icons\icon.ico</ApplicationIcon>
+    <!-- Workstation GC, not the Web SDK's Server GC default. Server GC keeps per-core heaps and holds
+         freed memory rather than returning it to the OS, so this single-user localhost app showed a
+         1GB+ working set in Task Manager with no actual leak. Workstation GC returns memory eagerly;
+         the throughput difference is irrelevant for one admin on localhost. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

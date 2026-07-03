@@ -244,9 +244,6 @@ namespace BackupService.Components.Pages.BackupServicePage
             _expanded.Clear();
             ClearAllDetailState();
             _logs = null;
-
-            // Explicitly reclaim the (potentially large) log-line buffers now that the page is gone.
-            GC.Collect();
         }
     }
 }
