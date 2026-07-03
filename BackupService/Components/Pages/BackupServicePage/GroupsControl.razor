@@ -1,0 +1,73 @@
+@namespace BackupService.Components.Pages.BackupServicePage
+
+<div class="table-page">
+<div class="content-header">
+    <h1>Groups</h1>
+    <button @onclick="OpenCreate">Add Group</button>
+</div>
+
+@if (_groups is null)
+{
+    <p>Loading…</p>
+}
+else if (_groups.TotalCount == 0)
+{
+    <p>No groups yet. Click <strong>Add Group</strong> to create one.</p>
+}
+else
+{
+    <div class="table-scroll">
+    <table class="table">
+        <thead>
+            <tr>
+                <th><button class="sort-header" @onclick="() => SortByAsync(GroupSortColumn.Name)">Name@(SortIndicator(GroupSortColumn.Name))</button></th>
+                <th><button class="sort-header" @onclick="() => SortByAsync(GroupSortColumn.Concurrency)">Concurrency@(SortIndicator(GroupSortColumn.Concurrency))</button></th>
+                <th>Profiles</th>
+                <th>Running</th>
+                <th>Last run started</th>
+                <th class="action-col"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var group in _groups.Items)
+            {
+                <tr>
+                    <td>@group.Name</td>
+                    <td>@group.Concurrency.GetDescription()</td>
+                    <td>@ProfileCount(group.Id)</td>
+                    <td>@RunningCount(group.Id)</td>
+                    <td>@LastRunStarted(group.Id)</td>
+                    <td class="action-col">
+                        <div class="row-actions">
+                            <button type="button" class="icon-btn" title="Edit group"
+                                    aria-label="Edit group" @onclick="() => OpenEdit(group.Id)">
+                                <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                            </button>
+                            <button type="button" class="icon-btn" title="Delete group"
+                                    aria-label="Delete group" @onclick="() => OpenDelete(group)">
+                                <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    </div>
+}
+</div>
+
+@if (_showDialog)
+{
+    <GroupDialog GroupId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" />
+}
+
+@if (_deleteTarget is not null)
+{
+    <ConfirmDialog Title="Delete group"
+                   Message="@DeleteMessage"
+                   OnConfirm="ConfirmDeleteAsync"
+                   OnCancel="CancelDelete" />
+}
+
+<Notification @ref="_notification" />

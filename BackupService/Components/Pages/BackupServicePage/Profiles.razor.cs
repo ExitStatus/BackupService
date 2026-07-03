@@ -3,6 +3,7 @@ using BackupService.Connections;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
+using BackupService.Groups;
 using BackupService.Profiles;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
@@ -15,6 +16,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         // No paging — the table lives in a scroll panel, so load every matching row on one "page".
         private const int PageSize = int.MaxValue;
         private const string ArrangeByTypeKey = "profiles.arrangeByType";
+        private const string ArrangeByGroupKey = "profiles.arrangeByGroup";
 
         // The "Arrange by Type" tabs, in display order, with their literal labels (suffixed with a count).
         private static readonly (ProfileType Type, string Label)[] TabOrder =
@@ -30,6 +32,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         [Inject]
         private IConnectionService ConnectionService { get; set; } = default!;
+
+        [Inject]
+        private IGroupService GroupService { get; set; } = default!;
 
         [Inject]
         private IProfileStatusService StatusService { get; set; } = default!;
@@ -56,6 +61,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _initialised;
         private ProfileType _activeType = ProfileType.FolderPair;
         private IReadOnlyDictionary<ProfileType, int> _typeCounts = new Dictionary<ProfileType, int>();
+
+        // "Arrange by Group" sections the flat list under group-name headings (mutually exclusive with
+        // "Arrange by Type"). _groups supplies the id→name map for the Group column and section headings.
+        private bool _arrangeByGroup;
+        private IReadOnlyList<GroupSummary> _groups = [];
 
         private IEnumerable<(ProfileType Type, string Label)> VisibleTabs =>
             TabOrder.Where(t => _typeCounts.GetValueOrDefault(t.Type) > 0);
@@ -104,10 +114,14 @@ namespace BackupService.Components.Pages.BackupServicePage
                 return;
             }
 
-            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", ArrangeByTypeKey);
-            _arrangeByType = saved == "1";
+            var savedType = await JS.InvokeAsync<string?>("localStorage.getItem", ArrangeByTypeKey);
+            var savedGroup = await JS.InvokeAsync<string?>("localStorage.getItem", ArrangeByGroupKey);
+            // The two arrangements are mutually exclusive; if both were somehow stored, group wins.
+            _arrangeByGroup = savedGroup == "1";
+            _arrangeByType = !_arrangeByGroup && savedType == "1";
             _connections = await ConnectionService.GetSummariesAsync();
             _connectionOptions = new List<int?> { null }.Concat(_connections.Select(c => (int?)c.Id)).ToList();
+            _groups = await GroupService.GetSummariesAsync();
             await LoadAsync();
             _initialised = true;
             StateHasChanged();
@@ -211,7 +225,70 @@ namespace BackupService.Components.Pages.BackupServicePage
         {
             _arrangeByType = e.Value is true;
             await JS.InvokeVoidAsync("localStorage.setItem", ArrangeByTypeKey, _arrangeByType ? "1" : "0");
+
+            // Mutually exclusive with "Arrange by Group".
+            if (_arrangeByType && _arrangeByGroup)
+            {
+                _arrangeByGroup = false;
+                await JS.InvokeVoidAsync("localStorage.setItem", ArrangeByGroupKey, "0");
+            }
+
             await LoadAsync();
+        }
+
+        private async Task ToggleArrangeByGroupAsync(ChangeEventArgs e)
+        {
+            _arrangeByGroup = e.Value is true;
+            await JS.InvokeVoidAsync("localStorage.setItem", ArrangeByGroupKey, _arrangeByGroup ? "1" : "0");
+
+            // Mutually exclusive with "Arrange by Type".
+            if (_arrangeByGroup && _arrangeByType)
+            {
+                _arrangeByType = false;
+                await JS.InvokeVoidAsync("localStorage.setItem", ArrangeByTypeKey, "0");
+            }
+
+            await LoadAsync();
+        }
+
+        // The Group column / section label for a profile's group id ("—" when ungrouped or unknown).
+        private string GroupName(int? groupId) =>
+            groupId is { } id ? _groups.FirstOrDefault(g => g.Id == id)?.Name ?? "—" : "—";
+
+        // Number of visible columns, so an "Arrange by Group" section header can span the full row.
+        private int ColSpan =>
+            2                                  // Enabled + Name
+            + (_arrangeByType ? 0 : 1)          // Type (hidden when arranged by type)
+            + (_arrangeByGroup ? 0 : 1)         // Group (hidden when arranged by group)
+            + 3                                 // Schedule + Date last run + Status
+            + 1;                                // actions
+
+        // The profiles grouped into sections for "Arrange by Group": one section per group (alphabetical by
+        // name), then an ungrouped "No Group" section last. Rows keep the page's existing sort order within
+        // each section.
+        private IEnumerable<(string Name, IReadOnlyList<Profile> Profiles)> GroupSections()
+        {
+            if (_profiles is null)
+            {
+                yield break;
+            }
+
+            var grouped = _profiles.Items
+                .Where(p => p.GroupId is not null)
+                .GroupBy(p => p.GroupId!.Value)
+                .Select(g => (Name: GroupName(g.Key), Profiles: (IReadOnlyList<Profile>)g.ToList()))
+                .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var section in grouped)
+            {
+                yield return section;
+            }
+
+            var ungrouped = _profiles.Items.Where(p => p.GroupId is null).ToList();
+            if (ungrouped.Count > 0)
+            {
+                yield return ("No Group", ungrouped);
+            }
         }
 
         private async Task SelectTypeAsync(string key)

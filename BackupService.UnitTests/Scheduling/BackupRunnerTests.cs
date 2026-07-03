@@ -3,6 +3,7 @@ using BackupService.Enumerations;
 using BackupService.Logging;
 using BackupService.Profiles;
 using BackupService.Scheduling;
+using BackupService.Scheduling.Groups;
 using BackupService.Scheduling.Usb;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -76,7 +77,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             var id = SeedProfile();
             var handler = new CapturingHandler();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -91,7 +92,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             var id = SeedProfile();
             var handler = new CapturingHandler();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id, manual: true);
 
@@ -102,7 +103,7 @@ namespace BackupService.UnitTests.Scheduling
         public async Task RunAsync_OnSuccess_SetsIdleAndStampsLastRun()
         {
             var id = SeedProfile();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -121,7 +122,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             var id = SeedProfile();
             var handler = new CapturingHandler { OnHandle = _ => throw new InvalidOperationException("boom") };
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -133,7 +134,7 @@ namespace BackupService.UnitTests.Scheduling
         public async Task RunAsync_WhenNoHandlerForType_LogsErrorAndDoesNotThrow()
         {
             var id = SeedProfile();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),Array.Empty<IProfileTypeHandler>(), NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), Array.Empty<IProfileTypeHandler>(), NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -147,7 +148,7 @@ namespace BackupService.UnitTests.Scheduling
             var id = SeedProfile();
             _statusService.Set(id, ProfileStatus.Running); // a run is already in progress
             var handler = new CapturingHandler();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -163,7 +164,7 @@ namespace BackupService.UnitTests.Scheduling
             var id = SeedProfile();
             _statusService.Lock(id);
             var handler = new CapturingHandler();
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(id);
 
@@ -177,7 +178,7 @@ namespace BackupService.UnitTests.Scheduling
         [Test]
         public async Task RunAsync_WhenProfileMissing_IsNoOp()
         {
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
 
             await runner.RunAsync(999);
 
@@ -188,7 +189,7 @@ namespace BackupService.UnitTests.Scheduling
         [Test]
         public void RequestStop_WhenNothingRunning_ReturnsFalse()
         {
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)new CapturingHandler() }, NullLogger<BackupRunner>.Instance);
 
             runner.RequestStop(123).Should().BeFalse();
         }
@@ -207,7 +208,7 @@ namespace BackupService.UnitTests.Scheduling
                     await Task.Delay(Timeout.Infinite, ct);
                 },
             };
-            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(),new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 
             var run = runner.RunAsync(id, manual: true);
             await started.Task; // the run has registered its cancellation source

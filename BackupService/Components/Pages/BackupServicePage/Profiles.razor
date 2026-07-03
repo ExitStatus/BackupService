@@ -1,7 +1,12 @@
+@using BackupService.Database
+
 <div class="table-page">
 <div class="content-header">
     <h1>Backup Profiles</h1>
     <div class="header-actions">
+        <label class="check header-check">
+            <input type="checkbox" checked="@_arrangeByGroup" @onchange="ToggleArrangeByGroupAsync" /> Arrange by Group
+        </label>
         <label class="check header-check">
             <input type="checkbox" checked="@_arrangeByType" @onchange="ToggleArrangeByTypeAsync" /> Arrange by Type
         </label>
@@ -80,6 +85,10 @@ else
                 {
                     <th>Type</th>
                 }
+                @if (!_arrangeByGroup)
+                {
+                    <th>Group</th>
+                }
                 <th>Schedule</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.DateLastRun)">Date last run@(SortIndicator(ProfileSortColumn.DateLastRun))</button></th>
                 <th>Status</th>
@@ -87,51 +96,25 @@ else
             </tr>
         </thead>
         <tbody>
-            @foreach (var profile in _profiles!.Items)
+            @if (_arrangeByGroup)
             {
-                <tr>
-                    <td class="enabled-col">
-                        <ProfileEnabledControl Value="profile.Enabled"
-                                               ValueChanged="enabled => ToggleEnabledAsync(profile, enabled)" />
-                    </td>
-                    <td>@profile.Name</td>
-                    @if (!_arrangeByType)
+                @foreach (var section in GroupSections())
+                {
+                    <tr class="section-header">
+                        <td colspan="@ColSpan">@section.Name</td>
+                    </tr>
+                    @foreach (var profile in section.Profiles)
                     {
-                        <td>@profile.Type.GetDescription()</td>
+                        @ProfileRow(profile)
                     }
-                    <td>@ScheduleDefinition.Describe(profile.Schedule)</td>
-                    <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
-                    <td>@StatusText(profile.Id)</td>
-                    <td class="action-col">
-                        <div class="row-actions">
-                            @if (ShowStop(profile))
-                            {
-                                <button type="button" class="icon-btn" title="Stop the running backup"
-                                        aria-label="Stop backup" @onclick="() => StopRun(profile)">
-                                    <img src="Icons/stop.png" width="24" height="24" alt="Stop" />
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="icon-btn" title="@RunTitle(profile.Id)"
-                                        aria-label="Run profile now" disabled="@IsRunning(profile.Id)"
-                                        @onclick="() => RunNow(profile)">
-                                    <img src="Icons/play.png" width="24" height="24" alt="Run now" />
-                                </button>
-                                <button type="button" class="icon-btn" title="@EditTitle(profile.Id)"
-                                        aria-label="Edit profile" disabled="@IsRunning(profile.Id)"
-                                        @onclick="() => OpenEdit(profile.Id)">
-                                    <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
-                                </button>
-                                <button type="button" class="icon-btn" title="@DeleteTitle(profile.Id)"
-                                        aria-label="Delete profile" disabled="@IsRunning(profile.Id)"
-                                        @onclick="() => OpenDelete(profile)">
-                                    <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
-                                </button>
-                            }
-                        </div>
-                    </td>
-                </tr>
+                }
+            }
+            else
+            {
+                @foreach (var profile in _profiles!.Items)
+                {
+                    @ProfileRow(profile)
+                }
             }
         </tbody>
     </table>
@@ -154,3 +137,56 @@ else
 }
 
 <Notification @ref="_notification" />
+
+@code {
+    // One profile row, shared by the flat and group-sectioned renderings. Defined here (not in the
+    // code-behind) because the inline @<tr> template syntax is only valid in a .razor file.
+    private RenderFragment<Profile> ProfileRow => profile =>
+        @<tr>
+            <td class="enabled-col">
+                <ProfileEnabledControl Value="profile.Enabled"
+                                       ValueChanged="enabled => ToggleEnabledAsync(profile, enabled)" />
+            </td>
+            <td>@profile.Name</td>
+            @if (!_arrangeByType)
+            {
+                <td>@profile.Type.GetDescription()</td>
+            }
+            @if (!_arrangeByGroup)
+            {
+                <td>@GroupName(profile.GroupId)</td>
+            }
+            <td>@ScheduleDefinition.Describe(profile.Schedule)</td>
+            <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
+            <td>@StatusText(profile.Id)</td>
+            <td class="action-col">
+                <div class="row-actions">
+                    @if (ShowStop(profile))
+                    {
+                        <button type="button" class="icon-btn" title="Stop the running backup"
+                                aria-label="Stop backup" @onclick="() => StopRun(profile)">
+                            <img src="Icons/stop.png" width="24" height="24" alt="Stop" />
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="icon-btn" title="@RunTitle(profile.Id)"
+                                aria-label="Run profile now" disabled="@IsRunning(profile.Id)"
+                                @onclick="() => RunNow(profile)">
+                            <img src="Icons/play.png" width="24" height="24" alt="Run now" />
+                        </button>
+                        <button type="button" class="icon-btn" title="@EditTitle(profile.Id)"
+                                aria-label="Edit profile" disabled="@IsRunning(profile.Id)"
+                                @onclick="() => OpenEdit(profile.Id)">
+                            <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
+                        </button>
+                        <button type="button" class="icon-btn" title="@DeleteTitle(profile.Id)"
+                                aria-label="Delete profile" disabled="@IsRunning(profile.Id)"
+                                @onclick="() => OpenDelete(profile)">
+                            <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
+                        </button>
+                    }
+                </div>
+            </td>
+        </tr>;
+}

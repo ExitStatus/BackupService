@@ -39,6 +39,8 @@ namespace BackupService.Database
 
         public DbSet<ScheduledTaskStep> ScheduledTaskSteps => Set<ScheduledTaskStep>();
 
+        public DbSet<Group> Groups => Set<Group>();
+
         public DbSet<Connection> Connections => Set<Connection>();
 
         public DbSet<SmbConnectionSettings> SmbConnectionSettings => Set<SmbConnectionSettings>();
@@ -149,6 +151,14 @@ namespace BackupService.Database
                 .WithMany()
                 .HasForeignKey(p => p.TargetConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // A profile may belong to a group. Deleting the group ungroups its profiles (SetNull) rather
+            // than deleting them or blocking — the opposite of the connection FKs above.
+            modelBuilder.Entity<Profile>()
+                .HasOne(p => p.Group)
+                .WithMany()
+                .HasForeignKey(p => p.GroupId)
+                .OnDelete(DeleteBehavior.SetNull);
         }
     }
 }

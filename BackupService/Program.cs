@@ -131,6 +131,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Security.ISecretProtector, Security.DataProtectionSecretProtector>();
                 // Reads legacy (DPAPI) passwords for the one-time startup migration to Data Protection.
                 builder.Services.AddSingleton<Security.ILegacySecretReader, Security.DpapiLegacySecretReader>();
+                builder.Services.AddSingleton<Groups.IGroupService, Groups.GroupService>();
                 builder.Services.AddSingleton<Connections.ConnectionSecretMigrator>();
                 builder.Services.AddSingleton<Connections.IConnectionService, Connections.ConnectionService>();
                 builder.Services.AddSingleton<Connections.IConnectionResolver, Connections.ConnectionResolver>();
@@ -159,6 +160,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
                 builder.Services.AddSingleton<Scheduling.Usb.IUsbRunGate, Scheduling.Usb.UsbRunGate>();
+                builder.Services.AddSingleton<Scheduling.Groups.IGroupRunGate, Scheduling.Groups.GroupRunGate>();
                 builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();
                 builder.Services.AddSingleton<Scheduling.BackupSchedulerService>();
                 builder.Services.AddSingleton<Scheduling.IBackupScheduler>(sp => sp.GetRequiredService<Scheduling.BackupSchedulerService>());

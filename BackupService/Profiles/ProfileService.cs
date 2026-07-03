@@ -38,6 +38,7 @@ namespace BackupService.Profiles
             bool handleMissedSync = false,
             int? sourceConnectionId = null,
             int? targetConnectionId = null,
+            int? groupId = null,
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
@@ -61,6 +62,7 @@ namespace BackupService.Profiles
                 HandleMissedSync = handleMissedSync,
                 SourceConnectionId = sourceConnectionId,
                 TargetConnectionId = targetConnectionId,
+                GroupId = groupId,
                 NotificationsEnabled = notificationsEnabled,
                 NotifyOnStart = notifyOnStart,
                 NotifyOnComplete = notifyOnComplete,
@@ -348,6 +350,7 @@ namespace BackupService.Profiles
             bool handleMissedSync = false,
             int? sourceConnectionId = null,
             int? targetConnectionId = null,
+            int? groupId = null,
             bool notificationsEnabled = true,
             bool notifyOnStart = false,
             bool notifyOnComplete = true,
@@ -389,6 +392,7 @@ namespace BackupService.Profiles
             profile.HandleMissedSync = handleMissedSync;
             profile.SourceConnectionId = sourceConnectionId;
             profile.TargetConnectionId = targetConnectionId;
+            profile.GroupId = groupId;
             profile.NotificationsEnabled = notificationsEnabled;
             profile.NotifyOnStart = notifyOnStart;
             profile.NotifyOnComplete = notifyOnComplete;

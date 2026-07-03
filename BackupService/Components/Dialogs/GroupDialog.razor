@@ -1,0 +1,36 @@
+@namespace BackupService.Components.Dialogs
+
+<div class="modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="@(IsEdit ? "Edit group" : "Create group")">
+        <h2>@(IsEdit ? "Edit Group" : "Create Group")</h2>
+
+        <p class="modal-intro">
+            A group organises backup profiles. A <strong>Sequential</strong> group runs its profiles one at a
+            time; a <strong>Parallel</strong> group lets them run together (subject only to USB-device queuing).
+        </p>
+
+        <EditForm Model="Input" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+
+            <label>
+                Name
+                <InputText @bind-Value="Input.Name" />
+            </label>
+
+            <label>
+                Concurrency
+                <Dropdown TValue="GroupConcurrency"
+                          @bind-Value="Input.Concurrency"
+                          Items="ConcurrencyOptions"
+                          DisplayText="c => c.GetDescription()" />
+            </label>
+
+            <ValidationSummary />
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+                <button type="submit">@(IsEdit ? "Save" : "Create")</button>
+            </div>
+        </EditForm>
+    </div>
+</div>

@@ -1330,6 +1330,13 @@ label.header-check input {
     background: var(--surface-2);
 }
 
+/* "Arrange by Group" section heading row: a full-width bold band separating each group's profiles. */
+.table tbody tr.section-header td {
+    background: var(--surface-2);
+    font-weight: 600;
+    color: var(--text);
+}
+
 /* A section (Backup Profiles / Scheduled Tasks / Connections / Logs) laid out as a full-height
    flex column: the header/filters sit at the top and the table gets its own scroll panel that
    fills the space down to the bottom of the window, instead of the page paging. */

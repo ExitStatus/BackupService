@@ -32,6 +32,14 @@ namespace BackupService.Database
 
         public Connection? TargetConnection { get; set; }
 
+        /// <summary>
+        /// Optional <see cref="Group"/> this profile belongs to (null = ungrouped). A Sequential group
+        /// serialises its members' runs. Deleting the group ungroups the profile (FK <c>SET NULL</c>).
+        /// </summary>
+        public int? GroupId { get; set; }
+
+        public Group? Group { get; set; }
+
         /// <summary>Whether the profile participates in backups. Defaults to enabled.</summary>
         public bool Enabled { get; set; } = true;
 

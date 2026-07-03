@@ -3,6 +3,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Logging;
 using BackupService.Profiles;
+using BackupService.Scheduling.Groups;
 using BackupService.Scheduling.Usb;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,6 +20,7 @@ namespace BackupService.Scheduling
         private readonly IOperationLogFactory _operationLogFactory;
         private readonly IProfileStatusService _statusService;
         private readonly IUsbRunGate _usbRunGate;
+        private readonly IGroupRunGate _groupRunGate;
         private readonly ILogger<BackupRunner> _logger;
         private readonly IReadOnlyDictionary<ProfileType, IProfileTypeHandler> _handlers;
 
@@ -31,6 +33,7 @@ namespace BackupService.Scheduling
             IOperationLogFactory operationLogFactory,
             IProfileStatusService statusService,
             IUsbRunGate usbRunGate,
+            IGroupRunGate groupRunGate,
             IEnumerable<IProfileTypeHandler> handlers,
             ILogger<BackupRunner> logger)
         {
@@ -38,6 +41,7 @@ namespace BackupService.Scheduling
             _operationLogFactory = operationLogFactory;
             _statusService = statusService;
             _usbRunGate = usbRunGate;
+            _groupRunGate = groupRunGate;
             _logger = logger;
             _handlers = handlers.ToDictionary(h => h.Type);
         }
@@ -46,6 +50,7 @@ namespace BackupService.Scheduling
         {
             Profile? profile;
             IReadOnlyCollection<int> usbConnectionIds;
+            int? sequentialGroupId;
             await using (var db = _contextFactory.CreateDbContext())
             {
                 profile = await db.Profiles
@@ -53,6 +58,7 @@ namespace BackupService.Scheduling
                     .Include(p => p.InstantSyncItems)
                     .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                     .Include(p => p.LightroomArchiveItems)
+                    .Include(p => p.Group)
                     .FirstOrDefaultAsync(p => p.Id == profileId, cancellationToken);
 
                 if (profile is null)
@@ -71,6 +77,12 @@ namespace BackupService.Scheduling
                         .Where(c => connectionIds.Contains(c.Id) && c.Type == ConnectionType.Usb)
                         .Select(c => c.Id)
                         .ToListAsync(cancellationToken);
+
+                // A Sequential group serialises its members' runs (see IGroupRunGate); a Parallel/ungrouped
+                // profile passes null and acquires no group gate.
+                sequentialGroupId = profile.Group is { Concurrency: GroupConcurrency.Sequential }
+                    ? profile.GroupId
+                    : null;
             }
 
             // Don't run while an admin has the profile open in an edit/delete dialog.
@@ -112,6 +124,10 @@ namespace BackupService.Scheduling
             _running[profile.Id] = cts;
             try
             {
+                // Serialise members of a Sequential group so only one runs at a time (no-op for a Parallel/
+                // ungrouped profile). Acquired before the USB gate — a run holds at most one group key, so the
+                // fixed group-then-USB order can't deadlock.
+                await using var groupGate = await _groupRunGate.AcquireAsync(sequentialGroupId, cts.Token);
                 // Serialise access to any shared USB device(s): wait here until other runs using the same slow
                 // device have finished, then take exclusive use of it for this run (released on dispose).
                 await using var usbGate = await _usbRunGate.AcquireAsync(usbConnectionIds, cts.Token);

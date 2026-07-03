@@ -51,6 +51,19 @@
             <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="@TargetAllowsUsb" AllowMtp="false"
                                      @bind-ConnectionId="Input.TargetConnectionId" />
 
+            @* The Group picker only appears once at least one group exists. A Sequential group serialises its
+               members' runs; a Parallel group leaves them to run concurrently. *@
+            @if (_groups.Count > 0)
+            {
+                <label>
+                    Group
+                    <Dropdown TValue="int?"
+                              @bind-Value="Input.GroupId"
+                              Items="_groupOptions"
+                              DisplayText="GroupLabel" />
+                </label>
+            }
+
             @if (IsDeviceTriggered)
             {
                 <p class="help-text">@DeviceTriggeredNote</p>
