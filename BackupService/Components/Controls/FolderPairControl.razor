@@ -1,8 +1,6 @@
-<div class="field-label">Folder pairs</div>
-
 @if (Items.Count == 0)
 {
-    <p class="folder-pairs-empty">No folder pairs yet.</p>
+    <p class="folder-pairs-empty">No actions yet.</p>
 }
 else
 {
@@ -20,12 +18,12 @@ else
                     <td>@pair.Name</td>
                     <td class="action-col">
                         <div class="row-actions">
-                            <button type="button" class="icon-btn" title="Edit folder pair"
-                                    aria-label="Edit folder pair" @onclick="() => Edit(index)">
+                            <button type="button" class="icon-btn" title="Edit action"
+                                    aria-label="Edit action" @onclick="() => Edit(index)">
                                 <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
                             </button>
-                            <button type="button" class="icon-btn" title="Delete folder pair"
-                                    aria-label="Delete folder pair" @onclick="() => Delete(index)">
+                            <button type="button" class="icon-btn" title="Delete action"
+                                    aria-label="Delete action" @onclick="() => Delete(index)">
                                 <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
                             </button>
                         </div>
@@ -45,11 +43,11 @@ else
     }
 }
 
-<button type="button" class="btn-secondary" @onclick="AddNew">Add folder pair</button>
+<button type="button" class="btn-secondary" @onclick="AddNew">Add action</button>
 
 @if (_error)
 {
-    <span class="validation-message">Add at least one folder pair.</span>
+    <span class="validation-message">Add at least one action.</span>
 }
 
 @if (_editing is not null)

@@ -71,6 +71,7 @@ namespace BackupService.Components.Dialogs
         private static readonly IReadOnlyList<TabBar.TabItem> _tabs =
         [
             new("details", "Details"),
+            new("actions", "Actions"),
             new("notifications", "Notifications"),
         ];
         private string _activeTab = "details";
@@ -304,6 +305,9 @@ namespace BackupService.Components.Dialogs
         {
             if (_folderPairControl is null || !_folderPairControl.Validate())
             {
+                // The action list (and its "Add at least one action." message) lives on the Actions tab —
+                // switch to it so the validation error is visible if Save was pressed from another tab.
+                _activeTab = "actions";
                 return false;
             }
 
@@ -336,6 +340,7 @@ namespace BackupService.Components.Dialogs
         {
             if (_instantSyncControl is null || !_instantSyncControl.Validate())
             {
+                _activeTab = "actions";
                 return false;
             }
 
@@ -366,6 +371,7 @@ namespace BackupService.Components.Dialogs
         {
             if (_archiveSyncControl is null || !_archiveSyncControl.Validate())
             {
+                _activeTab = "actions";
                 return false;
             }
 
@@ -401,6 +407,9 @@ namespace BackupService.Components.Dialogs
             var itemsValid = _lightroomArchiveControl is not null && _lightroomArchiveControl.Validate();
             if (_lightroomFolderError || !itemsValid)
             {
+                // The Lightroom folder field is on Details; the action list is on the Actions tab. Prefer showing
+                // the folder error (Details) if present, otherwise switch to the Actions tab for the items error.
+                _activeTab = _lightroomFolderError ? "details" : "actions";
                 return false;
             }
 
