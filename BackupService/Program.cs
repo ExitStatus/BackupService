@@ -197,7 +197,24 @@ namespace BackupService
                 builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.LightroomArchiveWatcherService>());
                 builder.Services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduledTasks.ScheduledTaskSchedulerService>());
 
+                // The application-database backup (Settings → Database Backup): the service does the work,
+                // the scheduler fires it on its cron (three-role registration like the other schedulers).
+                builder.Services.AddSingleton<DatabaseBackup.IDatabaseBackupService, DatabaseBackup.DatabaseBackupService>();
+                builder.Services.AddSingleton<DatabaseBackup.DatabaseBackupSchedulerService>();
+                builder.Services.AddSingleton<DatabaseBackup.IDatabaseBackupScheduler>(sp => sp.GetRequiredService<DatabaseBackup.DatabaseBackupSchedulerService>());
+                builder.Services.AddHostedService(sp => sp.GetRequiredService<DatabaseBackup.DatabaseBackupSchedulerService>());
+
                 var app = builder.Build();
+
+                // Apply a staged database restore (Settings → Database Backup) BEFORE anything opens the
+                // database — swapping the file can't race a live SQLite connection this early. A failure
+                // leaves the staged file in place (retried next start) and the app runs on the old data.
+                var restoreApplied = DatabaseBackup.PendingRestoreApplier.ApplyIfPending(
+                    BackupDatabaseLocation.GetDataDirectory(), BackupDatabaseLocation.GetDatabasePath(), out var restoreError);
+                if (restoreError is not null)
+                {
+                    app.Logger.LogError("Applying the staged database restore failed: {Error}", restoreError);
+                }
 
                 // A -stop from another process triggers a graceful shutdown; record our PID so -stop can await us.
                 BackgroundProcessManager.RegisterStopSignal(app.Lifetime);
@@ -211,6 +228,15 @@ namespace BackupService
 
                 // Migrate any legacy (DPAPI) SMB passwords to the cross-platform Data Protection format.
                 app.Services.GetRequiredService<Connections.ConnectionSecretMigrator>().Migrate();
+
+                // Record an applied restore in the (restored) database's own operation log.
+                if (restoreApplied)
+                {
+                    app.Logger.LogInformation("Staged database restore applied.");
+                    app.Services.GetRequiredService<Logging.IOperationLogFactory>()
+                        .CreateAsync("Database restored from a staged backup (the previous database was kept as backupservice.db.pre-restore)")
+                        .GetAwaiter().GetResult();
+                }
 
                 // Ensure the default admin credential exists.
                 app.Services.GetRequiredService<IAdminCredentialService>()

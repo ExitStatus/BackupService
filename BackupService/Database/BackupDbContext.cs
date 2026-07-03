@@ -49,9 +49,19 @@ namespace BackupService.Database
 
         public DbSet<UsbConnectionSettings> UsbConnectionSettings => Set<UsbConnectionSettings>();
 
+        public DbSet<DatabaseBackupSettings> DatabaseBackupSettings => Set<DatabaseBackupSettings>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // The database-backup target optionally points at a connection; deleting the connection
+            // ungroups the setting (SET NULL) rather than blocking the delete or removing the row.
+            modelBuilder.Entity<DatabaseBackupSettings>()
+                .HasOne(s => s.TargetConnection)
+                .WithMany()
+                .HasForeignKey(s => s.TargetConnectionId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // New profiles default to enabled; existing rows backfill to true on migration.
             modelBuilder.Entity<Profile>()

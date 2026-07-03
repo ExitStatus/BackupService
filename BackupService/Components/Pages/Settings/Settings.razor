@@ -1,6 +1,7 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using BackupService.Components.Pages.Authentication
+@using BackupService.Components.Pages.DatabaseBackup
 @using BackupService.Components.Pages.Logging
 @using BackupService.Components.Pages.Options
 
@@ -18,6 +19,10 @@
 
             case "logging":
                 <LoggingPanel />
+                break;
+
+            case "databasebackup":
+                <DatabaseBackupPanel />
                 break;
 
             case "options":

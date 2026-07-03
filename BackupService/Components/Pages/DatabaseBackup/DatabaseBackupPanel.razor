@@ -1,0 +1,121 @@
+<h1>Database Backup</h1>
+
+<div class="card">
+    <p>
+        Back up the application's own database (profiles, connections, settings and history) as a zip
+        archive. Automatic backups run on the schedule below, and after each run the oldest backups
+        beyond the keep limit are deleted.
+    </p>
+
+    @if (!_loaded)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <label class="option-row">
+            <span>
+                Enable automatic backups
+                <small>Backs up the database on the schedule below.</small>
+            </span>
+            <ToggleButton @bind-Value="_enabled" />
+        </label>
+
+        <ConnectionLocationField Label="Backup"
+                                 AllowMtp="false"
+                                 AllowCreateFolder="true"
+                                 @bind-ConnectionId="_connectionId"
+                                 @bind-Path="_folder" />
+
+        <label>
+            Schedule
+            <div class="input-row">
+                <input type="text" readonly value="@ScheduleText" />
+                <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
+            </div>
+        </label>
+
+        <label>
+            Backups to keep
+            <input type="number" min="1" @bind="_maxBackups" />
+        </label>
+
+        @if (_error is not null)
+        {
+            <span class="validation-message">@_error</span>
+        }
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="BackUpNowAsync" disabled="@_busy"
+                    title="Runs a backup immediately using the last saved settings">@(_busy ? "Backing up…" : "Back up now")</button>
+            <button type="button" @onclick="SaveAsync" disabled="@_busy">Save</button>
+        </div>
+    }
+</div>
+
+<div class="card">
+    <h2>Restore</h2>
+    <p>
+        Restoring replaces the application database with the selected backup. The restore is staged and
+        applied the next time Backup Service starts — <strong>restart the application</strong> after
+        staging it. The current database is kept beside the restored one as a safety copy.
+    </p>
+
+    @if (_backupsError is not null)
+    {
+        <p class="muted">Backups could not be listed: @_backupsError</p>
+    }
+    else if (_backups.Count == 0)
+    {
+        <p class="muted">No backups found in the configured location.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Backup taken</th>
+                    <th>File</th>
+                    <th>Size</th>
+                    <th class="action-col"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var backup in _backups)
+                {
+                    <tr>
+                        <td>@backup.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@backup.FileName</td>
+                        <td>@ByteSize.Humanize(backup.SizeBytes)</td>
+                        <td class="action-col">
+                            <button type="button" class="btn-secondary" disabled="@_busy"
+                                    @onclick="() => OpenRestore(backup)">Restore…</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <div class="modal-actions">
+        <button type="button" class="btn-secondary" @onclick="LoadBackupsAsync" disabled="@_busy">Refresh</button>
+    </div>
+</div>
+
+@if (_showSchedule)
+{
+    <ScheduleDialog Initial="_schedule"
+                    OnApply="OnScheduleApplied"
+                    OnCancel="() => _showSchedule = false" />
+}
+
+@if (_restoreTarget is not null)
+{
+    <ConfirmDialog Title="Restore database"
+                   Message="@RestoreMessage"
+                   ConfirmText="Restore"
+                   OnConfirm="ConfirmRestoreAsync"
+                   OnCancel="CancelRestore" />
+}
+
+<Notification @ref="_notification" />
