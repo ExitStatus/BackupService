@@ -93,43 +93,63 @@ else
                         <td colspan="5">
                             @if (_details.TryGetValue(log.Id, out var details))
                             {
-                                @if (details.Count == 0)
+                                @if (DetailTotal(log.Id) == 0)
                                 {
                                     <p class="log-detail-empty">No detail lines.</p>
                                 }
                                 else
                                 {
-                                    var filtered = FilteredDetails(log.Id);
+                                    var searching = SearchActive(log.Id);
+                                    var displayed = DisplayedLines(log.Id);
                                     <div class="log-detail-filter">
                                         <div class="filter-clearable">
-                                            <input type="text" class="filter-input" placeholder="Filter lines…"
+                                            <input type="text" class="filter-input" placeholder="Search lines…"
                                                    value="@DetailFilterText(log.Id)"
                                                    @oninput="e => OnDetailFilterChanged(log.Id, e)" />
                                             @if (!string.IsNullOrEmpty(DetailFilterText(log.Id)))
                                             {
-                                                <button type="button" class="filter-clear" title="Clear filter" aria-label="Clear filter"
-                                                        @onclick="() => ClearDetailFilter(log.Id)">&times;</button>
+                                                <button type="button" class="filter-clear" title="Clear search" aria-label="Clear search"
+                                                        @onclick="() => ClearDetailFilterAsync(log.Id)">&times;</button>
                                             }
                                         </div>
                                         <label class="filter-check">
                                             <input type="checkbox" checked="@DetailWarningChecked(log.Id)"
-                                                   @onchange="e => OnDetailWarningChanged(log.Id, e)" />
+                                                   @onchange="e => OnDetailWarningChangedAsync(log.Id, e)" />
                                             <span>Warning (@WarningCount(log.Id))</span>
                                         </label>
                                         <label class="filter-check">
                                             <input type="checkbox" checked="@DetailErrorChecked(log.Id)"
-                                                   @onchange="e => OnDetailErrorChanged(log.Id, e)" />
+                                                   @onchange="e => OnDetailErrorChangedAsync(log.Id, e)" />
                                             <span>Error (@ErrorCount(log.Id))</span>
                                         </label>
+                                        <a class="log-download" href="/logs/@log.Id/download" download title="Download the raw log file">Download</a>
                                     </div>
-                                    @if (filtered.Count == 0)
+                                    @if (searching || DetailStart(log.Id) > 0)
                                     {
-                                        <p class="log-detail-empty">No lines match the filter.</p>
+                                        <div class="log-detail-meta">
+                                            @if (searching)
+                                            {
+                                                <span>@SearchStatus(log.Id)</span>
+                                            }
+                                            else
+                                            {
+                                                <span>@WindowStatus(log.Id)</span>
+                                                <button type="button" class="btn-secondary log-load-earlier"
+                                                        @onclick="() => LoadEarlierAsync(log.Id)">Load previous @EarlierChunk(log.Id).ToString("N0")</button>
+                                            }
+                                        </div>
+                                    }
+                                    @if (displayed.Count == 0)
+                                    {
+                                        @if (searching && !SearchPending(log.Id))
+                                        {
+                                            <p class="log-detail-empty">No lines match the search.</p>
+                                        }
                                     }
                                     else
                                     {
                                         <div class="log-terminal" id="log-terminal-@log.Id" role="log" aria-label="Log output">
-                                            @foreach (var detail in filtered)
+                                            @foreach (var detail in displayed)
                                             {
                                                 <div class="log-terminal-line log-terminal-@detail.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@detail.Level.GetDescription()]</span> <span class="log-terminal-time">[@detail.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")]</span> @detail.Message</div>
                                             }

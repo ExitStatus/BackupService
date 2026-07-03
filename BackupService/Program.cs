@@ -258,6 +258,16 @@ namespace BackupService
                     return Results.Redirect("/login");
                 });
 
+                // Raw operation-log file download — the Logs terminal's escape hatch for huge logs (a real
+                // editor handles a million-line file better than any web view). Admin-only via the cookie.
+                app.MapGet("/logs/{id:int}/download", (int id, Logging.IOperationLogFileStore fileStore) =>
+                {
+                    var path = Path.Combine(fileStore.RootDirectory, fileStore.FileNameFor(id));
+                    return File.Exists(path)
+                        ? Results.File(path, "text/plain", fileDownloadName: $"operation-log-{id}.log")
+                        : Results.NotFound();
+                }).RequireAuthorization();
+
                 // Google Drive OAuth redirect target. Google sends the browser here after consent; we complete
                 // the pending flow (keyed by the unguessable state) and show a close-this-tab page. Anonymous —
                 // it only resolves an in-flight attempt by state and stores nothing itself.

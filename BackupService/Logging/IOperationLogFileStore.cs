@@ -11,6 +11,9 @@ namespace BackupService.Logging
     /// </summary>
     public interface IOperationLogFileStore
     {
+        /// <summary>The directory the log files live in (used by the raw-download endpoint).</summary>
+        string RootDirectory { get; }
+
         /// <summary>The file name (not full path) recorded in <see cref="Database.OperationLog.LogFile"/>.</summary>
         string FileNameFor(int operationLogId);
 
@@ -29,6 +32,22 @@ namespace BackupService.Logging
         /// a large, still-growing log. Empty if the file does not exist or <paramref name="maxLines"/> ≤ 0.
         /// </summary>
         Task<IReadOnlyList<OperationLogLine>> ReadTailAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Reads a window of a log's lines on one streaming pass (at most <paramref name="take"/> lines
+        /// held): a null <paramref name="skip"/> returns the <b>tail</b> (the last <paramref name="take"/>
+        /// lines), a set one returns lines [<paramref name="skip"/>, skip+take). The result also carries
+        /// the file's total line count and per-level Warning/Error counts, gathered on the same pass.
+        /// </summary>
+        Task<OperationLogWindow> ReadWindowAsync(int operationLogId, int? skip, int take, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Streaming search (grep semantics): lines whose message contains <paramref name="text"/>
+        /// (case-insensitive; null/blank = no text filter) and whose level is in <paramref name="levels"/>
+        /// (null/empty = all levels). Counts every match but returns at most <paramref name="maxMatches"/>
+        /// lines, in file order.
+        /// </summary>
+        Task<OperationLogSearch> SearchAsync(int operationLogId, string? text, IReadOnlyCollection<OperationLogLevel>? levels, int maxMatches, CancellationToken cancellationToken = default);
 
         /// <summary>True if any line of the log's file contains <paramref name="text"/> (case-insensitive).</summary>
         Task<bool> ContainsAsync(int operationLogId, string text, CancellationToken cancellationToken = default);

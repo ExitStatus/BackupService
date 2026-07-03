@@ -35,5 +35,18 @@ namespace BackupService.Logging
         /// terminal that tails a still-growing log without holding the whole file.
         /// </summary>
         Task<IReadOnlyList<OperationLogLine>> GetRecentDetailsAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// A window of one log's lines plus whole-file totals/level counts (one streaming pass; at most
+        /// <paramref name="take"/> lines held). Null <paramref name="skip"/> = the tail. Used by the Logs
+        /// terminal to show the end of a huge log and walk backwards on demand.
+        /// </summary>
+        Task<OperationLogWindow> GetDetailWindowAsync(int operationLogId, int? skip, int take, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Streaming search over one log's lines (case-insensitive text contains + optional level set),
+        /// returning at most <paramref name="maxMatches"/> matching lines and the total match count.
+        /// </summary>
+        Task<OperationLogSearch> SearchDetailsAsync(int operationLogId, string? text, IReadOnlyCollection<OperationLogLevel>? levels, int maxMatches, CancellationToken cancellationToken = default);
     }
 }

@@ -131,6 +131,114 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task ReadWindow_Tail_ReturnsLastLinesWithTotalsAndLevelCounts()
+        {
+            for (var i = 1; i <= 10; i++)
+            {
+                await _store.AppendAsync(31, i % 4 == 0 ? OperationLogLevel.Warning : OperationLogLevel.Info, [$"line {i}"]);
+            }
+            await _store.AppendAsync(31, OperationLogLevel.Error, ["boom"]);
+
+            var window = await _store.ReadWindowAsync(31, skip: null, take: 3);
+
+            window.Lines.Select(l => l.Message).Should().Equal("line 9", "line 10", "boom");
+            window.StartIndex.Should().Be(8);
+            window.TotalCount.Should().Be(11);
+            window.WarningCount.Should().Be(2); // lines 4 and 8
+            window.ErrorCount.Should().Be(1);
+            window.HasEarlier.Should().BeTrue();
+        }
+
+        [Test]
+        public async Task ReadWindow_WithSkip_ReturnsTheRequestedRange()
+        {
+            for (var i = 1; i <= 10; i++)
+            {
+                await _store.AppendAsync(33, OperationLogLevel.Info, [$"line {i}"]);
+            }
+
+            var window = await _store.ReadWindowAsync(33, skip: 2, take: 3);
+
+            window.Lines.Select(l => l.Message).Should().Equal("line 3", "line 4", "line 5");
+            window.StartIndex.Should().Be(2);
+            window.TotalCount.Should().Be(10);
+        }
+
+        [Test]
+        public async Task ReadWindow_WholeFileFitsInTake_StartsAtZero()
+        {
+            await _store.AppendAsync(35, OperationLogLevel.Info, ["a", "b"]);
+
+            var window = await _store.ReadWindowAsync(35, skip: null, take: 500);
+
+            window.Lines.Should().HaveCount(2);
+            window.StartIndex.Should().Be(0);
+            window.HasEarlier.Should().BeFalse();
+        }
+
+        [Test]
+        public async Task ReadWindow_MissingFile_ReturnsEmpty()
+        {
+            var window = await _store.ReadWindowAsync(999, skip: null, take: 10);
+
+            window.Lines.Should().BeEmpty();
+            window.TotalCount.Should().Be(0);
+        }
+
+        [Test]
+        public async Task Search_MatchesTextCaseInsensitively_InFileOrder()
+        {
+            await _store.AppendAsync(41, OperationLogLevel.Info, ["Copied 'a.txt'", "skipped", "Copied 'b.txt'"]);
+
+            var result = await _store.SearchAsync(41, "copied", levels: null, maxMatches: 10);
+
+            result.Matches.Select(l => l.Message).Should().Equal("Copied 'a.txt'", "Copied 'b.txt'");
+            result.TotalMatches.Should().Be(2);
+            result.Truncated.Should().BeFalse();
+        }
+
+        [Test]
+        public async Task Search_FiltersByLevelSet_AndCombinesWithText()
+        {
+            await _store.AppendAsync(43, OperationLogLevel.Info, ["copy ok"]);
+            await _store.AppendAsync(43, OperationLogLevel.Warning, ["copy locked"]);
+            await _store.AppendAsync(43, OperationLogLevel.Error, ["copy failed"]);
+            await _store.AppendAsync(43, OperationLogLevel.Error, ["delete failed"]);
+
+            var result = await _store.SearchAsync(43, "copy", [OperationLogLevel.Warning, OperationLogLevel.Error], 10);
+
+            result.Matches.Select(l => l.Message).Should().Equal("copy locked", "copy failed");
+            result.TotalMatches.Should().Be(2);
+        }
+
+        [Test]
+        public async Task Search_CapsReturnedMatches_ButCountsAllOfThem()
+        {
+            for (var i = 1; i <= 8; i++)
+            {
+                await _store.AppendAsync(45, OperationLogLevel.Info, [$"match {i}"]);
+            }
+
+            var result = await _store.SearchAsync(45, "match", levels: null, maxMatches: 3);
+
+            result.Matches.Select(l => l.Message).Should().Equal("match 1", "match 2", "match 3");
+            result.TotalMatches.Should().Be(8);
+            result.Truncated.Should().BeTrue();
+        }
+
+        [Test]
+        public async Task Search_MatchesInsideMultiLineMessages()
+        {
+            await _store.AppendAsync(47, OperationLogLevel.Debug, ["Archived 2 file(s):\r\nphoto.jpg\r\nnotes.txt"]);
+            await _store.AppendAsync(47, OperationLogLevel.Info, ["done"]);
+
+            var result = await _store.SearchAsync(47, "photo.jpg", levels: null, maxMatches: 10);
+
+            result.TotalMatches.Should().Be(1);
+            result.Matches[0].Message.Should().Contain("photo.jpg");
+        }
+
+        [Test]
         public async Task Delete_RemovesTheFile()
         {
             await _store.AppendAsync(11, OperationLogLevel.Info, ["x"]);

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using BackupService.Enumerations;
@@ -96,22 +97,109 @@ namespace BackupService.Logging
         }
 
         public async Task<IReadOnlyList<OperationLogLine>> ReadTailAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default)
+            => (await ReadWindowAsync(operationLogId, skip: null, take: maxLines, cancellationToken)).Lines;
+
+        public async Task<OperationLogWindow> ReadWindowAsync(int operationLogId, int? skip, int take, CancellationToken cancellationToken = default)
         {
             var path = PathFor(operationLogId);
-            if (maxLines <= 0 || !File.Exists(path))
+            if (take <= 0 || !File.Exists(path))
             {
-                return [];
+                return OperationLogWindow.Empty;
             }
 
             try
             {
                 await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, LogFileShare, bufferSize: 4096, useAsync: true);
                 using var reader = new StreamReader(stream);
-                return await ParseTailAsync(reader, maxLines, cancellationToken);
+
+                // One streaming pass gathers the window AND the whole-file facts (total + per-level
+                // counts); at most `take` lines are ever held. A null skip keeps the tail (a bounded
+                // queue); a set skip keeps [skip, skip+take).
+                var tail = skip is null ? new Queue<OperationLogLine>() : null;
+                var range = skip is null ? null : new List<OperationLogLine>(take);
+                int total = 0, warnings = 0, errors = 0;
+
+                await foreach (var line in ParseStreamAsync(reader, cancellationToken))
+                {
+                    if (line.Level == OperationLogLevel.Warning)
+                    {
+                        warnings++;
+                    }
+                    else if (line.Level == OperationLogLevel.Error)
+                    {
+                        errors++;
+                    }
+
+                    if (tail is not null)
+                    {
+                        tail.Enqueue(line);
+                        if (tail.Count > take)
+                        {
+                            tail.Dequeue();
+                        }
+                    }
+                    else if (total >= skip!.Value && range!.Count < take)
+                    {
+                        range.Add(line);
+                    }
+
+                    total++;
+                }
+
+                IReadOnlyList<OperationLogLine> lines = tail is not null ? [.. tail] : range!;
+                var startIndex = skip is null ? total - lines.Count : Math.Min(skip.Value, total);
+                return new OperationLogWindow(lines, startIndex, total, warnings, errors);
             }
             catch (FileNotFoundException)
             {
-                return [];
+                return OperationLogWindow.Empty;
+            }
+        }
+
+        public async Task<OperationLogSearch> SearchAsync(
+            int operationLogId, string? text, IReadOnlyCollection<OperationLogLevel>? levels, int maxMatches, CancellationToken cancellationToken = default)
+        {
+            var path = PathFor(operationLogId);
+            if (maxMatches <= 0 || !File.Exists(path))
+            {
+                return OperationLogSearch.Empty;
+            }
+
+            var trimmed = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            var levelFilter = levels is { Count: > 0 } ? levels : null;
+
+            try
+            {
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, LogFileShare, bufferSize: 4096, useAsync: true);
+                using var reader = new StreamReader(stream);
+
+                // Streaming grep: count every match but keep only the first `maxMatches` lines in memory.
+                var matches = new List<OperationLogLine>();
+                var totalMatches = 0;
+
+                await foreach (var line in ParseStreamAsync(reader, cancellationToken))
+                {
+                    if (trimmed is not null && !line.Message.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    if (levelFilter is not null && !levelFilter.Contains(line.Level))
+                    {
+                        continue;
+                    }
+
+                    totalMatches++;
+                    if (matches.Count < maxMatches)
+                    {
+                        matches.Add(line);
+                    }
+                }
+
+                return new OperationLogSearch(matches, totalMatches);
+            }
+            catch (FileNotFoundException)
+            {
+                return OperationLogSearch.Empty;
             }
         }
 
@@ -280,30 +368,16 @@ namespace BackupService.Logging
         }
 
         /// <summary>
-        /// Streams a log file's physical lines, reconstructing logical lines exactly as <see cref="Parse"/>
-        /// does, but keeping only the most recent <paramref name="maxLines"/> in a bounded queue — so a huge
-        /// log never materialises fully in memory. The oldest completed line is dropped once the cap is hit.
+        /// Streams a log file's physical lines, reconstructing and yielding logical lines exactly as
+        /// <see cref="Parse"/> does — one at a time, so callers (tail, window, search) can process a huge
+        /// log without ever materialising it fully in memory.
         /// </summary>
-        private static async Task<List<OperationLogLine>> ParseTailAsync(StreamReader reader, int maxLines, CancellationToken cancellationToken)
+        private static async IAsyncEnumerable<OperationLogLine> ParseStreamAsync(
+            StreamReader reader, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var kept = new Queue<OperationLogLine>();
-
             OperationLogLevel level = OperationLogLevel.Info;
             DateTimeOffset timestamp = default;
             StringBuilder? message = null;
-
-            void Flush()
-            {
-                if (message is not null)
-                {
-                    kept.Enqueue(new OperationLogLine(level, timestamp, message.ToString()));
-                    while (kept.Count > maxLines)
-                    {
-                        kept.Dequeue();
-                    }
-                    message = null;
-                }
-            }
 
             string? physical;
             while ((physical = await reader.ReadLineAsync(cancellationToken)) is not null)
@@ -311,7 +385,10 @@ namespace BackupService.Logging
                 var match = PrefixRegex().Match(physical);
                 if (match.Success)
                 {
-                    Flush();
+                    if (message is not null)
+                    {
+                        yield return new OperationLogLine(level, timestamp, message.ToString());
+                    }
                     level = Enum.Parse<OperationLogLevel>(match.Groups["level"].Value);
                     timestamp = ParseTimestamp(match.Groups["time"].Value);
                     message = new StringBuilder(match.Groups["msg"].Value);
@@ -330,8 +407,10 @@ namespace BackupService.Logging
                 }
             }
 
-            Flush();
-            return [.. kept];
+            if (message is not null)
+            {
+                yield return new OperationLogLine(level, timestamp, message.ToString());
+            }
         }
 
         private static DateTimeOffset ParseTimestamp(string value) =>

@@ -99,5 +99,13 @@ namespace BackupService.Logging
         public Task<IReadOnlyList<OperationLogLine>> GetRecentDetailsAsync(
             int operationLogId, int maxLines, CancellationToken cancellationToken = default) =>
             fileStore.ReadTailAsync(operationLogId, maxLines, cancellationToken);
+
+        public Task<OperationLogWindow> GetDetailWindowAsync(
+            int operationLogId, int? skip, int take, CancellationToken cancellationToken = default) =>
+            fileStore.ReadWindowAsync(operationLogId, skip, take, cancellationToken);
+
+        public Task<OperationLogSearch> SearchDetailsAsync(
+            int operationLogId, string? text, IReadOnlyCollection<OperationLogLevel>? levels, int maxMatches, CancellationToken cancellationToken = default) =>
+            fileStore.SearchAsync(operationLogId, text, levels, maxMatches, cancellationToken);
     }
 }
