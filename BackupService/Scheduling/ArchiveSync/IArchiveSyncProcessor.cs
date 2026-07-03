@@ -20,6 +20,8 @@ namespace BackupService.Scheduling
         /// (<c>Copied</c> = archives created, <c>Deleted</c> = archives pruned).
         /// <paramref name="progress"/>, when supplied, reports this item's completion fraction (0..1):
         /// the first 75% tracks files added to the zip, the final 25% tracks bytes copied to the target.
+        /// <paramref name="onCurrentFile"/>, when supplied, is invoked with the name of each file as it's
+        /// added to the archive (for the View Progress dialog).
         /// </summary>
         Task<BackupResult> CreateArchiveAsync(
             ArchiveSyncItem item,
@@ -29,6 +31,7 @@ namespace BackupService.Scheduling
             DateTime timestamp,
             IOperationLogger log,
             CancellationToken cancellationToken,
-            IProgress<double>? progress = null);
+            IProgress<double>? progress = null,
+            Action<string?>? onCurrentFile = null);
     }
 }

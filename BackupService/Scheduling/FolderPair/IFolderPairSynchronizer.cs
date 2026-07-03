@@ -17,7 +17,7 @@ namespace BackupService.Scheduling
         /// supplied, is reported <c>1</c> for each in-scope source file after it's handled (copied/updated/skipped)
         /// — pair it with <see cref="CountFilesAsync"/> for a percentage.
         /// </summary>
-        Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null);
+        Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null);
 
         /// <summary>
         /// Counts the in-scope source files the sync would process (same include/exclude + IncludeSubFolders

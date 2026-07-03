@@ -66,7 +66,7 @@ namespace BackupService.Logging
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                await File.WriteAllTextAsync(PathFor(operationLogId), builder.ToString(), cancellationToken);
+                await WriteSharedAsync(PathFor(operationLogId), FileMode.Create, builder.ToString(), cancellationToken);
             }
             finally
             {
@@ -85,7 +85,7 @@ namespace BackupService.Logging
             string[] physicalLines;
             try
             {
-                physicalLines = await File.ReadAllLinesAsync(path, cancellationToken);
+                physicalLines = await ReadAllLinesSharedAsync(path, cancellationToken);
             }
             catch (FileNotFoundException)
             {
@@ -93,6 +93,26 @@ namespace BackupService.Logging
             }
 
             return Parse(physicalLines);
+        }
+
+        public async Task<IReadOnlyList<OperationLogLine>> ReadTailAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default)
+        {
+            var path = PathFor(operationLogId);
+            if (maxLines <= 0 || !File.Exists(path))
+            {
+                return [];
+            }
+
+            try
+            {
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, LogFileShare, bufferSize: 4096, useAsync: true);
+                using var reader = new StreamReader(stream);
+                return await ParseTailAsync(reader, maxLines, cancellationToken);
+            }
+            catch (FileNotFoundException)
+            {
+                return [];
+            }
         }
 
         public async Task<bool> ContainsAsync(int operationLogId, string text, CancellationToken cancellationToken = default)
@@ -105,7 +125,7 @@ namespace BackupService.Logging
 
             try
             {
-                foreach (var line in await File.ReadAllLinesAsync(path, cancellationToken))
+                foreach (var line in await ReadAllLinesSharedAsync(path, cancellationToken))
                 {
                     if (line.Contains(text, StringComparison.OrdinalIgnoreCase))
                     {
@@ -168,12 +188,40 @@ namespace BackupService.Logging
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                await File.AppendAllTextAsync(PathFor(operationLogId), content, cancellationToken);
+                await WriteSharedAsync(PathFor(operationLogId), FileMode.Append, content, cancellationToken);
             }
             finally
             {
                 semaphore.Release();
             }
+        }
+
+        // Read/write share the file with FileShare.ReadWrite|Delete so a live tail (the View Progress dialog
+        // or the Logs terminal) reading a log doesn't collide with the running backup appending to it — the
+        // default File.Read*/Append* helpers open with FileShare.Read, which throws "being used by another
+        // process" when one side holds the file while the other opens it. Writes are still serialised per log
+        // id by the caller's semaphore; the permissive share only lets a concurrent reader coexist.
+        private const FileShare LogFileShare = FileShare.ReadWrite | FileShare.Delete;
+
+        private static async Task WriteSharedAsync(string path, FileMode mode, string content, CancellationToken cancellationToken)
+        {
+            // UTF-8 without a BOM, matching the old File.AppendAllText/WriteAllText behaviour.
+            var bytes = Encoding.UTF8.GetBytes(content);
+            await using var stream = new FileStream(path, mode, FileAccess.Write, LogFileShare, bufferSize: 4096, useAsync: true);
+            await stream.WriteAsync(bytes, cancellationToken);
+        }
+
+        private static async Task<string[]> ReadAllLinesSharedAsync(string path, CancellationToken cancellationToken)
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, LogFileShare, bufferSize: 4096, useAsync: true);
+            using var reader = new StreamReader(stream);
+            var lines = new List<string>();
+            string? line;
+            while ((line = await reader.ReadLineAsync(cancellationToken)) is not null)
+            {
+                lines.Add(line);
+            }
+            return lines.ToArray();
         }
 
         /// <summary>Builds one prefixed record. The message is written verbatim (embedded newlines included).</summary>
@@ -229,6 +277,61 @@ namespace BackupService.Logging
 
             Flush();
             return result;
+        }
+
+        /// <summary>
+        /// Streams a log file's physical lines, reconstructing logical lines exactly as <see cref="Parse"/>
+        /// does, but keeping only the most recent <paramref name="maxLines"/> in a bounded queue — so a huge
+        /// log never materialises fully in memory. The oldest completed line is dropped once the cap is hit.
+        /// </summary>
+        private static async Task<List<OperationLogLine>> ParseTailAsync(StreamReader reader, int maxLines, CancellationToken cancellationToken)
+        {
+            var kept = new Queue<OperationLogLine>();
+
+            OperationLogLevel level = OperationLogLevel.Info;
+            DateTimeOffset timestamp = default;
+            StringBuilder? message = null;
+
+            void Flush()
+            {
+                if (message is not null)
+                {
+                    kept.Enqueue(new OperationLogLine(level, timestamp, message.ToString()));
+                    while (kept.Count > maxLines)
+                    {
+                        kept.Dequeue();
+                    }
+                    message = null;
+                }
+            }
+
+            string? physical;
+            while ((physical = await reader.ReadLineAsync(cancellationToken)) is not null)
+            {
+                var match = PrefixRegex().Match(physical);
+                if (match.Success)
+                {
+                    Flush();
+                    level = Enum.Parse<OperationLogLevel>(match.Groups["level"].Value);
+                    timestamp = ParseTimestamp(match.Groups["time"].Value);
+                    message = new StringBuilder(match.Groups["msg"].Value);
+                }
+                else if (message is not null)
+                {
+                    // Continuation of the current record's (multi-line) message.
+                    message.Append('\n').Append(physical);
+                }
+                else
+                {
+                    // A leading line with no recognised prefix — keep it as an Info line rather than dropping it.
+                    level = OperationLogLevel.Info;
+                    timestamp = default;
+                    message = new StringBuilder(physical);
+                }
+            }
+
+            Flush();
+            return [.. kept];
         }
 
         private static DateTimeOffset ParseTimestamp(string value) =>

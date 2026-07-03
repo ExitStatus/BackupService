@@ -10,7 +10,7 @@ namespace BackupService.Logging
     public sealed class LogWatcher : ILogWatcher, IDisposable
     {
         // Coalescing window. Tunable: smaller = more responsive, larger = fewer refreshes under load.
-        private const int DebounceMilliseconds = 500;
+        private const int DebounceMilliseconds = 1000;
 
         private readonly object _gate = new();
         private readonly Timer _timer;

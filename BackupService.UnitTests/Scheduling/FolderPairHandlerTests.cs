@@ -204,7 +204,7 @@ namespace BackupService.UnitTests.Scheduling
 
             public Exception? ThrowOnSync { get; init; }
 
-            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
+            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
             {
                 SyncedPairNames.Add(pair.Name);
                 if (ThrowOnSync is not null)

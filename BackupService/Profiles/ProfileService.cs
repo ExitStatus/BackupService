@@ -196,7 +196,11 @@ namespace BackupService.Profiles
 
             await using var db = contextFactory.CreateDbContext();
 
-            var query = db.Profiles.AsNoTracking();
+            // Include the profile-level source/target connections so the grid can show a device-triggered
+            // profile's connection(s) in the Schedule column without a separate lookup.
+            IQueryable<Profile> query = db.Profiles.AsNoTracking()
+                .Include(p => p.SourceConnection)
+                .Include(p => p.TargetConnection);
             if (type is { } t)
             {
                 query = query.Where(p => p.Type == t);

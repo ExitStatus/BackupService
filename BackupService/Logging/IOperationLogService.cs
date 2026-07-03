@@ -29,5 +29,11 @@ namespace BackupService.Logging
 
         /// <summary>The detail lines of one log, parsed from its log file (empty if it has none).</summary>
         Task<IReadOnlyList<OperationLogLine>> GetDetailsAsync(int operationLogId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// The most recent <paramref name="maxLines"/> detail lines of one log (memory-bounded), for the live
+        /// terminal that tails a still-growing log without holding the whole file.
+        /// </summary>
+        Task<IReadOnlyList<OperationLogLine>> GetRecentDetailsAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default);
     }
 }

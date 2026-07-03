@@ -155,7 +155,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             public List<string> SyncedPairNames { get; } = [];
 
-            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
+            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
             {
                 SyncedPairNames.Add(pair.Name);
                 return Task.FromResult(result);

@@ -90,7 +90,7 @@ namespace BackupService.Scheduling
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         progress.BeginStep(stepIndex++);
-                        await RunPairAsync(pair, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, cancellationToken);
+                        await RunPairAsync(pair, profile.SourceConnectionId, profile.TargetConnectionId, log, total, progress, progress.ReportFile, cancellationToken);
                     }
                 }
             }
@@ -159,7 +159,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunPairAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, CancellationToken cancellationToken)
+        private async Task RunPairAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
         {
             await SetPairStatusAsync(pair.Id, FolderPairStatus.Running, lastRunStatus: null, cancellationToken);
             await log.AppendAsync($"Folder pair '{pair.Name}': {pair.SourceFolder} -> {pair.TargetFolder}");
@@ -167,7 +167,7 @@ namespace BackupService.Scheduling
             BackupResult result;
             try
             {
-                result = await synchronizer.SyncAsync(pair, sourceConnectionId, targetConnectionId, log, cancellationToken, progress);
+                result = await synchronizer.SyncAsync(pair, sourceConnectionId, targetConnectionId, log, cancellationToken, progress, onCurrentFile);
             }
             catch (OperationCanceledException)
             {

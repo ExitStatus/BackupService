@@ -17,11 +17,13 @@ namespace BackupService.Scheduling
         private int _currentStep = -1;
         private long _totalProcessed;
         private long _stepProcessed;
+        private volatile string? _currentFile;
 
         /// <summary>Switches to the given step (0-based) and reports its starting percent.</summary>
         public void BeginStep(int index)
         {
             _currentStep = index;
+            _currentFile = null; // a new step starts between files
             Interlocked.Exchange(ref _stepProcessed, 0);
             Push(0, Interlocked.Read(ref _totalProcessed));
         }
@@ -31,6 +33,13 @@ namespace BackupService.Scheduling
             var step = Interlocked.Add(ref _stepProcessed, value);
             var total = Interlocked.Add(ref _totalProcessed, value);
             Push(step, total);
+        }
+
+        /// <summary>Records the file currently being copied (shown in the View Progress dialog); null = none.</summary>
+        public void ReportFile(string? file)
+        {
+            _currentFile = file;
+            Push(Interlocked.Read(ref _stepProcessed), Interlocked.Read(ref _totalProcessed));
         }
 
         private void Push(long stepProcessed, long totalProcessed)
@@ -43,7 +52,7 @@ namespace BackupService.Scheduling
             var (name, count) = steps[_currentStep];
             var stepPercent = count > 0 ? (int)(stepProcessed * 100L / count) : 100;
             var totalPercent = _totalFiles > 0 ? (int)(totalProcessed * 100L / _totalFiles) : 100;
-            statusService.SetProgress(profileId, new ProfileProgress(totalPercent, name, stepPercent, steps.Count));
+            statusService.SetProgress(profileId, new ProfileProgress(totalPercent, name, stepPercent, steps.Count, _currentFile));
         }
     }
 }

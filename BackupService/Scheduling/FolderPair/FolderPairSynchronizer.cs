@@ -15,7 +15,7 @@ namespace BackupService.Scheduling
     /// </summary>
     public sealed class FolderPairSynchronizer(IEndpointFileSystemFactory endpointFactory) : IFolderPairSynchronizer
     {
-        public async Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null)
+        public async Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
         {
             var result = new BackupResult();
             // Include/exclude rules filter which files are synced (empty includes = all files).
@@ -27,7 +27,7 @@ namespace BackupService.Scheduling
                 var target = await endpointFactory.ResolveAsync(targetConnectionId, pair.TargetFolder, cancellationToken);
                 try
                 {
-                    var ctx = new SyncContext(source.FileSystem, target.FileSystem, pair, filter);
+                    var ctx = new SyncContext(source.FileSystem, target.FileSystem, pair, filter, onCurrentFile);
                     await SyncDirectoryAsync(source.BasePath, target.BasePath, [], ctx, log, result, fileProgress, cancellationToken);
                 }
                 finally
@@ -376,6 +376,8 @@ namespace BackupService.Scheduling
         private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var tempPath = Path.Combine(targetDir, CrashSafeTempName(Path.GetFileName(dest)!));
+            // Surface the file about to be copied to the View Progress dialog (best-effort, UI only).
+            ctx.OnCurrentFile?.Invoke(Path.GetFileName(dest));
             try
             {
                 var sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(source);
@@ -548,6 +550,6 @@ namespace BackupService.Scheduling
         }
 
         /// <summary>The resolved filesystems and rules for one sync run.</summary>
-        private sealed record SyncContext(IBackupFileSystem SourceFs, IBackupFileSystem TargetFs, FolderPair Pair, BackupFilter Filter);
+        private sealed record SyncContext(IBackupFileSystem SourceFs, IBackupFileSystem TargetFs, FolderPair Pair, BackupFilter Filter, Action<string?>? OnCurrentFile);
     }
 }

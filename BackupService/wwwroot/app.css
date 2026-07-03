@@ -509,6 +509,77 @@ textarea:focus {
 .modal.folder-pair-edit { max-width: 750px; }
 .modal.tabbed { max-width: 750px; }
 
+/* View Progress dialog: a large modal (80% × 90% of the viewport) with two progress bars, the current file,
+   and the run's log terminal that fills the remaining height. */
+.modal.view-progress {
+    width: 80vw;
+    max-width: 80vw;
+    height: 90vh;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The log area fills the space below the fixed header/bars/current-file and scrolls internally. */
+.view-progress .progress-log {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Inside the dialog the terminal fills its panel (overriding the Logs page's fixed 400px cap). */
+.view-progress .progress-log .log-terminal {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.progress-block { margin-bottom: 1rem; }
+
+.progress-row-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.progress-bar {
+    height: 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
+.current-file {
+    margin: 0.25rem 0 1rem;
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+.current-file-name { font-family: monospace; }
+
+.run-status {
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.run-status-running { background: var(--accent); color: #fff; }
+.run-status-idle { background: var(--surface-2); color: var(--text-muted); }
+
+.progress-log { margin-top: 0.5rem; }
+
 /* Tab strip for the tabbed edit dialogs (horizontal section switcher). */
 .modal-tabs {
     display: flex;

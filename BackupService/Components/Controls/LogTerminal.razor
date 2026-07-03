@@ -1,0 +1,51 @@
+@namespace BackupService.Components.Controls
+@using BackupService.Logging
+
+@if (_lines is null)
+{
+    <p class="log-detail-empty">Loading…</p>
+}
+else if (_lines.Count == 0)
+{
+    <p class="log-detail-empty">No detail lines.</p>
+}
+else
+{
+    var filtered = FilteredLines();
+    <div class="log-detail-filter">
+        <div class="filter-clearable">
+            <input type="text" class="filter-input" placeholder="Filter lines…"
+                   value="@_filterText" @oninput="OnFilterChanged" />
+            @if (!string.IsNullOrEmpty(_filterText))
+            {
+                <button type="button" class="filter-clear" title="Clear filter" aria-label="Clear filter"
+                        @onclick="ClearFilter">&times;</button>
+            }
+        </div>
+        <label class="filter-check">
+            <input type="checkbox" checked="@_warning" @onchange="e => _warning = e.Value is true" />
+            <span>Warning (@LevelCount(OperationLogLevel.Warning))</span>
+        </label>
+        <label class="filter-check">
+            <input type="checkbox" checked="@_error" @onchange="e => _error = e.Value is true" />
+            <span>Error (@LevelCount(OperationLogLevel.Error))</span>
+        </label>
+        <label class="filter-check">
+            <input type="checkbox" checked="@_paused" @onchange="e => _paused = e.Value is true" />
+            <span>Pause scrolling</span>
+        </label>
+    </div>
+    @if (filtered.Count == 0)
+    {
+        <p class="log-detail-empty">No lines match the filter.</p>
+    }
+    else
+    {
+        <div class="log-terminal" id="@TerminalElementId" role="log" aria-label="Log output">
+            @foreach (var line in filtered)
+            {
+                <div class="log-terminal-line log-terminal-@line.Level.ToString().ToLowerInvariant()"><span class="log-terminal-level">[@line.Level.GetDescription()]</span> <span class="log-terminal-time">[@line.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")]</span> @line.Message</div>
+            }
+        </div>
+    }
+}

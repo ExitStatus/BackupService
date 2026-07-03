@@ -136,6 +136,11 @@ else
                    OnCancel="CancelDelete" />
 }
 
+@if (_progressTarget is not null)
+{
+    <ViewProgressDialog ProfileId="_progressTarget.Id" ProfileName="@_progressTarget.Name" OnClose="CloseProgress" />
+}
+
 <Notification @ref="_notification" />
 
 @code {
@@ -156,13 +161,17 @@ else
             {
                 <td>@GroupName(profile.GroupId)</td>
             }
-            <td>@ScheduleDefinition.Describe(profile.Schedule)</td>
+            <td>@ScheduleCell(profile)</td>
             <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
             <td>@StatusText(profile.Id)</td>
             <td class="action-col">
                 <div class="row-actions">
                     @if (ShowStop(profile))
                     {
+                        <button type="button" class="icon-btn" title="View progress"
+                                aria-label="View progress" @onclick="() => OpenProgress(profile)">
+                            <img src="Icons/view.png" width="24" height="24" alt="View progress" />
+                        </button>
                         <button type="button" class="icon-btn" title="Stop the running backup"
                                 aria-label="Stop backup" @onclick="() => StopRun(profile)">
                             <img src="Icons/stop.png" width="24" height="24" alt="Stop" />

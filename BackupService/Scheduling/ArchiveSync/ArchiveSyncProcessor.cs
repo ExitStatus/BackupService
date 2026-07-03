@@ -28,7 +28,7 @@ namespace BackupService.Scheduling
         private const double ZipPhaseShare = 0.75;
 
         public async Task<BackupResult> CreateArchiveAsync(
-            ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null)
+            ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, long runIndex, DateTime timestamp, IOperationLogger log, CancellationToken cancellationToken, IProgress<double>? progress = null, Action<string?>? onCurrentFile = null)
         {
             var result = new BackupResult();
 
@@ -74,7 +74,7 @@ namespace BackupService.Scheduling
 
                 try
                 {
-                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, progress, cancellationToken);
+                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, progress, onCurrentFile, cancellationToken);
                 }
                 finally
                 {
@@ -83,6 +83,7 @@ namespace BackupService.Scheduling
                         TryDeleteDirectory(stagingDir);
                     }
                     progress?.Report(1.0); // item finished (success, skip or error) — snap to complete
+                    onCurrentFile?.Invoke(null); // clear the current-file line when the item is done
                 }
             }
             finally
@@ -94,7 +95,7 @@ namespace BackupService.Scheduling
         }
 
         private async Task BuildAndStoreAsync(
-            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, IProgress<double>? progress, CancellationToken cancellationToken)
+            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, IProgress<double>? progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
         {
             var gfs = item.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon;
             var stamp = timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture);
@@ -161,11 +162,12 @@ namespace BackupService.Scheduling
                     item.CompressionLevel.ToCompressionLevel(),
                     password,
                     useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256,
-                    onEntryProcessed: _ =>
+                    onEntryProcessed: entry =>
                     {
                         zipped++;
                         // First 75% of the item's progress = files added to the zip.
                         progress?.Report(totalFiles > 0 ? ZipPhaseShare * zipped / totalFiles : ZipPhaseShare);
+                        onCurrentFile?.Invoke(entry); // the file just added to the archive
                     });
             }
             catch (Exception ex)

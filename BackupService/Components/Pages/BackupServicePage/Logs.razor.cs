@@ -4,7 +4,6 @@ using BackupService.Extensions;
 using BackupService.Logging;
 using BackupService.Profiles;
 using Microsoft.AspNetCore.Components;
-using Microsoft.JSInterop;
 
 namespace BackupService.Components.Pages.BackupServicePage
 {
@@ -13,32 +12,18 @@ namespace BackupService.Components.Pages.BackupServicePage
         // No paging — the log headers live in a scroll panel, so load every matching row on one "page".
         private const int PageSize = int.MaxValue;
 
-        private bool _refreshing;
-        private bool _subscribed;
-        private bool _disposed;
-
         [Inject]
         private IOperationLogService OperationLogService { get; set; } = default!;
 
         [Inject]
         private IProfileService ProfileService { get; set; } = default!;
 
-        // The live per-profile run status, so a log row for a currently-running profile shows a "Running" chip.
+        // The live per-profile run status, read once at load to hide the in-progress run's log (only finished
+        // runs are shown — a live run is followed in the View Progress dialog). Not subscribed: the page is static.
         [Inject]
         private IProfileStatusService StatusService { get; set; } = default!;
 
-        // Pushes a refresh whenever log data changes (debounced); replaces interval polling.
-        [Inject]
-        private ILogWatcher LogWatcher { get; set; } = default!;
-
-        [Inject]
-        private IJSRuntime JS { get; set; } = default!;
-
         private PagedResult<OperationLog>? _logs;
-
-        // The newest (highest-Id) loaded log per profile — the run's live log is the most recent one,
-        // so the "Running" chip is shown only on this row, not on every past log of a running profile.
-        private Dictionary<int, int> _latestLogIdByProfile = new();
 
         private string _filter = string.Empty;
         private bool _includeMessages;
@@ -64,7 +49,6 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         // Which logs are expanded, and the loaded lines of the currently-expanded ones (loaded lazily on
         // expand, released on collapse — see ReleaseDetailState — so only open terminals hold their data).
-        // Stored as List so the terminal view can feed them to <Virtualize Items=...>.
         private readonly HashSet<int> _expanded = [];
         private readonly Dictionary<int, List<OperationLogLine>> _details = [];
 
@@ -76,21 +60,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         private readonly HashSet<int> _detailWarning = [];
         private readonly HashSet<int> _detailError = [];
 
-        // Log ids whose terminal has "Pause scrolling" ticked — a refresh that adds lines won't
-        // auto-scroll them to the bottom.
-        private readonly HashSet<int> _detailPaused = [];
-
-        // Log ids whose terminal grew on the last refresh and should be scrolled to the bottom after the
-        // next render (auto-scroll to follow a running backup); drained in OnAfterRenderAsync.
-        private readonly List<int> _scrollQueue = [];
-
         private string DetailFilterText(int logId) => _detailFilters.GetValueOrDefault(logId, string.Empty);
 
         private bool DetailWarningChecked(int logId) => _detailWarning.Contains(logId);
 
         private bool DetailErrorChecked(int logId) => _detailError.Contains(logId);
-
-        private bool DetailPausedChecked(int logId) => _detailPaused.Contains(logId);
 
         // The number of cached lines at each level, shown beside the checkbox label.
         private int WarningCount(int logId) => DetailLevelCount(logId, OperationLogLevel.Warning);
@@ -108,8 +82,6 @@ namespace BackupService.Components.Pages.BackupServicePage
         private void OnDetailWarningChanged(int logId, ChangeEventArgs e) => Toggle(_detailWarning, logId, e.Value is true);
 
         private void OnDetailErrorChanged(int logId, ChangeEventArgs e) => Toggle(_detailError, logId, e.Value is true);
-
-        private void OnDetailPausedChanged(int logId, ChangeEventArgs e) => Toggle(_detailPaused, logId, e.Value is true);
 
         private static void Toggle(HashSet<int> set, int logId, bool on)
         {
@@ -162,132 +134,35 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
-        // Subscribe once the component is live (OnAfterRender doesn't run during prerender, so we only
-        // attach in the interactive circuit). The watcher debounces, so we just refresh on each push.
-        protected override async Task OnAfterRenderAsync(bool firstRender)
-        {
-            if (firstRender)
-            {
-                LogWatcher.Changed += OnLogsChanged;
-                StatusService.Changed += OnProfileStatusChanged;
-                _subscribed = true;
-            }
-
-            // Auto-scroll any expanded terminal that gained lines on the last refresh. Runs after render
-            // so the new rows (and the grown scroll height) exist in the DOM; drained so it fires once.
-            if (_scrollQueue.Count > 0)
-            {
-                var ids = _scrollQueue.ToArray();
-                _scrollQueue.Clear();
-
-                foreach (var id in ids)
-                {
-                    try
-                    {
-                        await JS.InvokeVoidAsync("scrollLogTerminalToBottom", $"log-terminal-{id}");
-                    }
-                    catch
-                    {
-                        // Best-effort — the terminal may have collapsed or the circuit torn down.
-                    }
-                }
-            }
-        }
-
-        private void OnLogsChanged()
-        {
-            // Raised on a background thread — marshal onto the renderer and refresh. Swallow failures so
-            // a transient error (or a torn-down circuit) can't escape onto the thread pool.
-            _ = InvokeAsync(async () =>
-            {
-                try
-                {
-                    await RefreshAsync();
-                }
-                catch
-                {
-                    // Best-effort refresh; the next notification will try again.
-                }
-            });
-        }
-
-        // A profile started/finished running — re-render so its rows' "Running" chip appears/disappears.
-        // No data reload needed (the chip reads the live status service, not the loaded entity).
-        private void OnProfileStatusChanged(int profileId) => _ = InvokeAsync(StateHasChanged);
-
-        // Show the chip only when the profile is running AND this is its newest loaded log (the one the
-        // active run is populating) — otherwise every historical log of that profile would show it.
-        private bool ShowRunningChip(OperationLog log) =>
-            log.Profile is not null
-            && StatusService.Get(log.Profile.Id) == ProfileStatus.Running
-            && _latestLogIdByProfile.TryGetValue(log.Profile.Id, out var latestId)
-            && latestId == log.Id;
-
-        // Recompute the newest-log-per-profile map from the current page (logs come back newest-first).
-        private void RebuildLatestLogIds() =>
-            _latestLogIdByProfile = _logs?.Items
-                .Where(l => l.Profile is not null)
-                .GroupBy(l => l.Profile!.Id)
-                .ToDictionary(g => g.Key, g => g.Max(l => l.Id))
-                ?? new Dictionary<int, int>();
-
-        /// <summary>
-        /// Re-reads the current page (and any expanded logs' details) in place, without collapsing the
-        /// user's expanded rows or resetting their filters/page. Driven by the log watcher's push.
-        /// </summary>
-        private async Task RefreshAsync()
-        {
-            if (_disposed || _refreshing)
-            {
-                return;
-            }
-
-            _refreshing = true;
-            try
-            {
-                _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
-                RebuildLatestLogIds();
-
-                // Drop expansion state for logs no longer in the result (e.g. filtered out), releasing
-                // their cached lines; refresh the details of those still shown so a running log stays live.
-                var visibleIds = _logs.Items.Select(l => l.Id).ToHashSet();
-                foreach (var goneId in _expanded.Where(id => !visibleIds.Contains(id)).ToList())
-                {
-                    _expanded.Remove(goneId);
-                    ReleaseDetailState(goneId);
-                }
-
-                foreach (var id in _expanded)
-                {
-                    var oldCount = _details.TryGetValue(id, out var existing) ? existing.Count : 0;
-                    var details = await OperationLogService.GetDetailsAsync(id);
-                    var list = details as List<OperationLogLine> ?? details.ToList();
-                    _details[id] = list;
-
-                    // New lines arrived — follow them to the bottom unless the user paused this terminal.
-                    if (list.Count > oldCount && !_detailPaused.Contains(id))
-                    {
-                        _scrollQueue.Add(id);
-                    }
-                }
-
-                StateHasChanged();
-            }
-            finally
-            {
-                _refreshing = false;
-            }
-        }
-
         private async Task LoadAsync()
         {
-            _logs = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
-            RebuildLatestLogIds();
+            var page = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
+            _logs = ExcludeInProgressRuns(page);
 
-            // Collapse everything when the filter changes — the visible set differs — releasing all
+            // Collapse everything when the (re)load happens — the visible set may differ — releasing all
             // cached terminal data.
             _expanded.Clear();
             ClearAllDetailState();
+        }
+
+        // Hides the in-progress run's log — the newest log of any profile currently running — so the Logs page
+        // shows only finished runs. A page's rows are the full result set (PageSize is unbounded), so a simple
+        // in-memory filter suffices; the live run is followed in the View Progress dialog instead.
+        private PagedResult<OperationLog> ExcludeInProgressRuns(PagedResult<OperationLog> page)
+        {
+            var inProgress = page.Items
+                .Where(l => l.Profile is not null && StatusService.Get(l.Profile.Id) == ProfileStatus.Running)
+                .GroupBy(l => l.Profile!.Id)
+                .Select(g => g.Max(l => l.Id))
+                .ToHashSet();
+
+            if (inProgress.Count == 0)
+            {
+                return page;
+            }
+
+            var items = page.Items.Where(l => !inProgress.Contains(l.Id)).ToList();
+            return new PagedResult<OperationLog>(items, items.Count, page.PageNumber, page.PageSize);
         }
 
         private async Task OnFilterChanged(ChangeEventArgs e)
@@ -342,16 +217,14 @@ namespace BackupService.Components.Pages.BackupServicePage
             _details[logId] = details as List<OperationLogLine> ?? details.ToList();
         }
 
-        /// <summary>Drops the cached lines and per-log view state for one log (on collapse, or when the
-        /// log leaves the visible page), so the potentially large line list is freed.</summary>
+        /// <summary>Drops the cached lines and per-log view state for one log (on collapse), so the
+        /// potentially large line list is freed.</summary>
         private void ReleaseDetailState(int logId)
         {
             _details.Remove(logId);
             _detailFilters.Remove(logId);
             _detailWarning.Remove(logId);
             _detailError.Remove(logId);
-            _detailPaused.Remove(logId);
-            _scrollQueue.Remove(logId);
         }
 
         /// <summary>Releases every log's cached lines and view state (e.g. when the filter changes and
@@ -362,26 +235,14 @@ namespace BackupService.Components.Pages.BackupServicePage
             _detailFilters.Clear();
             _detailWarning.Clear();
             _detailError.Clear();
-            _detailPaused.Clear();
-            _scrollQueue.Clear();
         }
 
         // Tearing down the component (e.g. selecting another sidebar panel, or navigating away from the
-        // Logs page) unsubscribes, so the watcher no longer pushes refreshes to this instance, and releases
-        // any loaded log data so it isn't retained after the page closes.
+        // Logs page) releases any loaded log data so it isn't retained after the page closes.
         public void Dispose()
         {
-            _disposed = true;
-            if (_subscribed)
-            {
-                LogWatcher.Changed -= OnLogsChanged;
-                StatusService.Changed -= OnProfileStatusChanged;
-            }
-
-            // Drop the cached lines of any still-open terminals and the loaded page of headers.
             _expanded.Clear();
             ClearAllDetailState();
-            _latestLogIdByProfile.Clear();
             _logs = null;
 
             // Explicitly reclaim the (potentially large) log-line buffers now that the page is gone.

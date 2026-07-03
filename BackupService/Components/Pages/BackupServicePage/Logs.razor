@@ -79,10 +79,6 @@ else
                         @if (log.Profile is not null)
                         {
                             @log.Profile.Name
-                            @if (ShowRunningChip(log))
-                            {
-                                <span class="running-chip">Running</span>
-                            }
                         }
                         else
                         {
@@ -124,11 +120,6 @@ else
                                             <input type="checkbox" checked="@DetailErrorChecked(log.Id)"
                                                    @onchange="e => OnDetailErrorChanged(log.Id, e)" />
                                             <span>Error (@ErrorCount(log.Id))</span>
-                                        </label>
-                                        <label class="filter-check">
-                                            <input type="checkbox" checked="@DetailPausedChecked(log.Id)"
-                                                   @onchange="e => OnDetailPausedChanged(log.Id, e)" />
-                                            <span>Pause scrolling</span>
                                         </label>
                                     </div>
                                     @if (filtered.Count == 0)

@@ -23,6 +23,13 @@ namespace BackupService.Logging
         /// <summary>Reads and parses a log's file into its lines (empty if the file does not exist).</summary>
         Task<IReadOnlyList<OperationLogLine>> ReadAsync(int operationLogId, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Reads only the <b>last</b> <paramref name="maxLines"/> logical lines of a log's file, streaming so
+        /// no more than that many are ever held in memory at once — used by the live terminal to cap memory on
+        /// a large, still-growing log. Empty if the file does not exist or <paramref name="maxLines"/> ≤ 0.
+        /// </summary>
+        Task<IReadOnlyList<OperationLogLine>> ReadTailAsync(int operationLogId, int maxLines, CancellationToken cancellationToken = default);
+
         /// <summary>True if any line of the log's file contains <paramref name="text"/> (case-insensitive).</summary>
         Task<bool> ContainsAsync(int operationLogId, string text, CancellationToken cancellationToken = default);
 

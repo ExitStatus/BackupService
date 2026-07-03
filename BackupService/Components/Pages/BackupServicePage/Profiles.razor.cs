@@ -48,6 +48,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _showDialog;
         private int? _editId;
         private Profile? _deleteTarget;
+        private Profile? _progressTarget;
         private Notification _notification = default!;
 
         private ProfileSortColumn _sortColumn = ProfileSortColumn.Name;
@@ -251,6 +252,26 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
+        // The Schedule cell: a USB device-triggered profile (FolderPair/ArchiveSync whose source or target is
+        // a USB connection) has no cron — it runs when its device(s) connect — so show the triggering
+        // connection(s) instead of "Not scheduled". Reads the connections off the profile entity (included by
+        // GetPageAsync) so it's always available, independent of run status. Static: purely entity-derived.
+        private static string ScheduleCell(Profile profile)
+        {
+            var usbNames = new List<string>();
+            foreach (var connection in new[] { profile.SourceConnection, profile.TargetConnection })
+            {
+                if (connection is { Type: ConnectionType.Usb } && !usbNames.Contains(connection.Name))
+                {
+                    usbNames.Add(connection.Name);
+                }
+            }
+
+            return usbNames.Count > 0
+                ? $"On connect: {string.Join(", ", usbNames)}"
+                : ScheduleDefinition.Describe(profile.Schedule);
+        }
+
         // The Group column / section label for a profile's group id ("—" when ungrouped or unknown).
         private string GroupName(int? groupId) =>
             groupId is { } id ? _groups.FirstOrDefault(g => g.Id == id)?.Name ?? "—" : "—";
@@ -380,6 +401,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         // (folder pair or archive) is running, so the user can safely cancel an in-progress run.
         private bool ShowStop(Profile profile) =>
             IsRunning(profile.Id) && profile.Type is ProfileType.FolderPair or ProfileType.ArchiveSync;
+
+        // Opens the live progress dialog for a running profile (shown alongside the Stop button).
+        private void OpenProgress(Profile profile) => _progressTarget = profile;
+
+        private void CloseProgress() => _progressTarget = null;
 
         private void StopRun(Profile profile)
         {

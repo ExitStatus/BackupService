@@ -1,0 +1,57 @@
+@namespace BackupService.Components.Dialogs
+
+<div class="modal-overlay">
+    <div class="modal view-progress" role="dialog" aria-modal="true" aria-label="Backup progress">
+        <div class="profile-dialog-header">
+            <h2>@ProfileName — progress</h2>
+            <span class="run-status run-status-@(IsRunning ? "running" : "idle")">@StatusLabel</span>
+        </div>
+
+        <div class="progress-block">
+            <div class="progress-row-label">
+                <span>Overall</span>
+                <span>@OverallPercent%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="@($"width:{OverallPercent}%")"></div>
+            </div>
+        </div>
+
+        <div class="progress-block">
+            <div class="progress-row-label">
+                <span>@ItemLabel</span>
+                <span>@ItemPercent%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="@($"width:{ItemPercent}%")"></div>
+            </div>
+        </div>
+
+        <div class="current-file">
+            <span class="muted">Current file:</span>
+            @if (!string.IsNullOrEmpty(CurrentFile))
+            {
+                <span class="current-file-name" title="@CurrentFile">@CurrentFile</span>
+            }
+            else
+            {
+                <span class="muted">—</span>
+            }
+        </div>
+
+        <div class="progress-log">
+            @if (_logId is int logId)
+            {
+                <LogTerminal LogId="logId" />
+            }
+            else
+            {
+                <p class="log-detail-empty">Waiting for run log…</p>
+            }
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" @onclick="OnClose">Close</button>
+        </div>
+    </div>
+</div>

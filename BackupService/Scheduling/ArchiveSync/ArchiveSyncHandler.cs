@@ -70,15 +70,20 @@ namespace BackupService.Scheduling
                     foreach (var item in profile.ArchiveSyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        var itemIndex = completed;  // captured for the closure below
-                        var currentItem = item;     // captured for the closure below
-                        var itemProgress = new DelegateProgress(fraction =>
+                        var itemIndex = completed;  // captured for the closures below
+                        var currentItem = item;     // captured for the closures below
+                        // The fraction and current-file arrive via two separate callbacks; both rebuild the
+                        // full snapshot from the last-known values so neither clears the other.
+                        double lastFraction = 0;
+                        string? currentFile = null;
+                        void Push()
                         {
-                            var f = Math.Clamp(fraction, 0, 1);
+                            var f = Math.Clamp(lastFraction, 0, 1);
                             var totalPercent = (int)((itemIndex + f) * 100 / totalItems);
-                            statusService.SetProgress(profile.Id, new ProfileProgress(totalPercent, currentItem.Name, (int)(f * 100), totalItems));
-                        });
-                        await RunItemAsync(item, profile.SourceConnectionId, profile.TargetConnectionId, log, total, itemProgress, cancellationToken);
+                            statusService.SetProgress(profile.Id, new ProfileProgress(totalPercent, currentItem.Name, (int)(f * 100), totalItems, currentFile));
+                        }
+                        var itemProgress = new DelegateProgress(fraction => { lastFraction = fraction; Push(); });
+                        await RunItemAsync(item, profile.SourceConnectionId, profile.TargetConnectionId, log, total, itemProgress, file => { currentFile = file; Push(); }, cancellationToken);
                         completed++;
                         statusService.SetProgress(profile.Id, new ProfileProgress(completed * 100 / totalItems, item.Name, 100, totalItems));
                     }
@@ -148,7 +153,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunItemAsync(ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<double> progress, CancellationToken cancellationToken)
+        private async Task RunItemAsync(ArchiveSyncItem item, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<double> progress, Action<string?> onCurrentFile, CancellationToken cancellationToken)
         {
             await log.AppendAsync($"Archive '{item.Name}': {item.SourceFolder} -> {item.TargetFolder}");
 
@@ -157,7 +162,7 @@ namespace BackupService.Scheduling
             BackupResult result;
             try
             {
-                result = await processor.CreateArchiveAsync(item, sourceConnectionId, targetConnectionId, runIndex, DateTime.Now, log, cancellationToken, progress);
+                result = await processor.CreateArchiveAsync(item, sourceConnectionId, targetConnectionId, runIndex, DateTime.Now, log, cancellationToken, progress, onCurrentFile);
             }
             catch (OperationCanceledException)
             {
