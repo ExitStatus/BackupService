@@ -2,8 +2,9 @@
 
 <div class="card">
     <p>
-        Desktop integration for the running application. These apply on Windows; on other platforms they are
-        saved but have no effect.
+        Desktop integration for the running application. "Start application when you log in" works on Windows
+        and Linux; the tray icon and notifications are Windows-only — on other platforms they are saved but
+        have no effect.
     </p>
 
     @if (_model is null)
@@ -14,8 +15,8 @@
     {
         <label class="option-row">
             <span>
-                Start application when Windows starts
-                <small>Launches Backup Service in the background when you sign in.</small>
+                Start application when you log in
+                <small>Launches Backup Service automatically when you sign in.</small>
             </span>
             <ToggleButton @bind-Value="_model.StartWithWindows" />
         </label>

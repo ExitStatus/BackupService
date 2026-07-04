@@ -107,11 +107,20 @@ namespace BackupService
                 builder.Services.AddSingleton<Dashboard.IStorageUsageService, Dashboard.StorageUsageService>();
                 builder.Services.AddSingleton<Options.IAppOptionsService, Options.AppOptionsService>();
 
-                // Desktop integration (Settings → Options): autostart + system-tray icon/notifications. These are
-                // Windows-only — off Windows the settings persist but a no-op startup manager / null notifier run.
+                // Desktop integration (Settings → Options): autostart + system-tray icon/notifications. The tray
+                // icon/notifications and USB device detection are Windows-only (a no-op notifier/inspectors run
+                // elsewhere); autostart also has a Linux implementation (an XDG autostart entry).
                 if (OperatingSystem.IsWindows())
                 {
                     AddWindowsDesktopIntegration(builder.Services);
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    builder.Services.AddSingleton<Hosting.IStartupManager, Hosting.LinuxStartupManager>();
+                    builder.Services.AddSingleton<Notifications.IDesktopNotifier, Notifications.NullDesktopNotifier>();
+                    builder.Services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.NullUsbDeviceInspector>();
+                    builder.Services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.NullMtpDeviceInspector>();
+                    builder.Services.AddSingleton<Connections.Usb.IUsbEjector, Connections.Usb.NullUsbEjector>();
                 }
                 else
                 {
@@ -260,8 +269,9 @@ namespace BackupService
                     }
                 }
 
-                // Reconcile the "start with Windows" autostart entry with the saved option, so the registered
-                // command tracks the current exe path after a redeploy (a no-op off Windows).
+                // Reconcile the "start on login" autostart entry with the saved option, so the registered
+                // command tracks the current exe path after a redeploy (Windows: HKCU Run key; Linux: an
+                // XDG autostart .desktop entry; a no-op elsewhere).
                 var appOptions = app.Services.GetRequiredService<Options.IAppOptionsService>()
                     .GetSettingsAsync().GetAwaiter().GetResult();
                 app.Services.GetRequiredService<Hosting.IStartupManager>().Apply(appOptions.StartWithWindows);

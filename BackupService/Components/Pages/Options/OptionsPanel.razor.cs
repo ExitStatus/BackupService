@@ -7,9 +7,10 @@ using Microsoft.AspNetCore.Components;
 namespace BackupService.Components.Pages.Options
 {
     /// <summary>
-    /// Settings panel for the desktop-integration options: start with Windows, show the system tray icon, and
-    /// allow completion notifications. Saving persists the flags and applies the autostart registry entry; the
-    /// tray service reacts to the change via <see cref="IAppOptionsService.Changed"/>.
+    /// Settings panel for the desktop-integration options: start on login, show the system tray icon, and
+    /// allow completion notifications. Saving persists the flags and applies the autostart entry (a registry
+    /// key on Windows, an XDG autostart file on Linux); the tray service reacts to the change via
+    /// <see cref="IAppOptionsService.Changed"/>.
     /// </summary>
     public partial class OptionsPanel : ComponentBase
     {
