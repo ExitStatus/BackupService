@@ -69,6 +69,14 @@ namespace BackupService.Profiles
         Task<IReadOnlyDictionary<ProfileType, int>> GetCountsByTypeAsync(CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Creates a deep copy of an existing profile — all its type-specific items and their filters — named
+        /// "Copy of {name}". The duplicate is created <b>disabled</b> (so an identical enabled copy doesn't
+        /// immediately double-run or double-watch the same folders); run-state is reset and the encrypted archive
+        /// password is copied verbatim. Returns the new profile's id, or 0 if the source doesn't exist.
+        /// </summary>
+        Task<int> DuplicateAsync(int id, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Deletes a profile (and its folder pairs, via cascade). No-op if it doesn't exist.
         /// </summary>
         Task DeleteAsync(int id, CancellationToken cancellationToken = default);

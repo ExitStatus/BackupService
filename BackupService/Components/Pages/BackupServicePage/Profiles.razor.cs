@@ -454,6 +454,21 @@ namespace BackupService.Components.Pages.BackupServicePage
             _notification.Show($"Running '{profile.Name}' now", NotificationLevel.Success);
         }
 
+        private async Task DuplicateProfile(Profile profile)
+        {
+            var newId = await ProfileService.DuplicateAsync(profile.Id);
+            if (newId > 0)
+            {
+                // The duplicate is created disabled — surface that so the admin knows to review and enable it.
+                _notification.Show($"Duplicated '{profile.Name}' (created disabled)", NotificationLevel.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                _notification.Show("Could not duplicate the profile", NotificationLevel.Error);
+            }
+        }
+
         private void OpenDelete(Profile profile)
         {
             // Lock the profile so a scheduled run won't fire while the delete dialog is open.

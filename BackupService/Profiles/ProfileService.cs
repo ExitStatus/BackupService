@@ -174,6 +174,119 @@ namespace BackupService.Profiles
             }
         }
 
+        public async Task<int> DuplicateAsync(int id, CancellationToken cancellationToken = default)
+        {
+            await using var db = contextFactory.CreateDbContext();
+
+            var source = await db.Profiles.AsNoTracking()
+                .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
+                .Include(p => p.InstantSyncItems)
+                .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
+                .Include(p => p.LightroomArchiveItems)
+                .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+            if (source is null)
+            {
+                return 0;
+            }
+
+            // A deep copy with fresh (0) ids throughout, so EF inserts a whole new graph. Created DISABLED so an
+            // identical enabled copy doesn't immediately double-run (scheduled) or double-watch the same folders
+            // (watcher-driven) — the admin reviews and enables it. Run-state is reset (RunCount, per-pair statuses,
+            // last/next-run) and the encrypted archive password is copied verbatim (never re-encrypted here).
+            var copy = new Profile
+            {
+                Name = $"Copy of {source.Name}",
+                Type = source.Type,
+                SourceConnectionId = source.SourceConnectionId,
+                TargetConnectionId = source.TargetConnectionId,
+                GroupId = source.GroupId,
+                Enabled = false,
+                NotificationsEnabled = source.NotificationsEnabled,
+                NotifyOnStart = source.NotifyOnStart,
+                NotifyOnComplete = source.NotifyOnComplete,
+                NotifyOnEject = source.NotifyOnEject,
+                ShowProgressWindow = source.ShowProgressWindow,
+                Schedule = source.Schedule,
+                LightroomFolder = source.LightroomFolder,
+                RawFormats = source.RawFormats,
+                RawFolderName = source.RawFolderName,
+                HandleMissedSync = source.HandleMissedSync,
+                EjectAfterRun = source.EjectAfterRun,
+                DateCreated = DateTimeOffset.UtcNow,
+                FolderPairs = source.FolderPairs.Select(fp => new FolderPair
+                {
+                    Name = fp.Name,
+                    SourceFolder = fp.SourceFolder,
+                    TargetFolder = fp.TargetFolder,
+                    AllowDeletions = fp.AllowDeletions,
+                    IncludeSubFolders = fp.IncludeSubFolders,
+                    OverwriteBehaviour = fp.OverwriteBehaviour,
+                    Filters = fp.Filters.Select(f => new FolderPairFilter
+                    {
+                        Direction = f.Direction,
+                        Kind = f.Kind,
+                        Pattern = f.Pattern,
+                    }).ToList<FolderPairFilter>(),
+                }).ToList<FolderPair>(),
+                InstantSyncItems = source.InstantSyncItems.Select(i => new InstantSyncItem
+                {
+                    Name = i.Name,
+                    SourceFolder = i.SourceFolder,
+                    TargetFolder = i.TargetFolder,
+                    DebounceMilliseconds = i.DebounceMilliseconds,
+                    IncludeSubFolders = i.IncludeSubFolders,
+                    AllowDeletions = i.AllowDeletions,
+                }).ToList<InstantSyncItem>(),
+                ArchiveSyncItems = source.ArchiveSyncItems.Select(a => new ArchiveSyncItem
+                {
+                    Name = a.Name,
+                    SourceFolder = a.SourceFolder,
+                    TargetFolder = a.TargetFolder,
+                    FileName = a.FileName,
+                    IncludeSubFolders = a.IncludeSubFolders,
+                    OnlyCopyOnChange = a.OnlyCopyOnChange,
+                    CompressionLevel = a.CompressionLevel,
+                    PasswordProtect = a.PasswordProtect,
+                    PasswordEncrypted = a.PasswordEncrypted,
+                    EncryptionMethod = a.EncryptionMethod,
+                    RetentionMode = a.RetentionMode,
+                    RetentionCount = a.RetentionCount,
+                    MaxLevels = a.MaxLevels,
+                    RunCount = 0,
+                    Filters = a.Filters.Select(f => new ArchiveSyncFilter
+                    {
+                        Direction = f.Direction,
+                        Kind = f.Kind,
+                        Pattern = f.Pattern,
+                    }).ToList<ArchiveSyncFilter>(),
+                }).ToList<ArchiveSyncItem>(),
+                LightroomArchiveItems = source.LightroomArchiveItems.Select(l => new LightroomArchiveItem
+                {
+                    Name = l.Name,
+                    SourceFolder = l.SourceFolder,
+                    TargetFolder = l.TargetFolder,
+                    DebounceMilliseconds = l.DebounceMilliseconds,
+                    IncludeSubFolders = l.IncludeSubFolders,
+                    AllowDeletions = l.AllowDeletions,
+                }).ToList<LightroomArchiveItem>(),
+            };
+
+            db.Profiles.Add(copy);
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Self-describing log (message-in-name, no detail lines), tied to the new profile.
+            await operationLogFactory.CreateAsync($"Profile duplicated from '{source.Name}': {copy.Name}", profileId: copy.Id, cancellationToken: cancellationToken);
+
+            // Seed status and register with the drivers, exactly like CreateAsync. The copy is disabled, so the
+            // scheduler/watchers won't actually start it — but keep the wiring consistent.
+            statusService.Set(copy.Id, ProfileStatus.Idle);
+            await scheduler.SyncAsync(copy.Id, cancellationToken);
+            await instantSyncManager.SyncAsync(copy.Id, cancellationToken);
+            await lightroomArchiveManager.SyncAsync(copy.Id, cancellationToken);
+
+            return copy.Id;
+        }
+
         public async Task<PagedResult<Profile>> GetPageAsync(
             int pageNumber,
             int pageSize,

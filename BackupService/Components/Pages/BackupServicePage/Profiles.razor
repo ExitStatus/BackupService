@@ -189,6 +189,11 @@ else
                                 @onclick="() => OpenEdit(profile.Id)">
                             <img src="Icons/profile-settings.png" width="24" height="24" alt="Edit" />
                         </button>
+                        <button type="button" class="icon-btn" title="Duplicate profile"
+                                aria-label="Duplicate profile" disabled="@IsRunning(profile.Id)"
+                                @onclick="() => DuplicateProfile(profile)">
+                            <img src="Icons/copy.png" width="24" height="24" alt="Duplicate" />
+                        </button>
                         <button type="button" class="icon-btn" title="@DeleteTitle(profile.Id)"
                                 aria-label="Delete profile" disabled="@IsRunning(profile.Id)"
                                 @onclick="() => OpenDelete(profile)">
