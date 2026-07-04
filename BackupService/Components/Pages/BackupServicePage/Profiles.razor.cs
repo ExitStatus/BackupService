@@ -258,6 +258,20 @@ namespace BackupService.Components.Pages.BackupServicePage
         // GetPageAsync) so it's always available, independent of run status. Static: purely entity-derived.
         private static string ScheduleCell(Profile profile)
         {
+            // LightroomArchive is watcher-driven (never scheduled); rather than "Not scheduled", list the folder
+            // names it monitors — the source folder of each of its actions, names only (not the full paths),
+            // comma-separated and capped at 128 characters.
+            if (profile.Type == ProfileType.LightroomArchive && profile.LightroomArchiveItems.Count > 0)
+            {
+                var folders = string.Join(", ", profile.LightroomArchiveItems.Select(i => FolderName(i.SourceFolder)));
+                if (folders.Length > MonitorFoldersMaxLength)
+                {
+                    folders = folders[..(MonitorFoldersMaxLength - 1)].TrimEnd() + "…";
+                }
+
+                return $"Monitor: {folders}";
+            }
+
             var usbNames = new List<string>();
             foreach (var connection in new[] { profile.SourceConnection, profile.TargetConnection })
             {
@@ -270,6 +284,22 @@ namespace BackupService.Components.Pages.BackupServicePage
             return usbNames.Count > 0
                 ? $"On connect: {string.Join(", ", usbNames)}"
                 : ScheduleDefinition.Describe(profile.Schedule);
+        }
+
+        // Cap for the Lightroom "Monitor: …" folder list; the last character is reserved for a trailing ellipsis.
+        private const int MonitorFoldersMaxLength = 128;
+
+        // The trailing folder name of a path (last segment), tolerating trailing separators and drive-only paths.
+        private static string FolderName(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, ' ');
+            var name = Path.GetFileName(trimmed);
+            return string.IsNullOrEmpty(name) ? trimmed : name;
         }
 
         // The Group column / section label for a profile's group id ("—" when ungrouped or unknown).
