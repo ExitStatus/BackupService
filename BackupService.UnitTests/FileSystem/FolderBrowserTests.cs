@@ -62,7 +62,10 @@ namespace BackupService.UnitTests.FileSystem
         {
             var quick = _browser.GetQuickAccess();
 
-            quick.Should().OnlyContain(e => Directory.Exists(e.FullPath));
+            // Every returned shortcut must exist. Stated as "none is missing" rather than OnlyContain so it also
+            // holds when the set is legitimately empty — e.g. a machine (or CI container) with no XDG user folders
+            // such as ~/Desktop or ~/Documents, where GetQuickAccess correctly returns nothing.
+            quick.Should().NotContain(e => !Directory.Exists(e.FullPath));
         }
     }
 }

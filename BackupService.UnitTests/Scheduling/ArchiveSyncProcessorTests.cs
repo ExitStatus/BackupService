@@ -458,11 +458,11 @@ namespace BackupService.UnitTests.Scheduling
         {
             private sealed record Entry(DateTime Time, string Content);
 
-            private readonly Dictionary<string, Entry> _files = new(StringComparer.OrdinalIgnoreCase);
-            private readonly HashSet<string> _dirs = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, Entry> _files = new(FakeFsPath.Comparer);
+            private readonly HashSet<string> _dirs = new(FakeFsPath.Comparer);
             private int _tempCounter;
 
-            public IReadOnlyList<string> AllFiles => _files.Keys.ToList();
+            public IReadOnlyList<string> AllFiles => _files.Keys.Select(FakeFsPath.Norm).ToList();
 
             public void AddDirectory(string path)
             {
@@ -470,13 +470,13 @@ namespace BackupService.UnitTests.Scheduling
                 while (!string.IsNullOrEmpty(current))
                 {
                     _dirs.Add(current);
-                    current = Path.GetDirectoryName(current)!;
+                    current = FakeFsPath.Parent(current);
                 }
             }
 
             public void AddFile(string path, DateTime time, string content)
             {
-                AddDirectory(Path.GetDirectoryName(path)!);
+                AddDirectory(FakeFsPath.Parent(path));
                 _files[path] = new Entry(time, content);
             }
 
@@ -486,11 +486,11 @@ namespace BackupService.UnitTests.Scheduling
 
             public void DeleteDirectory(string path, bool recursive)
             {
-                foreach (var f in _files.Keys.Where(f => IsUnder(f, path)).ToList())
+                foreach (var f in _files.Keys.Where(f => FakeFsPath.IsUnder(f, path)).ToList())
                 {
                     _files.Remove(f);
                 }
-                foreach (var d in _dirs.Where(d => string.Equals(d, path, StringComparison.OrdinalIgnoreCase) || IsUnder(d, path)).ToList())
+                foreach (var d in _dirs.Where(d => FakeFsPath.Comparer.Equals(d, path) || FakeFsPath.IsUnder(d, path)).ToList())
                 {
                     _dirs.Remove(d);
                 }
@@ -499,10 +499,10 @@ namespace BackupService.UnitTests.Scheduling
             public bool FileExists(string path) => _files.ContainsKey(path);
 
             public IReadOnlyList<string> GetFiles(string directory) =>
-                _files.Keys.Where(f => string.Equals(Path.GetDirectoryName(f), directory, StringComparison.OrdinalIgnoreCase)).ToList();
+                _files.Keys.Where(f => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), directory)).Select(FakeFsPath.Norm).ToList();
 
             public IReadOnlyList<string> GetDirectories(string directory) =>
-                _dirs.Where(d => string.Equals(Path.GetDirectoryName(d), directory, StringComparison.OrdinalIgnoreCase)).ToList();
+                _dirs.Where(d => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(d), directory)).Select(FakeFsPath.Norm).ToList();
 
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
@@ -520,7 +520,7 @@ namespace BackupService.UnitTests.Scheduling
 
             // Files that exist (are enumerated) but throw on read — e.g. a OneDrive cloud-only placeholder
             // that can't hydrate from a session-0 service.
-            public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
+            public HashSet<string> Unreadable { get; } = new(FakeFsPath.Comparer);
 
             public Stream OpenRead(string path)
             {
@@ -618,9 +618,9 @@ namespace BackupService.UnitTests.Scheduling
                 // embedded in the "content" so it survives the stream copy to the target (like a real EOCD).
                 var entries = _files.Keys
                     .Where(f => includeSubfolders
-                        ? IsUnder(f, sourceDirectory)
-                        : string.Equals(Path.GetDirectoryName(f), sourceDirectory, StringComparison.OrdinalIgnoreCase))
-                    .Select(f => Path.GetRelativePath(sourceDirectory, f).Replace('\\', '/'))
+                        ? FakeFsPath.IsUnder(f, sourceDirectory)
+                        : FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), sourceDirectory))
+                    .Select(f => Path.GetRelativePath(FakeFsPath.Norm(sourceDirectory), FakeFsPath.Norm(f)).Replace('\\', '/'))
                     .Where(e => includeEntry is null || includeEntry(e))
                     .ToList();
                 AddFile(destinationZip, DateTime.UtcNow, comment is null ? "zip" : "zip " + comment);
@@ -641,11 +641,6 @@ namespace BackupService.UnitTests.Scheduling
                 return marker < 0 ? null : e.Content[(marker + 1)..];
             }
 
-            private static bool IsUnder(string path, string directory)
-            {
-                var prefix = directory.EndsWith(Path.DirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;
-                return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-            }
         }
     }
 }

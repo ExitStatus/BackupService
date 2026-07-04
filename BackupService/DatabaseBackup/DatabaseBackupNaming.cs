@@ -1,4 +1,5 @@
 using System.Globalization;
+using BackupService.Extensions;
 
 namespace BackupService.DatabaseBackup
 {
@@ -26,7 +27,9 @@ namespace BackupService.DatabaseBackup
                 return false;
             }
 
-            var name = Path.GetFileName(fileName);
+            // Separator-agnostic: a remote (SMB/Google Drive) target lists backslash name-paths even on Linux, where
+            // Path.GetFileName would not split them.
+            var name = PathHelper.GetLeafName(fileName);
             if (!name.StartsWith(Prefix + "_", StringComparison.OrdinalIgnoreCase) ||
                 !name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
@@ -48,7 +51,7 @@ namespace BackupService.DatabaseBackup
             var backups = new List<(string Name, DateTime Timestamp)>();
             foreach (var file in files)
             {
-                var name = Path.GetFileName(file);
+                var name = PathHelper.GetLeafName(file);
                 if (TryParseTimestamp(name, out var timestamp))
                 {
                     backups.Add((name, timestamp));

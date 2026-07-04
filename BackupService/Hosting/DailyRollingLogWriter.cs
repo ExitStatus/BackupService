@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using BackupService.Extensions;
 
 namespace BackupService.Hosting
 {
@@ -150,7 +151,7 @@ namespace BackupService.Hosting
             var cutoff = today.AddDays(-retentionDays);
             foreach (var path in files)
             {
-                var name = Path.GetFileName(path);
+                var name = PathHelper.GetLeafName(path);
                 if (!name.StartsWith(FilePrefix, StringComparison.OrdinalIgnoreCase) ||
                     !name.EndsWith(FileExtension, StringComparison.OrdinalIgnoreCase))
                 {

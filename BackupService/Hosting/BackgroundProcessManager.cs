@@ -14,17 +14,25 @@ namespace BackupService.Hosting
     /// <item><see cref="LaunchDetached"/>, which relaunches this exe as a detached <c>--worker</c> child for
     /// <c>-background</c>.</item>
     /// </list>
-    /// The handle names use the per-session <c>Local\</c> namespace, so each interactive Windows user gets an
-    /// independent instance — matching the per-user data directory. They are also suffixed with the environment
-    /// (Development vs Production) so a developer's debug instance (port 5080, DB in <c>bin\</c>) and the deployed
-    /// instance (port 55000, DB in <c>%LOCALAPPDATA%</c>) — which are genuinely independent — can run side by side
-    /// instead of the deployed one blocking the debug run.
+    /// On Windows the handle names use the per-session <c>Local\</c> namespace, so each interactive Windows user gets
+    /// an independent instance — matching the per-user data directory (the prefix is dropped on Unix, where a named
+    /// <see cref="Mutex"/> must be a bare name). They are also suffixed with the environment (Development vs
+    /// Production) so a developer's debug instance (port 5080, DB in <c>bin\</c>) and the deployed instance (port
+    /// 55000, DB in <c>%LOCALAPPDATA%</c>) — which are genuinely independent — can run side by side instead of the
+    /// deployed one blocking the debug run.
+    ///
+    /// The background/stop model (detached child + named stop event) is Windows-only; on Linux the app runs in the
+    /// foreground under a process manager (systemd/Docker) and is stopped via SIGTERM, so <c>-background</c>/
+    /// <c>-stop</c> degrade to a clear message there.
     /// </summary>
     public static class BackgroundProcessManager
     {
         private static readonly string EnvironmentSuffix = ResolveEnvironmentSuffix();
-        private static readonly string InstanceMutexName = $@"Local\BackupService.Instance.{EnvironmentSuffix}";
-        private static readonly string StopEventName = $@"Local\BackupService.Stop.{EnvironmentSuffix}";
+        // The Local\ session namespace is a Windows named-object convention; on Unix a named Mutex must be a bare
+        // name (no namespace prefix), so omit it there to keep the single-instance guard working cross-platform.
+        private static readonly string HandleNamePrefix = OperatingSystem.IsWindows() ? @"Local\" : string.Empty;
+        private static readonly string InstanceMutexName = $"{HandleNamePrefix}BackupService.Instance.{EnvironmentSuffix}";
+        private static readonly string StopEventName = $"{HandleNamePrefix}BackupService.Stop.{EnvironmentSuffix}";
         private const string PidFileName = "backupservice.pid";
 
         // The environment determines both the data directory and these handle names, so a Development run and a
@@ -75,6 +83,14 @@ namespace BackupService.Hosting
         /// </summary>
         public static void RegisterStopSignal(IHostApplicationLifetime lifetime)
         {
+            // The named stop event is a Windows mechanism (named EventWaitHandle is not supported on Unix and would
+            // throw here at startup). On Linux the host is stopped via SIGTERM (systemd/Ctrl+C), which the generic
+            // host already honors, so there is nothing to wire up.
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             _stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, StopEventName);
             _stopRegistration = ThreadPool.RegisterWaitForSingleObject(
                 _stopEvent,
@@ -90,6 +106,14 @@ namespace BackupService.Hosting
         /// </summary>
         public static int RequestStop()
         {
+            // -stop relies on the named EventWaitHandle, which is Windows-only. On Linux stop the foreground process
+            // directly. A no-op stop is not an error, so return 0.
+            if (!OperatingSystem.IsWindows())
+            {
+                Console.WriteLine("-stop is Windows-only. On Linux, stop the foreground process with Ctrl+C or 'systemctl stop backupservice'.");
+                return 0;
+            }
+
             EventWaitHandle stopEvent;
             try
             {
@@ -117,6 +141,14 @@ namespace BackupService.Hosting
         /// </summary>
         public static int LaunchDetached()
         {
+            // The detached-child background model (exe relaunch + named stop event) is Windows-only. On Linux run in
+            // the foreground under a process manager (systemd/Docker) instead.
+            if (!OperatingSystem.IsWindows())
+            {
+                Console.Error.WriteLine("-background is Windows-only; run in the foreground under systemd/Docker on Linux.");
+                return 1;
+            }
+
             if (IsAlreadyRunning())
             {
                 Console.Error.WriteLine("Backup Service is already running.");

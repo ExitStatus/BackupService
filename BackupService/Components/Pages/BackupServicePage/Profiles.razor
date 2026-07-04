@@ -102,7 +102,7 @@ else
                 {
                     <tr class="section-header" @onclick="() => ToggleGroupFold(section.Name)">
                         <td colspan="@ColSpan">
-                            <span class="fold-arrow">@(IsGroupFolded(section.Name) ? "▶" : "▼")</span>@section.Name
+                            <span class="fold-arrow">@(IsGroupFolded(section.Name) ? "▶" : "▼")</span>@(section.Name)
                         </td>
                     </tr>
                     @if (!IsGroupFolded(section.Name))

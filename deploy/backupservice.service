@@ -1,0 +1,35 @@
+# Sample systemd unit for running BackupService in the foreground on Linux — the Linux analogue of the Windows
+# -background mode. Adjust the paths, User, and WorkingDirectory for your deployment, then:
+#
+#     sudo cp deploy/backupservice.service /etc/systemd/system/backupservice.service
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now backupservice
+#     sudo systemctl status backupservice        # check it started
+#     journalctl -u backupservice -f             # follow its console/ILogger output
+#
+# Stop/restart with:  sudo systemctl stop backupservice  /  sudo systemctl restart backupservice
+#
+# ASPNETCORE_ENVIRONMENT is intentionally left unset -> Production -> admin UI on http://localhost:55000.
+# The per-user data directory is $HOME/.local/share/BackupService for the User below (SQLite DB, keys, logs).
+
+[Unit]
+Description=BackupService (Blazor admin UI + backup scheduler/watchers)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The user this service runs as. Its $HOME determines the data directory (~/.local/share/BackupService).
+User=backupservice
+WorkingDirectory=/opt/backupservice
+# Framework-dependent publish: 'dotnet BackupService.dll'. For a self-contained publish, use the native launcher
+# instead:  ExecStart=/opt/backupservice/BackupService
+ExecStart=/usr/bin/dotnet /opt/backupservice/BackupService.dll
+Restart=always
+RestartSec=5
+# systemd stops the service with SIGTERM, which the .NET generic host handles as a graceful shutdown.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

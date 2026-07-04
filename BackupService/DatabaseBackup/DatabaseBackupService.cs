@@ -208,8 +208,10 @@ namespace BackupService.DatabaseBackup
 
         public async Task StageRestoreAsync(string fileName, CancellationToken cancellationToken = default)
         {
-            // Only a name we generated is restorable — also blocks any path segments smuggled in.
-            if (fileName != Path.GetFileName(fileName) || !DatabaseBackupNaming.TryParseTimestamp(fileName, out _))
+            // Only a name we generated is restorable — also blocks any path segments smuggled in. Use the
+            // separator-agnostic leaf (not Path.GetFileName, which on Linux would not strip a backslash-smuggled
+            // path such as "..\evil.zip", letting it through).
+            if (fileName != PathHelper.GetLeafName(fileName) || !DatabaseBackupNaming.TryParseTimestamp(fileName, out _))
             {
                 throw new InvalidOperationException("Not a recognised database backup file.");
             }

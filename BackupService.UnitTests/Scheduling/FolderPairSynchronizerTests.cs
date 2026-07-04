@@ -634,8 +634,8 @@ namespace BackupService.UnitTests.Scheduling
         {
             private sealed record Entry(DateTime Time, string Content);
 
-            private readonly Dictionary<string, Entry> _files = new(StringComparer.OrdinalIgnoreCase);
-            private readonly HashSet<string> _dirs = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, Entry> _files = new(FakeFsPath.Comparer);
+            private readonly HashSet<string> _dirs = new(FakeFsPath.Comparer);
 
             // Failure injection: given a path, return true to throw.
             public Func<string, bool>? CopyShouldFail { get; set; }   // arg: destination
@@ -644,7 +644,7 @@ namespace BackupService.UnitTests.Scheduling
             public Func<string, bool>? GetFilesShouldFail { get; set; } // arg: directory
             public Func<string, Stream>? OpenReadOverride { get; set; } // arg: path — supply a custom read stream
 
-            public IReadOnlyList<string> AllFiles => _files.Keys.ToList();
+            public IReadOnlyList<string> AllFiles => _files.Keys.Select(FakeFsPath.Norm).ToList();
 
             public void AddDirectory(string path)
             {
@@ -652,13 +652,13 @@ namespace BackupService.UnitTests.Scheduling
                 while (!string.IsNullOrEmpty(current))
                 {
                     _dirs.Add(current);
-                    current = Path.GetDirectoryName(current)!;
+                    current = FakeFsPath.Parent(current);
                 }
             }
 
             public void AddFile(string path, DateTime time, string content)
             {
-                AddDirectory(Path.GetDirectoryName(path)!);
+                AddDirectory(FakeFsPath.Parent(path));
                 _files[path] = new Entry(time, content);
             }
 
@@ -672,17 +672,17 @@ namespace BackupService.UnitTests.Scheduling
 
             public void DeleteDirectory(string path, bool recursive)
             {
-                var hasChildren = _files.Keys.Any(f => IsUnder(f, path)) || _dirs.Any(d => IsUnder(d, path));
+                var hasChildren = _files.Keys.Any(f => FakeFsPath.IsUnder(f, path)) || _dirs.Any(d => FakeFsPath.IsUnder(d, path));
                 if (hasChildren && !recursive)
                 {
                     throw new IOException($"Directory not empty: {path}");
                 }
 
-                foreach (var f in _files.Keys.Where(f => IsUnder(f, path) || string.Equals(Path.GetDirectoryName(f), path, StringComparison.OrdinalIgnoreCase)).ToList())
+                foreach (var f in _files.Keys.Where(f => FakeFsPath.IsUnder(f, path) || FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), path)).ToList())
                 {
                     _files.Remove(f);
                 }
-                foreach (var d in _dirs.Where(d => string.Equals(d, path, StringComparison.OrdinalIgnoreCase) || IsUnder(d, path)).ToList())
+                foreach (var d in _dirs.Where(d => FakeFsPath.Comparer.Equals(d, path) || FakeFsPath.IsUnder(d, path)).ToList())
                 {
                     _dirs.Remove(d);
                 }
@@ -701,12 +701,15 @@ namespace BackupService.UnitTests.Scheduling
                     throw new DirectoryNotFoundException(directory);
                 }
                 return _files.Keys
-                    .Where(f => string.Equals(Path.GetDirectoryName(f), directory, StringComparison.OrdinalIgnoreCase))
+                    .Where(f => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), directory))
+                    .Select(FakeFsPath.Norm)
                     .ToList();
             }
 
             public IReadOnlyList<string> GetDirectories(string directory) =>
-                _dirs.Where(d => string.Equals(Path.GetDirectoryName(d), directory, StringComparison.OrdinalIgnoreCase)).ToList();
+                _dirs.Where(d => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(d), directory))
+                    .Select(FakeFsPath.Norm)
+                    .ToList();
 
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
@@ -829,12 +832,6 @@ namespace BackupService.UnitTests.Scheduling
                 throw new NotSupportedException();
 
             public string? GetZipComment(string path) => throw new NotSupportedException();
-
-            private static bool IsUnder(string path, string directory)
-            {
-                var prefix = directory.EndsWith(Path.DirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;
-                return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-            }
         }
     }
 }
