@@ -100,12 +100,17 @@ else
             {
                 @foreach (var section in GroupSections())
                 {
-                    <tr class="section-header">
-                        <td colspan="@ColSpan">@section.Name</td>
+                    <tr class="section-header" @onclick="() => ToggleGroupFold(section.Name)">
+                        <td colspan="@ColSpan">
+                            <span class="fold-arrow">@(IsGroupFolded(section.Name) ? "▶" : "▼")</span>@section.Name
+                        </td>
                     </tr>
-                    @foreach (var profile in section.Profiles)
+                    @if (!IsGroupFolded(section.Name))
                     {
-                        @ProfileRow(profile)
+                        @foreach (var profile in section.Profiles)
+                        {
+                            @ProfileRow(profile)
+                        }
                     }
                 }
             }

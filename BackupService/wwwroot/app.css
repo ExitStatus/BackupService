@@ -1406,6 +1406,15 @@ label.header-check input {
     background: var(--surface-2);
     font-weight: 600;
     color: var(--text);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Fold/unfold disclosure triangle prefixing a group section name (Arrange by Group). */
+.section-header .fold-arrow {
+    display: inline-block;
+    width: 1.1em;
+    color: var(--text-muted);
 }
 
 /* A section (Backup Profiles / Scheduled Tasks / Connections / Logs) laid out as a full-height

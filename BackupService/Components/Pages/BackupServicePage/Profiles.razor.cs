@@ -1,5 +1,6 @@
 using BackupService.Components.Controls;
 using BackupService.Connections;
+using System.Text.Json;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -17,6 +18,11 @@ namespace BackupService.Components.Pages.BackupServicePage
         private const int PageSize = int.MaxValue;
         private const string ArrangeByTypeKey = "profiles.arrangeByType";
         private const string ArrangeByGroupKey = "profiles.arrangeByGroup";
+        private const string FoldedGroupsKey = "profiles.foldedGroups";
+
+        // Group section names the user has folded (Arrange by Group). Persisted to localStorage so the folded
+        // state is restored when the Profiles view is shown again. Case-insensitive, matching GroupSections' names.
+        private readonly HashSet<string> _foldedGroups = new(StringComparer.OrdinalIgnoreCase);
 
         // The "Arrange by Type" tabs, in display order, with their literal labels (suffixed with a count).
         private static readonly (ProfileType Type, string Label)[] TabOrder =
@@ -119,6 +125,28 @@ namespace BackupService.Components.Pages.BackupServicePage
             // The two arrangements are mutually exclusive; if both were somehow stored, group wins.
             _arrangeByGroup = savedGroup == "1";
             _arrangeByType = !_arrangeByGroup && savedType == "1";
+
+            // Restore which group sections were folded last time.
+            var savedFolded = await JS.InvokeAsync<string?>("localStorage.getItem", FoldedGroupsKey);
+            if (!string.IsNullOrEmpty(savedFolded))
+            {
+                try
+                {
+                    var names = JsonSerializer.Deserialize<List<string>>(savedFolded);
+                    if (names is not null)
+                    {
+                        foreach (var name in names)
+                        {
+                            _foldedGroups.Add(name);
+                        }
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Corrupt/legacy value — ignore and start with nothing folded.
+                }
+            }
+
             _connections = await ConnectionService.GetSummariesAsync();
             _connectionOptions = new List<int?> { null }.Concat(_connections.Select(c => (int?)c.Id)).ToList();
             _groups = await GroupService.GetSummariesAsync();
@@ -295,6 +323,21 @@ namespace BackupService.Components.Pages.BackupServicePage
             var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, ' ');
             var name = Path.GetFileName(trimmed);
             return string.IsNullOrEmpty(name) ? trimmed : name;
+        }
+
+        // Whether a group section is currently folded (its rows hidden) in the Arrange-by-Group view.
+        private bool IsGroupFolded(string sectionName) => _foldedGroups.Contains(sectionName);
+
+        // Clicking a group header row folds/unfolds that section; the new state is persisted so it survives
+        // leaving and returning to the Profiles view.
+        private async Task ToggleGroupFold(string sectionName)
+        {
+            if (!_foldedGroups.Remove(sectionName))
+            {
+                _foldedGroups.Add(sectionName);
+            }
+
+            await JS.InvokeVoidAsync("localStorage.setItem", FoldedGroupsKey, JsonSerializer.Serialize(_foldedGroups));
         }
 
         // The Group column / section label for a profile's group id ("—" when ungrouped or unknown).
