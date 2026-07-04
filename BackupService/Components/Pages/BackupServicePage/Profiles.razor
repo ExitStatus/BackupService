@@ -125,15 +125,7 @@ else
 
 @if (_showDialog)
 {
-    <ProfileDialog ProfileId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" />
-}
-
-@if (_deleteTarget is not null)
-{
-    <ConfirmDialog Title="Delete profile"
-                   Message="@($"Delete the profile \"{_deleteTarget.Name}\"? This cannot be undone.")"
-                   OnConfirm="ConfirmDeleteAsync"
-                   OnCancel="CancelDelete" />
+    <ProfileDialog ProfileId="_editId" OnCancel="CancelDialog" OnSaved="OnSaved" OnDeleted="OnDeleted" />
 }
 
 @if (_progressTarget is not null)
@@ -193,11 +185,6 @@ else
                                 aria-label="Duplicate profile" disabled="@IsRunning(profile.Id)"
                                 @onclick="() => DuplicateProfile(profile)">
                             <img src="Icons/copy.png" width="24" height="24" alt="Duplicate" />
-                        </button>
-                        <button type="button" class="icon-btn" title="@DeleteTitle(profile.Id)"
-                                aria-label="Delete profile" disabled="@IsRunning(profile.Id)"
-                                @onclick="() => OpenDelete(profile)">
-                            <img src="Icons/remove.png" width="24" height="24" alt="Delete" />
                         </button>
                     }
                 </div>

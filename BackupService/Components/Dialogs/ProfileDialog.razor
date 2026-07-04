@@ -180,6 +180,11 @@
             <ValidationSummary />
 
             <div class="modal-actions">
+                @* Delete lives here (edit only), pushed to the far left so it's clearly separated from Save/Cancel. *@
+                @if (IsEdit)
+                {
+                    <button type="button" class="btn-danger" style="margin-right:auto" @onclick="() => _showDeleteConfirm = true">Delete</button>
+                }
                 <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
                 <button type="submit">@(IsEdit ? "Save" : "Create")</button>
             </div>
@@ -193,4 +198,13 @@
     <ScheduleDialog Initial="_schedule"
                     OnApply="OnScheduleApplied"
                     OnCancel="() => _showSchedule = false" />
+}
+
+@if (_showDeleteConfirm)
+{
+    <ConfirmDialog Title="Delete profile"
+                   Message="@($"Delete the profile \"{Input.Name}\"? This cannot be undone.")"
+                   ConfirmText="Delete"
+                   OnConfirm="ConfirmDeleteAsync"
+                   OnCancel="() => _showDeleteConfirm = false" />
 }

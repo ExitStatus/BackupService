@@ -39,6 +39,10 @@ namespace BackupService.Components.Dialogs
         [Parameter]
         public EventCallback OnSaved { get; set; }
 
+        /// <summary>Raised after the profile is deleted from the dialog (edit mode only).</summary>
+        [Parameter]
+        public EventCallback OnDeleted { get; set; }
+
         private InputModel Input { get; set; } = new();
         private readonly List<FolderPairModel> _folderPairs = [];
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
@@ -57,6 +61,7 @@ namespace BackupService.Components.Dialogs
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
         private bool _showSchedule;
+        private bool _showDeleteConfirm;
         private bool _lightroomFolderError;
         private IReadOnlyDictionary<int, ConnectionType> _connectionTypes = new Dictionary<int, ConnectionType>();
         private IReadOnlyDictionary<int, UsbDeviceKind> _connectionUsbKinds = new Dictionary<int, UsbDeviceKind>();
@@ -276,6 +281,20 @@ namespace BackupService.Components.Dialogs
         }
 
         private void OpenSchedule() => _showSchedule = true;
+
+        // Deletes the profile being edited (the profile is already locked by the grid while the dialog is open),
+        // then hands back to the parent to close the dialog and refresh the grid.
+        private async Task ConfirmDeleteAsync()
+        {
+            if (ProfileId is not { } id)
+            {
+                return;
+            }
+
+            await ProfileService.DeleteAsync(id);
+            _showDeleteConfirm = false;
+            await OnDeleted.InvokeAsync();
+        }
 
         private void OnScheduleApplied(ScheduleDefinition definition)
         {

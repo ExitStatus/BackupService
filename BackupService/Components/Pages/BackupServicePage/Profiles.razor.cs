@@ -47,7 +47,6 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private bool _showDialog;
         private int? _editId;
-        private Profile? _deleteTarget;
         private Profile? _progressTarget;
         private Notification _notification = default!;
 
@@ -160,10 +159,6 @@ namespace BackupService.Components.Pages.BackupServicePage
 
             // Release any lock held by an open dialog so it can't leak if we're torn down.
             UnlockEditing();
-            if (_deleteTarget is not null)
-            {
-                StatusService.Unlock(_deleteTarget.Id);
-            }
         }
 
         private async Task LoadAsync()
@@ -381,7 +376,6 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private string EditTitle(int id) => IsRunning(id) ? "Cannot edit while a backup is running" : "Edit profile";
 
-        private string DeleteTitle(int id) => IsRunning(id) ? "Cannot delete while a backup is running" : "Delete profile";
 
         private void OpenCreate()
         {
@@ -469,32 +463,12 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
-        private void OpenDelete(Profile profile)
+        // Raised by ProfileDialog after it deletes the profile being edited. The profile was locked on open;
+        // DeleteAsync (inside the dialog) already removed its status/lock entries, so just close and refresh.
+        private async Task OnDeleted()
         {
-            // Lock the profile so a scheduled run won't fire while the delete dialog is open.
-            StatusService.Lock(profile.Id);
-            _deleteTarget = profile;
-        }
-
-        private void CancelDelete()
-        {
-            if (_deleteTarget is not null)
-            {
-                StatusService.Unlock(_deleteTarget.Id);
-            }
-            _deleteTarget = null;
-        }
-
-        private async Task ConfirmDeleteAsync()
-        {
-            if (_deleteTarget is null)
-            {
-                return;
-            }
-
-            // DeleteAsync removes the profile's status and lock entries.
-            await ProfileService.DeleteAsync(_deleteTarget.Id);
-            _deleteTarget = null;
+            UnlockEditing();
+            _showDialog = false;
             _notification.Show("Profile deleted", NotificationLevel.Success);
             await LoadAsync();
         }
