@@ -47,6 +47,37 @@
             var el = document.getElementById(id);
             if (el) { el.scrollTop = el.scrollHeight; }
         };
+
+        // Drag-resize the folder browser's sidebar (.fb-splitter sits between .fb-sidebar and
+        // .fb-details inside .fb-body — see FolderBrowserDialog.razor). Delegated on document
+        // since the dialog is added/removed from the DOM dynamically.
+        (function () {
+            var drag = null;
+
+            document.addEventListener('pointerdown', function (e) {
+                var splitter = e.target.closest && e.target.closest('.fb-splitter');
+                if (!splitter) { return; }
+                var body = splitter.closest('.fb-body');
+                if (!body) { return; }
+                drag = { splitter: splitter, body: body, startX: e.clientX, startWidth: splitter.previousElementSibling.getBoundingClientRect().width };
+                splitter.classList.add('dragging');
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+
+            document.addEventListener('pointermove', function (e) {
+                if (!drag) { return; }
+                var width = Math.min(420, Math.max(140, drag.startWidth + (e.clientX - drag.startX)));
+                drag.body.style.gridTemplateColumns = width + 'px 6px 1fr';
+            });
+
+            document.addEventListener('pointerup', function () {
+                if (!drag) { return; }
+                drag.splitter.classList.remove('dragging');
+                document.body.style.userSelect = '';
+                drag = null;
+            });
+        })();
     </script>
 </body>
 

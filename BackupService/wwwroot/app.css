@@ -478,6 +478,10 @@ textarea:focus {
 .modal {
     width: 100%;
     max-width: 380px;
+    /* .modal-overlay centers with 1.5rem padding top and bottom; cap to what's left of the
+       viewport and scroll internally rather than being clipped on a short/low-res screen. */
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
     padding: 1.5rem;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1178,19 +1182,28 @@ label.header-check input {
 .fb-crumb:hover { background: var(--border); }
 .fb-crumb-sep { color: var(--text-muted); }
 
-/* Body: left tree + right details */
+/* Body: left tree + right details, with a draggable splitter between them (see App.razor for the drag JS) */
 .fb-body {
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 220px 6px 1fr;
 }
 
 .fb-sidebar {
     overflow-y: auto;
     padding: 0.5rem 0.35rem;
     background: var(--surface-2);
-    border-right: 1px solid var(--border);
+}
+
+.fb-splitter {
+    cursor: col-resize;
+    background: var(--border);
+}
+
+.fb-splitter:hover,
+.fb-splitter.dragging {
+    background: var(--accent);
 }
 
 .fb-group-label {
