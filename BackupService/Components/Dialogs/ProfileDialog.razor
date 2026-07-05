@@ -19,13 +19,8 @@
             @* Both tab panels stay rendered (hidden via CSS when inactive) so the type editors' @@ref survive a
                Save from the Notifications tab. The wrapper is a fixed height (scrolls when needed) so switching
                tabs never changes the dialog's vertical size. *@
-            <div class="profile-tab-content">
+            <div class="profile-tab-content@(Input.Type == ProfileType.LightroomArchive ? " lightroom" : "")">
             <div style="@TabStyle("details")">
-
-            <label>
-                Name
-                <InputText @ref="_nameInput" @bind-Value="Input.Name" />
-            </label>
 
             @if (!IsEdit)
             {
@@ -38,31 +33,72 @@
                 </label>
             }
 
-            @* The connection is profile-level (shared by every row). Source only for the scheduled types —
-               InstantSync/LightroomArchive are watcher-driven with a local-only source. *@
-            @if (Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
-            {
-                <ConnectionLocationField Label="Source connection" ShowFolder="false"
-                                         @bind-ConnectionId="Input.SourceConnectionId" />
-            }
+            @* Two-column field grid: Name/Group, Source/Target connection, Schedule/Handle-missed. Placeholder
+               <div>s keep a cell's column position when its field doesn't apply to the current profile type. *@
+            <div class="profile-details-grid">
 
-            @* OneWaySync/ArchiveSync may target a read/write USB mass-storage drive (but not a read-only MTP camera);
-               the watcher-driven types can't target USB at all. *@
-            <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="@TargetAllowsUsb" AllowMtp="false"
-                                     @bind-ConnectionId="Input.TargetConnectionId" />
-
-            @* The Group picker only appears once at least one group exists. A Sequential group serialises its
-               members' runs; a Parallel group leaves them to run concurrently. *@
-            @if (_groups.Count > 0)
-            {
+                @* Row 1: Name | Group *@
                 <label>
-                    Group
-                    <Dropdown TValue="int?"
-                              @bind-Value="Input.GroupId"
-                              Items="_groupOptions"
-                              DisplayText="GroupLabel" />
+                    Name
+                    <InputText @ref="_nameInput" @bind-Value="Input.Name" />
                 </label>
-            }
+
+                @* The Group picker only appears once at least one group exists. A Sequential group serialises its
+                   members' runs; a Parallel group leaves them to run concurrently. *@
+                @if (_groups.Count > 0)
+                {
+                    <label>
+                        Group
+                        <Dropdown TValue="int?"
+                                  @bind-Value="Input.GroupId"
+                                  Items="_groupOptions"
+                                  DisplayText="GroupLabel" />
+                    </label>
+                }
+                else
+                {
+                    <div></div>
+                }
+
+                @* Row 2: Source connection | Target connection. The connection is profile-level (shared by every
+                   row). Source only for the scheduled types — InstantSync/LightroomArchive are watcher-driven with
+                   a local-only source, so that cell is left empty for them. *@
+                @if (Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
+                {
+                    <ConnectionLocationField Label="Source connection" ShowFolder="false"
+                                             @bind-ConnectionId="Input.SourceConnectionId" />
+                }
+                else
+                {
+                    @* Watcher-driven types (InstantSync/LightroomArchive) have a local-only source — a
+                       FileSystemWatcher can't observe a remote connection. Show it fixed and disabled. *@
+                    <label>
+                        Source connection
+                        <Dropdown TValue="int?" Value="(int?)null" Items="_localSourceOption"
+                                  DisplayText="@(_ => "This machine (local)")" Disabled="true" />
+                    </label>
+                }
+
+                @* OneWaySync/ArchiveSync may target a read/write USB mass-storage drive (but not a read-only MTP
+                   camera); the watcher-driven types can't target USB at all. *@
+                <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="@TargetAllowsUsb" AllowMtp="false"
+                                         @bind-ConnectionId="Input.TargetConnectionId" />
+
+                @* Row 3: Schedule — only for scheduled (non-device-triggered, non-watcher) types.
+                   The Handle-missed toggle lives in the dialog's action bar; device-triggered/watcher notes
+                   render full-width below the grid instead. *@
+                @if (ShowSchedule)
+                {
+                    <label>
+                        Schedule
+                        <div class="input-row">
+                            <input type="text" readonly value="@ScheduleText" />
+                            <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set</button>
+                        </div>
+                    </label>
+                }
+
+            </div>
 
             @if (IsDeviceTriggered)
             {
@@ -75,21 +111,6 @@
                         Eject device(s) after automatic run
                     </label>
                 }
-            }
-            else if (!IsWatcherDriven)
-            {
-                <label>
-                    Schedule
-                    <div class="input-row">
-                        <input type="text" readonly value="@ScheduleText" />
-                        <button type="button" class="btn-secondary" @onclick="OpenSchedule">Set schedule…</button>
-                    </div>
-                </label>
-
-                <label class="check" title="@HandleMissedSyncTooltip">
-                    <input type="checkbox" @bind="Input.HandleMissedSync" title="@HandleMissedSyncTooltip" />
-                    Handle missed sync
-                </label>
             }
 
             @if (Input.Type == ProfileType.LightroomArchive)
@@ -184,12 +205,26 @@
             <ValidationSummary />
 
             <div class="modal-actions">
-                @* Delete lives here (edit only), pushed to the far left so it's clearly separated from Save/Cancel. *@
+                @* Handle missed sync (scheduled types only) sits at the far left, vertically centred with the
+                   action buttons — a toggle with its label on the right. *@
+                @if (ShowSchedule)
+                {
+                    <label class="profile-missed-toggle" title="@HandleMissedSyncTooltip">
+                        <ToggleButton @bind-Value="Input.HandleMissedSync" />
+                        <span>Handle missed sync</span>
+                    </label>
+                }
+                @* Delete (edit only) sits to the left of Cancel. margin-left:auto on Delete (or Cancel when
+                   creating) pushes this whole group to the right. *@
                 @if (IsEdit)
                 {
-                    <button type="button" class="btn-danger" style="margin-right:auto" @onclick="() => _showDeleteConfirm = true">Delete</button>
+                    <button type="button" class="btn-danger" style="margin-left:auto" @onclick="() => _showDeleteConfirm = true">Delete</button>
+                    <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
                 }
-                <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+                else
+                {
+                    <button type="button" class="btn-secondary" style="margin-left:auto" @onclick="OnCancel">Cancel</button>
+                }
                 <button type="submit">@(IsEdit ? "Save" : "Create")</button>
             </div>
         </EditForm>

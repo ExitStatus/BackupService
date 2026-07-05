@@ -72,6 +72,9 @@ namespace BackupService.Components.Dialogs
         private IReadOnlyList<GroupSummary> _groups = [];
         private IReadOnlyList<int?> _groupOptions = [null];
 
+        // A single fixed option for the disabled "This machine (local)" source shown on the watcher-driven types.
+        private readonly IReadOnlyList<int?> _localSourceOption = [null];
+
         private string GroupLabel(int? id) =>
             id is { } gid ? _groups.FirstOrDefault(g => g.Id == gid)?.Name ?? $"Group {gid}" : "(none)";
 
@@ -121,6 +124,10 @@ namespace BackupService.Components.Dialogs
 
         private bool IsUsbConnection(int? connectionId) =>
             connectionId is { } id && _connectionTypes.TryGetValue(id, out var type) && type == ConnectionType.Usb;
+
+        // The Schedule field (and the Handle-missed toggle) show only for a genuinely scheduled run — a
+        // watcher-driven or device-triggered profile runs on an event, not a cron.
+        private bool ShowSchedule => !IsDeviceTriggered && !IsWatcherDriven;
 
         // Mass-storage USB (a Windows-drive device), as opposed to a read-only MTP camera.
         private bool IsMassStorageUsb(int? connectionId) =>

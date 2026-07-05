@@ -496,6 +496,7 @@ textarea:focus {
 
 .modal-actions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 0.75rem;
     margin-top: 1.25rem;
@@ -619,10 +620,38 @@ textarea:focus {
 /* ProfileDialog's tabs vary a lot in height (a tall Details tab vs a short Notifications tab), so its content
    area is a fixed height that scrolls when needed — the dialog's vertical size stays constant across tabs. */
 .create-profile .profile-tab-content {
-    height: 38rem;
+    height: calc(22.8rem - 50px);
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 0.35rem;
+}
+
+/* Lightroom profiles have extra profile-level fields (Lightroom folder / raw formats / RAW folder name),
+   so their dialog gets more room than the other types. */
+.create-profile .profile-tab-content.lightroom {
+    height: calc(22.8rem + 100px);
+}
+
+/* ProfileDialog Details tab: a two-column field grid — Name/Group, Source/Target connection,
+   Schedule/Handle-missed. Row gaps come from each label's own margin-bottom. */
+.profile-details-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1.25rem;
+    align-items: start;
+}
+
+/* Handle-missed-sync toggle in the dialog's action bar: a switch with its label on the right, vertically
+   centred with the Cancel/Create buttons. Override the default label margin so it sits flush in the row. */
+.profile-missed-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    white-space: nowrap;
+    cursor: pointer;
 }
 
 /* A checkbox whose label is disabled (e.g. the per-event notification options when notifications are off)
