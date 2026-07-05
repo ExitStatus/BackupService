@@ -15,8 +15,8 @@ namespace BackupService.Components.Dialogs
     /// <summary>
     /// Self-contained modal for creating or editing a backup profile. With no
     /// <see cref="ProfileId"/> it creates; with one it loads that profile and saves changes.
-    /// The profile type selects which editor is shown (FolderPair â†’ <see cref="FolderPairControl"/>,
-    /// which manages the profile's list of folder pairs) and cannot be changed while editing.
+    /// The profile type selects which editor is shown (OneWaySyncItem â†’ <see cref="OneWaySyncControl"/>,
+    /// which manages the profile's list of one way sync items) and cannot be changed while editing.
     /// </summary>
     public partial class ProfileDialog : ComponentBase
     {
@@ -44,7 +44,7 @@ namespace BackupService.Components.Dialogs
         public EventCallback OnDeleted { get; set; }
 
         private InputModel Input { get; set; } = new();
-        private readonly List<FolderPairModel> _folderPairs = [];
+        private readonly List<OneWaySyncItemModel> _oneWaySyncItems = [];
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
         private readonly List<ArchiveSyncItemModel> _archiveSyncItems = [];
         private readonly List<LightroomArchiveItemModel> _lightroomArchiveItems = [];
@@ -55,7 +55,7 @@ namespace BackupService.Components.Dialogs
         // source/target for a subsequent item starts at the same level. Scoped to this one dialog instance.
         private readonly FolderBrowseMemory _browseMemory = new();
 
-        private FolderPairControl? _folderPairControl;
+        private OneWaySyncControl? _oneWaySyncControl;
         private InstantSyncControl? _instantSyncControl;
         private ArchiveSyncControl? _archiveSyncControl;
         private LightroomArchiveControl? _lightroomArchiveControl;
@@ -108,15 +108,15 @@ namespace BackupService.Components.Dialogs
         // Handle-missed-sync fields are hidden/disabled for them.
         private bool IsWatcherDriven => Input.Type is ProfileType.InstantSync or ProfileType.LightroomArchive;
 
-        // FolderPair/ArchiveSync may target a read/write USB mass-storage drive (read-only MTP is excluded by the
+        // OneWaySync/ArchiveSync may target a read/write USB mass-storage drive (read-only MTP is excluded by the
         // target picker).
-        private bool TargetAllowsUsb => Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
+        private bool TargetAllowsUsb => Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
 
-        // A FolderPair/ArchiveSync profile whose (profile-level) source OR target is a USB connection is run when the
+        // A OneWaySync/ArchiveSync profile whose (profile-level) source OR target is a USB connection is run when the
         // device is plugged in, not on a schedule — so the Schedule field is replaced with a note and no cron is
         // saved. Recomputed on render, so it reflects the source/target connections picked above.
         private bool IsDeviceTriggered =>
-            Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync
+            Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync
             && (IsUsbConnection(Input.SourceConnectionId) || IsUsbConnection(Input.TargetConnectionId));
 
         private bool IsUsbConnection(int? connectionId) =>
@@ -145,7 +145,7 @@ namespace BackupService.Components.Dialogs
             ProfileType.InstantSync => "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce.",
             ProfileType.ArchiveSync => "An archive sync profile creates a timestamped ZIP of each source folder on a schedule and keeps a retained history in the target folder.",
             ProfileType.LightroomArchive => "A lightroom archive profile watches each source folder like instant sync, and for every copied file also pulls the matching raw originals from the Lightroom folder into a RAW folder beside the copy.",
-            _ => "A folder pair profile is a one way copy from the source folder to the target folder for a file oriented backup.",
+            _ => "A one way sync profile is a one way copy from the source folder to the target folder for a file oriented backup.",
         };
 
         // Only shown for scheduled types (watcher-driven types hide the Schedule field entirely).
@@ -197,9 +197,9 @@ namespace BackupService.Components.Dialogs
             // and the schedule dialog opens pre-filled.
             _schedule = ScheduleDefinition.FromCron(profile.Schedule);
 
-            foreach (var pair in profile.FolderPairs)
+            foreach (var pair in profile.OneWaySyncItems)
             {
-                _folderPairs.Add(new FolderPairModel
+                _oneWaySyncItems.Add(new OneWaySyncItemModel
                 {
                     Id = pair.Id,
                     Name = pair.Name,
@@ -328,7 +328,7 @@ namespace BackupService.Components.Dialogs
                 ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
                 ProfileType.LightroomArchive => await SubmitLightroomArchiveAsync(),
                 ProfileType.TwoWaySync => await SubmitTwoWaySyncAsync(),
-                _ => await SubmitFolderPairAsync(),
+                _ => await SubmitOneWaySyncItemAsync(),
             };
 
             if (!saved)
@@ -339,9 +339,9 @@ namespace BackupService.Components.Dialogs
             await OnSaved.InvokeAsync();
         }
 
-        private async Task<bool> SubmitFolderPairAsync()
+        private async Task<bool> SubmitOneWaySyncItemAsync()
         {
-            if (_folderPairControl is null || !_folderPairControl.Validate())
+            if (_oneWaySyncControl is null || !_oneWaySyncControl.Validate())
             {
                 // The action list (and its "Add at least one action." message) lives on the Actions tab —
                 // switch to it so the validation error is visible if Save was pressed from another tab.
@@ -352,20 +352,20 @@ namespace BackupService.Components.Dialogs
             // A USB-sourced profile is device-triggered, not scheduled — save it with no cron.
             var scheduleCron = IsDeviceTriggered ? null : _schedule?.ToCron() ?? _existingScheduleCron;
 
-            var folderPairs = _folderPairs
-                .Select(p => new FolderPairInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes)))
+            var oneWaySyncItems = _oneWaySyncItems
+                .Select(p => new OneWaySyncInput(p.Id, p.Name, p.SourceFolder, p.TargetFolder, p.AllowDeletions, p.IncludeSubFolders, p.OverwriteBehaviour, BuildFilters(p.Includes, p.Excludes)))
                 .ToList();
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, oneWaySyncItems, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.CreateAsync(Input.Name, ProfileType.OneWaySync, scheduleCron, Input.Enabled, oneWaySyncItems, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
@@ -391,14 +391,14 @@ namespace BackupService.Components.Dialogs
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, oneWaySyncItems: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, ProfileType.TwoWaySync, scheduleCron, Input.Enabled, folderPairs: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.CreateAsync(Input.Name, ProfileType.TwoWaySync, scheduleCron, Input.Enabled, oneWaySyncItems: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
@@ -422,14 +422,14 @@ namespace BackupService.Components.Dialogs
             // InstantSync isn't scheduled — never carries a cron. Source is local-only (no source connection).
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled, folderPairs: [], items,
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled, oneWaySyncItems: [], items,
                     targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     showProgressWindow: Input.ShowProgressWindow);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, folderPairs: [], items,
+                await ProfileService.CreateAsync(Input.Name, ProfileType.InstantSync, scheduleCron: null, Input.Enabled, oneWaySyncItems: [], items,
                     targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     showProgressWindow: Input.ShowProgressWindow);
@@ -446,7 +446,7 @@ namespace BackupService.Components.Dialogs
                 return false;
             }
 
-            // ArchiveSync is scheduled (like FolderPair) unless its source is a USB device (then device-triggered).
+            // ArchiveSync is scheduled (like OneWaySync) unless its source is a USB device (then device-triggered).
             var scheduleCron = IsDeviceTriggered ? null : _schedule?.ToCron() ?? _existingScheduleCron;
 
             var items = _archiveSyncItems
@@ -455,14 +455,14 @@ namespace BackupService.Components.Dialogs
 
             if (ProfileId is { } id)
             {
-                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, oneWaySyncItems: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
             }
             else
             {
-                await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, folderPairs: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                await ProfileService.CreateAsync(Input.Name, ProfileType.ArchiveSync, scheduleCron, Input.Enabled, oneWaySyncItems: [], instantSyncItems: null, archiveSyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
@@ -492,7 +492,7 @@ namespace BackupService.Components.Dialogs
             if (ProfileId is { } id)
             {
                 await ProfileService.UpdateAsync(id, Input.Name, scheduleCron: null, Input.Enabled,
-                    folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
+                    oneWaySyncItems: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
                     targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
@@ -501,7 +501,7 @@ namespace BackupService.Components.Dialogs
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.LightroomArchive, scheduleCron: null, Input.Enabled,
-                    folderPairs: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
+                    oneWaySyncItems: [], instantSyncItems: null, archiveSyncItems: null, lightroomArchiveItems: items,
                     lightroomFolder: Input.LightroomFolder, rawFormats: Input.RawFormats, rawFolderName: Input.RawFolderName,
                     targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
@@ -512,7 +512,7 @@ namespace BackupService.Components.Dialogs
         }
 
         // Split a parent's filter rows into the per-tab UI lists.
-        private static List<FilterEntryModel> FilterModels(IEnumerable<FolderPairFilter> filters, FilterDirection direction) =>
+        private static List<FilterEntryModel> FilterModels(IEnumerable<OneWaySyncFilter> filters, FilterDirection direction) =>
             filters.Where(f => f.Direction == direction)
                 .Select(f => new FilterEntryModel { Id = f.Id, Kind = f.Kind, Pattern = f.Pattern })
                 .ToList();
@@ -538,11 +538,11 @@ namespace BackupService.Components.Dialogs
             [Required]
             public string Name { get; set; } = string.Empty;
 
-            public ProfileType Type { get; set; } = ProfileType.FolderPair;
+            public ProfileType Type { get; set; } = ProfileType.OneWaySync;
 
             public bool Enabled { get; set; } = true;
 
-            /// <summary>Profile-level source connection (null = local). Only meaningful for FolderPair/ArchiveSync.</summary>
+            /// <summary>Profile-level source connection (null = local). Only meaningful for OneWaySync/ArchiveSync.</summary>
             public int? SourceConnectionId { get; set; }
 
             /// <summary>Profile-level target connection (null = local).</summary>
@@ -561,13 +561,13 @@ namespace BackupService.Components.Dialogs
 
             public bool NotifyOnComplete { get; set; } = true;
 
-            /// <summary>Notify when the profile ejects a USB drive after a run (FolderPair/ArchiveSync).</summary>
+            /// <summary>Notify when the profile ejects a USB drive after a run (OneWaySync/ArchiveSync).</summary>
             public bool NotifyOnEject { get; set; }
 
             /// <summary>Show a borderless on-screen progress window while the profile runs (Windows only).</summary>
             public bool ShowProgressWindow { get; set; }
 
-            /// <summary>Eject the profile's non-MTP USB device(s) after a device-triggered run (FolderPair/ArchiveSync).</summary>
+            /// <summary>Eject the profile's non-MTP USB device(s) after a device-triggered run (OneWaySync/ArchiveSync).</summary>
             public bool EjectAfterRun { get; set; }
 
             // LightroomArchive only — the profile-level Lightroom settings shared by all the profile's items.

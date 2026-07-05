@@ -67,7 +67,7 @@ namespace BackupService.UnitTests.Scheduling
             return await load.Profiles.Include(p => p.InstantSyncItems).SingleAsync();
         }
 
-        private InstantSyncHandler Handler(IFolderPairSynchronizer synchronizer) =>
+        private InstantSyncHandler Handler(IOneWaySyncSynchronizer synchronizer) =>
             new(new OperationLogFactory(_dbFactory, _logStore.Store), synchronizer, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<InstantSyncHandler>.Instance);
 
         [Test]
@@ -151,17 +151,17 @@ namespace BackupService.UnitTests.Scheduling
                 Times.Once);
         }
 
-        private sealed class FakeSynchronizer(BackupResult result) : IFolderPairSynchronizer
+        private sealed class FakeSynchronizer(BackupResult result) : IOneWaySyncSynchronizer
         {
             public List<string> SyncedPairNames { get; } = [];
 
-            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
+            public Task<BackupResult> SyncAsync(OneWaySyncItem pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
             {
                 SyncedPairNames.Add(pair.Name);
                 return Task.FromResult(result);
             }
 
-            public Task<int> CountFilesAsync(FolderPair pair, int? sourceConnectionId, CancellationToken cancellationToken) => Task.FromResult(0);
+            public Task<int> CountFilesAsync(OneWaySyncItem pair, int? sourceConnectionId, CancellationToken cancellationToken) => Task.FromResult(0);
         }
     }
 }

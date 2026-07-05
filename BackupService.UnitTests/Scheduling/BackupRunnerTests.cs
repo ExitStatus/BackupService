@@ -53,7 +53,7 @@ namespace BackupService.UnitTests.Scheduling
             _logStore.Dispose();
         }
 
-        private int SeedProfile(ProfileType type = ProfileType.FolderPair)
+        private int SeedProfile(ProfileType type = ProfileType.OneWaySync)
         {
             using var db = new BackupDbContext(_options);
             var profile = new Profile
@@ -61,10 +61,10 @@ namespace BackupService.UnitTests.Scheduling
                 Name = "Nightly",
                 Type = type,
                 DateCreated = DateTimeOffset.UtcNow,
-                FolderPairs =
+                OneWaySyncItems =
                 {
-                    new FolderPair { Name = "Docs", SourceFolder = @"C:\src", TargetFolder = @"D:\dst" },
-                    new FolderPair { Name = "Pics", SourceFolder = @"C:\pics", TargetFolder = @"D:\pics" },
+                    new OneWaySyncItem { Name = "Docs", SourceFolder = @"C:\src", TargetFolder = @"D:\dst" },
+                    new OneWaySyncItem { Name = "Pics", SourceFolder = @"C:\pics", TargetFolder = @"D:\pics" },
                 },
             };
             db.Profiles.Add(profile);
@@ -73,7 +73,7 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
-        public async Task RunAsync_DispatchesToMatchingHandler_WithFolderPairsLoaded()
+        public async Task RunAsync_DispatchesToMatchingHandler_WithOneWaySyncItemsLoaded()
         {
             var id = SeedProfile();
             var handler = new CapturingHandler();
@@ -83,7 +83,7 @@ namespace BackupService.UnitTests.Scheduling
 
             handler.Calls.Should().Be(1);
             handler.Captured.Should().NotBeNull();
-            handler.Captured!.FolderPairs.Select(p => p.Name).Should().BeEquivalentTo("Docs", "Pics");
+            handler.Captured!.OneWaySyncItems.Select(p => p.Name).Should().BeEquivalentTo("Docs", "Pics");
             handler.LastManual.Should().BeFalse(); // scheduled run by default
         }
 
@@ -227,7 +227,7 @@ namespace BackupService.UnitTests.Scheduling
 
         private sealed class CapturingHandler : IProfileTypeHandler
         {
-            public ProfileType Type => ProfileType.FolderPair;
+            public ProfileType Type => ProfileType.OneWaySync;
 
             public int Calls { get; private set; }
 

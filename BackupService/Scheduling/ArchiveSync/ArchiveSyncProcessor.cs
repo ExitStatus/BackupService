@@ -13,7 +13,7 @@ namespace BackupService.Scheduling
     /// <summary>
     /// Default <see cref="IArchiveSyncProcessor"/>. Builds the ZIP in a local temp folder, then copies
     /// it into the target crash-safe (via a dot-prefixed temp then rename — the same idiom as
-    /// <see cref="FolderPairSynchronizer"/>). The source and target may each be local or on a connection
+    /// <see cref="OneWaySyncSynchronizer"/>). The source and target may each be local or on a connection
     /// (resolved via <see cref="IEndpointFileSystemFactory"/>): a remote source is staged to a local temp
     /// folder before zipping, and a remote target receives the finished zip over the connection. Retention
     /// is derived from the target folder listing (each archive's GFS level is encoded in its file name), so
@@ -541,7 +541,7 @@ namespace BackupService.Scheduling
             return archives;
         }
 
-        // ---- Crash-safe copy (the same idiom as FolderPairSynchronizer / InstantSyncProcessor) ----
+        // ---- Crash-safe copy (the same idiom as OneWaySyncSynchronizer / InstantSyncProcessor) ----
 
         private async Task<bool> EnsureDirectoryAsync(IBackupFileSystem fs, string directory, IOperationLogger log, BackupResult result)
         {

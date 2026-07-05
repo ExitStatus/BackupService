@@ -31,7 +31,7 @@ namespace BackupService.UnitTests.Extensions
         [Test]
         public void GetDescription_ReadsProfileTypeDescription()
         {
-            ProfileType.FolderPair.GetDescription().Should().Be("Folder Pairs");
+            ProfileType.OneWaySync.GetDescription().Should().Be("One Way Sync");
         }
 
         [Test]

@@ -8,7 +8,7 @@ namespace BackupService.Scheduling
     public interface IBackupRunner
     {
         /// <summary>
-        /// Loads the profile (with its folder pairs), records start/finish operation logs and
+        /// Loads the profile (with its one way sync items), records start/finish operation logs and
         /// status, and dispatches to the handler for the profile's type. No-op if the profile
         /// no longer exists. When <paramref name="manual"/> is true (a "Run now" from the UI rather
         /// than the schedule) the run's operation log is prefixed with <c>[Manual]</c>.

@@ -5,7 +5,7 @@ namespace BackupService.Database
 {
     /// <summary>
     /// One bidirectional folder mapping within a <see cref="Enumerations.ProfileType.TwoWaySync"/>
-    /// <see cref="Profile"/>. Unlike a one-way <see cref="FolderPair"/>, changes made on <b>either</b> side
+    /// <see cref="Profile"/>. Unlike a one-way <see cref="OneWaySyncItem"/>, changes made on <b>either</b> side
     /// (source or target) are reconciled to the other. The engine keeps a persisted baseline of the last-synced
     /// state (see <c>TwoWaySyncStateStore</c>) so it can tell a deletion from a new file; a file changed on both
     /// sides since the baseline is a conflict, resolved per <see cref="ConflictResolution"/>.

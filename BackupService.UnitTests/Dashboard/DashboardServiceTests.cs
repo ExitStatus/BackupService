@@ -41,7 +41,7 @@ namespace BackupService.UnitTests.Dashboard
         private int SeedProfile(string name, bool enabled)
         {
             using var db = new BackupDbContext(_options);
-            var profile = new Profile { Name = name, Type = ProfileType.FolderPair, Enabled = enabled, DateCreated = DateTimeOffset.UtcNow };
+            var profile = new Profile { Name = name, Type = ProfileType.OneWaySync, Enabled = enabled, DateCreated = DateTimeOffset.UtcNow };
             db.Profiles.Add(profile);
             db.SaveChanges();
             return profile.Id;
@@ -49,7 +49,7 @@ namespace BackupService.UnitTests.Dashboard
 
         private void AddRun(int profileId, RunOutcome outcome, long durationMs, DateTimeOffset started,
             int copied = 0, int updated = 0, int deleted = 0, int errors = 0, int warnings = 0,
-            long bytesCopied = 0, ProfileType type = ProfileType.FolderPair)
+            long bytesCopied = 0, ProfileType type = ProfileType.OneWaySync)
         {
             using var db = new BackupDbContext(_options);
             db.BackupRuns.Add(new BackupRun
@@ -162,13 +162,13 @@ namespace BackupService.UnitTests.Dashboard
             var archive = SeedProfile("Archive", enabled: true);
 
             AddRun(folder, RunOutcome.Success, 1000, now.AddMinutes(-30),
-                copied: 4, updated: 2, bytesCopied: 2048, type: ProfileType.FolderPair);
+                copied: 4, updated: 2, bytesCopied: 2048, type: ProfileType.OneWaySync);
             AddRun(archive, RunOutcome.Success, 5000, now.AddMinutes(-20),
                 copied: 3, bytesCopied: 1_000_000, type: ProfileType.ArchiveSync);
 
             var data = await _service.GetAsync(days: 7);
 
-            data.FilesSyncedInPeriod.Should().Be(6);     // 4 copied + 2 updated — folder pair only
+            data.FilesSyncedInPeriod.Should().Be(6);     // 4 copied + 2 updated — one way sync only
             data.ArchivesCreatedInPeriod.Should().Be(3);  // archive 'copied' counted as archives, separately
             data.BytesCopiedInPeriod.Should().Be(2048 + 1_000_000);
             data.BytesByDay.Should().HaveCount(7);

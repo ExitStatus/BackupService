@@ -7,7 +7,7 @@ namespace BackupService.Components.Dialogs
     /// Modal for adding or editing a single instant sync item (source/target + Browse, debounce,
     /// include-subfolders and allow-deletions flags). Hosts the folder browser. Edits the
     /// <see cref="Model"/> instance passed in (the parent supplies a working copy) and returns it via
-    /// <see cref="OnSave"/> when valid. The instant-sync counterpart of <see cref="FolderPairEditDialog"/>.
+    /// <see cref="OnSave"/> when valid. The instant-sync counterpart of <see cref="OneWaySyncEditDialog"/>.
     /// </summary>
     public partial class InstantSyncEditDialog : ComponentBase
     {

@@ -52,6 +52,6 @@ else
 
 @if (_editing is not null)
 {
-    <FolderPairEditDialog Model="_editing" SourceConnectionId="SourceConnectionId" TargetConnectionId="TargetConnectionId"
+    <OneWaySyncEditDialog Model="_editing" SourceConnectionId="SourceConnectionId" TargetConnectionId="TargetConnectionId"
                           OnSave="OnEditSaved" OnCancel="() => _editing = null" />
 }

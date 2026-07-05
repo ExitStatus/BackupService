@@ -13,7 +13,7 @@ namespace BackupService.Scheduling.Usb
     /// Watches for USB drive connect/disconnect (a hidden top-level window receiving <c>WM_DEVICECHANGE</c> volume
     /// broadcasts on a dedicated message-loop thread, mirroring <c>WindowsTrayService</c>). On connect it identifies
     /// the arriving drive, matches it against the registered USB connections (<see cref="UsbDeviceMatcher"/>), logs +
-    /// notifies, and runs any enabled FolderPair/ArchiveSync profile that uses the connection as its source <b>or</b>
+    /// notifies, and runs any enabled OneWaySync/ArchiveSync profile that uses the connection as its source <b>or</b>
     /// target — provided every USB connection the profile references is currently connected (so a both-USB profile
     /// waits for both devices). On disconnect it logs + notifies. Windows-only; registered as a singleton + hosted
     /// service.
@@ -249,7 +249,7 @@ namespace BackupService.Scheduling.Usb
             }
         }
 
-        // Shared "matched connection(s) arrived" path: log + notify, then run the enabled FolderPair/ArchiveSync
+        // Shared "matched connection(s) arrived" path: log + notify, then run the enabled OneWaySync/ArchiveSync
         // profiles whose source or target is one of them — but only when every USB device the profile references is
         // currently connected (so a both-USB profile fires when the second device arrives). Used by both the
         // mass-storage (volume) and MTP arrival paths.
@@ -266,11 +266,11 @@ namespace BackupService.Scheduling.Usb
 
             var connectionIds = matched.Select(m => m.ConnectionId).ToList();
 
-            // Candidates: enabled FolderPair/ArchiveSync/TwoWaySync whose source OR target is one of the arrived connections.
+            // Candidates: enabled OneWaySync/ArchiveSync/TwoWaySync whose source OR target is one of the arrived connections.
             var candidates = await db.Profiles
                 .AsNoTracking()
                 .Where(p => p.Enabled
-                    && (p.Type == ProfileType.FolderPair || p.Type == ProfileType.ArchiveSync || p.Type == ProfileType.TwoWaySync)
+                    && (p.Type == ProfileType.OneWaySync || p.Type == ProfileType.ArchiveSync || p.Type == ProfileType.TwoWaySync)
                     && ((p.SourceConnectionId != null && connectionIds.Contains(p.SourceConnectionId.Value))
                         || (p.TargetConnectionId != null && connectionIds.Contains(p.TargetConnectionId.Value))))
                 .Select(p => new { p.Id, p.SourceConnectionId, p.TargetConnectionId, p.EjectAfterRun, p.NotificationsEnabled, p.NotifyOnEject })

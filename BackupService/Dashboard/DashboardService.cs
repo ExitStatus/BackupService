@@ -67,7 +67,7 @@ namespace BackupService.Dashboard
             var totalErrors = inPeriod.Count(r => r.Outcome == RunOutcome.CompletedWithErrors);
             var totalFailed = inPeriod.Count(r => r.Outcome == RunOutcome.Failed);
             var successRate = runsInPeriod == 0 ? 0 : Math.Round(100.0 * totalSuccess / runsInPeriod, 1);
-            // Regular file copies/updates (FolderPair + InstantSync) are counted separately from archives
+            // Regular file copies/updates (OneWaySyncItem + InstantSync) are counted separately from archives
             // (ArchiveSync zips), which the dashboard shows on their own.
             var filesSynced = inPeriod.Where(r => r.Type != ProfileType.ArchiveSync).Sum(r => (long)(r.Copied + r.Updated));
             var archivesCreated = inPeriod.Where(r => r.Type == ProfileType.ArchiveSync).Sum(r => r.Copied);

@@ -90,7 +90,7 @@ namespace BackupService
                 builder.Services.AddSingleton<FileSystem.IBackupFileSystem, FileSystem.BackupFileSystem>();
                 builder.Services.AddSingleton<FileSystem.IEndpointFileSystemFactory, FileSystem.EndpointFileSystemFactory>();
                 builder.Services.AddSingleton<Profiles.IProfileService, Profiles.ProfileService>();
-                builder.Services.AddSingleton<Profiles.IFolderPairService, Profiles.FolderPairService>();
+                builder.Services.AddSingleton<Profiles.IOneWaySyncItemService, Profiles.OneWaySyncItemService>();
                 builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
                 builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
                 builder.Services.AddSingleton<Profiles.ILightroomArchiveItemService, Profiles.LightroomArchiveItemService>();
@@ -160,14 +160,14 @@ namespace BackupService
                 // Backup scheduling: per-type handlers, the dispatcher, and the scheduler itself.
                 // The scheduler is a single instance shared across its three roles (singleton,
                 // IBackupScheduler re-sync API, and the hosted background service).
-                builder.Services.AddSingleton<Scheduling.IFolderPairSynchronizer, Scheduling.FolderPairSynchronizer>();
+                builder.Services.AddSingleton<Scheduling.IOneWaySyncSynchronizer, Scheduling.OneWaySyncSynchronizer>();
                 builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
                 builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
                 builder.Services.AddSingleton<Scheduling.ILightroomArchiveProcessor, Scheduling.LightroomArchiveProcessor>();
                 builder.Services.AddSingleton<Scheduling.TwoWaySync.ITwoWaySyncStateStore, Scheduling.TwoWaySync.TwoWaySyncStateStore>();
                 builder.Services.AddSingleton<Scheduling.TwoWaySync.ITwoWaySyncEngine, Scheduling.TwoWaySync.TwoWaySyncEngine>();
                 builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
-                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.OneWaySyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();

@@ -17,7 +17,7 @@ namespace BackupService.FileSystem
     /// <item>An <b>exclude Path</b> rule is matched against the exact location relative to the source root
     /// (not by name everywhere): it drops that file, or that folder and its whole subtree.</item>
     /// </list>
-    /// Built once per run from a <see cref="Database.FolderPair"/> / <see cref="Database.ArchiveSyncItem"/>'s
+    /// Built once per run from a <see cref="Database.OneWaySyncItem"/> / <see cref="Database.ArchiveSyncItem"/>'s
     /// filter rows and threaded through the sync/zip engines.
     /// </summary>
     public sealed class BackupFilter

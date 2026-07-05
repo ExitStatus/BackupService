@@ -12,7 +12,7 @@ using Moq;
 namespace BackupService.UnitTests.Scheduling
 {
     [TestFixture]
-    public class FolderPairHandlerTests
+    public class OneWaySyncHandlerTests
     {
         private SqliteConnection _connection = null!;
         private DbContextOptions<BackupDbContext> _options = null!;
@@ -56,19 +56,19 @@ namespace BackupService.UnitTests.Scheduling
                 db.Profiles.Add(new Profile
                 {
                     Name = "Docs",
-                    Type = ProfileType.FolderPair,
+                    Type = ProfileType.OneWaySync,
                     DateCreated = DateTimeOffset.UtcNow,
-                    FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
+                    OneWaySyncItems = { new OneWaySyncItem { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
                 });
                 db.SaveChanges();
             }
 
             await using var load = new BackupDbContext(_options);
-            return await load.Profiles.Include(p => p.FolderPairs).SingleAsync();
+            return await load.Profiles.Include(p => p.OneWaySyncItems).SingleAsync();
         }
 
-        private FolderPairHandler Handler(IFolderPairSynchronizer synchronizer) =>
-            new(new OperationLogFactory(_dbFactory, _logStore.Store), synchronizer, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
+        private OneWaySyncHandler Handler(IOneWaySyncSynchronizer synchronizer) =>
+            new(new OperationLogFactory(_dbFactory, _logStore.Store), synchronizer, _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<OneWaySyncHandler>.Instance);
 
         [Test]
         public async Task HandleAsync_RunsEachPair_WritesSummaryAndPersistsSuccess()
@@ -84,19 +84,19 @@ namespace BackupService.UnitTests.Scheduling
 
             // Exactly one log, summarised with counts at Info level.
             var log = await verify.OperationLogs.SingleAsync();
-            log.Name.Should().StartWith("Folder Pairs Handler ran successfully in");
+            log.Name.Should().StartWith("One Way Sync Handler ran successfully in");
             log.Name.Should().Contain("2 copied");
             log.Level.Should().Be(OperationLogLevel.Info);
             log.ProfileId.Should().Be(profile.Id);
 
             // The pair header line was written to that same log's file.
             var details = await _logStore.Store.ReadAsync(log.Id);
-            details.Should().ContainSingle(d => d.Message == @"Folder pair 'P': C:\a -> D:\b");
+            details.Should().ContainSingle(d => d.Message == @"One way sync 'P': C:\a -> D:\b");
 
             // Per-pair status persisted.
-            var pair = await verify.FolderPairs.SingleAsync();
-            pair.Status.Should().Be(FolderPairStatus.Idle);
-            pair.LastRunStatus.Should().Be(FolderPairLastRunStatus.Success);
+            var pair = await verify.OneWaySyncItems.SingleAsync();
+            pair.Status.Should().Be(OneWaySyncStatus.Idle);
+            pair.LastRunStatus.Should().Be(OneWaySyncLastRunStatus.Success);
         }
 
         [Test]
@@ -108,7 +108,7 @@ namespace BackupService.UnitTests.Scheduling
 
             await using var verify = new BackupDbContext(_options);
             var log = await verify.OperationLogs.SingleAsync();
-            log.Name.Should().StartWith("[Manual] Folder Pairs Handler ran successfully in");
+            log.Name.Should().StartWith("[Manual] One Way Sync Handler ran successfully in");
         }
 
         [Test]
@@ -121,10 +121,10 @@ namespace BackupService.UnitTests.Scheduling
 
             await using var verify = new BackupDbContext(_options);
             var log = await verify.OperationLogs.SingleAsync();
-            log.Name.Should().StartWith("Folder Pairs Handler completed with 2 error(s) in");
+            log.Name.Should().StartWith("One Way Sync Handler completed with 2 error(s) in");
             log.Level.Should().Be(OperationLogLevel.Error);
 
-            (await verify.FolderPairs.SingleAsync()).LastRunStatus.Should().Be(FolderPairLastRunStatus.Fail);
+            (await verify.OneWaySyncItems.SingleAsync()).LastRunStatus.Should().Be(OneWaySyncLastRunStatus.Fail);
         }
 
         [Test]
@@ -137,11 +137,11 @@ namespace BackupService.UnitTests.Scheduling
 
             await using var verify = new BackupDbContext(_options);
             var log = await verify.OperationLogs.SingleAsync();
-            log.Name.Should().StartWith("Folder Pairs Handler completed with 2 warning(s) in");
+            log.Name.Should().StartWith("One Way Sync Handler completed with 2 warning(s) in");
             log.Level.Should().Be(OperationLogLevel.Warning);
 
             // Warnings don't fail the pair.
-            (await verify.FolderPairs.SingleAsync()).LastRunStatus.Should().Be(FolderPairLastRunStatus.Success);
+            (await verify.OneWaySyncItems.SingleAsync()).LastRunStatus.Should().Be(OneWaySyncLastRunStatus.Success);
         }
 
         [Test]
@@ -160,11 +160,11 @@ namespace BackupService.UnitTests.Scheduling
             {
                 Id = 5,
                 Name = "Docs",
-                Type = ProfileType.FolderPair,
-                FolderPairs = { new FolderPair { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
+                Type = ProfileType.OneWaySync,
+                OneWaySyncItems = { new OneWaySyncItem { Name = "P", SourceFolder = @"C:\a", TargetFolder = @"D:\b" } },
             };
-            var handler = new FolderPairHandler(
-                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<FolderPairHandler>.Instance);
+            var handler = new OneWaySyncHandler(
+                logFactoryMock.Object, new FakeSynchronizer(new BackupResult()), _dbFactory, _statusService, Mock.Of<IBackupRunRecorder>(), NullLogger<OneWaySyncHandler>.Instance);
 
             var act = () => handler.HandleAsync(profile, manual: false, CancellationToken.None);
 
@@ -173,7 +173,7 @@ namespace BackupService.UnitTests.Scheduling
 
             loggerMock.Verify(
                 l => l.SetSummaryAsync(
-                    It.Is<string>(s => s.StartsWith("Folder Pairs Handler failed in")),
+                    It.Is<string>(s => s.StartsWith("One Way Sync Handler failed in")),
                     OperationLogLevel.Error),
                 Times.Once);
         }
@@ -191,20 +191,20 @@ namespace BackupService.UnitTests.Scheduling
 
             await using var verify = new BackupDbContext(_options);
             var log = await verify.OperationLogs.SingleAsync();
-            log.Name.Should().StartWith("Folder Pairs Handler was cancelled after");
+            log.Name.Should().StartWith("One Way Sync Handler was cancelled after");
             log.Level.Should().Be(OperationLogLevel.Warning);
 
             // A cancelled run is a warning, not an error — the handler must not flip the profile to Error.
             _statusService.Get(profile.Id).Should().NotBe(ProfileStatus.Error);
         }
 
-        private sealed class FakeSynchronizer(BackupResult result) : IFolderPairSynchronizer
+        private sealed class FakeSynchronizer(BackupResult result) : IOneWaySyncSynchronizer
         {
             public List<string> SyncedPairNames { get; } = [];
 
             public Exception? ThrowOnSync { get; init; }
 
-            public Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
+            public Task<BackupResult> SyncAsync(OneWaySyncItem pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
             {
                 SyncedPairNames.Add(pair.Name);
                 if (ThrowOnSync is not null)
@@ -214,7 +214,7 @@ namespace BackupService.UnitTests.Scheduling
                 return Task.FromResult(result);
             }
 
-            public Task<int> CountFilesAsync(FolderPair pair, int? sourceConnectionId, CancellationToken cancellationToken) => Task.FromResult(0);
+            public Task<int> CountFilesAsync(OneWaySyncItem pair, int? sourceConnectionId, CancellationToken cancellationToken) => Task.FromResult(0);
         }
     }
 }

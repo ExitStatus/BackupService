@@ -1,6 +1,6 @@
 namespace BackupService.Enumerations
 {
-    public enum FolderPairStatus
+    public enum OneWaySyncStatus
     {
         Idle = 0,
         Running = 1,

@@ -54,7 +54,7 @@ namespace BackupService.Scheduling
             await using (var db = _contextFactory.CreateDbContext())
             {
                 profile = await db.Profiles
-                    .Include(p => p.FolderPairs).ThenInclude(fp => fp.Filters)
+                    .Include(p => p.OneWaySyncItems).ThenInclude(fp => fp.Filters)
                     .Include(p => p.InstantSyncItems)
                     .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                     .Include(p => p.LightroomArchiveItems)

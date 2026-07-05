@@ -5,7 +5,7 @@ namespace BackupService.Components.Dialogs
 {
     /// <summary>
     /// Modal for adding or editing a single two-way sync item — the counterpart of
-    /// <see cref="FolderPairEditDialog"/>, with a conflict-resolution dropdown and a propagate-deletions toggle
+    /// <see cref="OneWaySyncEditDialog"/>, with a conflict-resolution dropdown and a propagate-deletions toggle
     /// instead of the one-way overwrite/allow-deletions options.
     /// </summary>
     public partial class TwoWaySyncEditDialog : ComponentBase

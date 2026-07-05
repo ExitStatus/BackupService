@@ -10,7 +10,7 @@ namespace BackupService.Profiles
     {
         /// <summary>
         /// Creates a new profile of the given type with its type-specific items. Pass the
-        /// <paramref name="folderPairs"/> for a FolderPair profile, the
+        /// <paramref name="oneWaySyncItems"/> for a OneWaySync profile, the
         /// <paramref name="instantSyncItems"/> for an InstantSync profile, or the
         /// <paramref name="archiveSyncItems"/> for an ArchiveSync profile; the others stay empty.
         /// </summary>
@@ -19,7 +19,7 @@ namespace BackupService.Profiles
             ProfileType type,
             string? scheduleCron,
             bool enabled,
-            IReadOnlyList<FolderPairInput> folderPairs,
+            IReadOnlyList<OneWaySyncInput> oneWaySyncItems,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
@@ -54,7 +54,7 @@ namespace BackupService.Profiles
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Loads a single profile (with its folder pairs) for editing, or null if not found.
+        /// Loads a single profile (with its one way sync items) for editing, or null if not found.
         /// </summary>
         Task<Profile?> GetAsync(int id, CancellationToken cancellationToken = default);
 
@@ -78,7 +78,7 @@ namespace BackupService.Profiles
         Task<int> DuplicateAsync(int id, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Deletes a profile (and its folder pairs, via cascade). No-op if it doesn't exist.
+        /// Deletes a profile (and its one way sync items, via cascade). No-op if it doesn't exist.
         /// </summary>
         Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 
@@ -98,7 +98,7 @@ namespace BackupService.Profiles
             string name,
             string? scheduleCron,
             bool enabled,
-            IReadOnlyList<FolderPairInput> folderPairs,
+            IReadOnlyList<OneWaySyncInput> oneWaySyncItems,
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,

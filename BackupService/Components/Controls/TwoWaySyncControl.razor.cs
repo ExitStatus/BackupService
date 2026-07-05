@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Components;
 namespace BackupService.Components.Controls
 {
     /// <summary>
-    /// Editor for a profile's list of two-way sync items — the counterpart of <see cref="FolderPairControl"/>,
+    /// Editor for a profile's list of two-way sync items — the counterpart of <see cref="OneWaySyncControl"/>,
     /// opening <see cref="TwoWaySyncEditDialog"/>. Bound to the <see cref="List{T}"/> it mutates in place.
     /// </summary>
     public partial class TwoWaySyncControl : ComponentBase

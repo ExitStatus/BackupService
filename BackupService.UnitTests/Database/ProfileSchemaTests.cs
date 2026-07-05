@@ -30,7 +30,7 @@ namespace BackupService.UnitTests.Database
         public void TearDown() => _connection.Dispose();
 
         [Test]
-        public async Task Profile_WithFolderPairs_RoundTrips()
+        public async Task Profile_WithOneWaySyncItems_RoundTrips()
         {
             await using (var context = new BackupDbContext(_options))
             {
@@ -39,9 +39,9 @@ namespace BackupService.UnitTests.Database
                     Name = "Documents",
                     DateCreated = DateTimeOffset.UtcNow,
                     Schedule = "0 2 * * *",
-                    FolderPairs =
+                    OneWaySyncItems =
                     {
-                        new FolderPair
+                        new OneWaySyncItem
                         {
                             Name = "Docs pair",
                             SourceFolder = @"C:\Docs",
@@ -54,23 +54,23 @@ namespace BackupService.UnitTests.Database
 
             await using (var context = new BackupDbContext(_options))
             {
-                var profile = await context.Profiles.Include(p => p.FolderPairs).SingleAsync();
+                var profile = await context.Profiles.Include(p => p.OneWaySyncItems).SingleAsync();
 
                 profile.Name.Should().Be("Documents");
                 profile.DateLastRun.Should().BeNull();
                 profile.Schedule.Should().Be("0 2 * * *");
 
-                var pair = profile.FolderPairs.Should().ContainSingle().Subject;
+                var pair = profile.OneWaySyncItems.Should().ContainSingle().Subject;
                 pair.Name.Should().Be("Docs pair");
                 pair.SourceFolder.Should().Be(@"C:\Docs");
                 pair.TargetFolder.Should().Be(@"D:\Backup\Docs");
-                pair.Status.Should().Be(FolderPairStatus.Idle);
-                pair.LastRunStatus.Should().Be(FolderPairLastRunStatus.None);
+                pair.Status.Should().Be(OneWaySyncStatus.Idle);
+                pair.LastRunStatus.Should().Be(OneWaySyncLastRunStatus.None);
             }
         }
 
         [Test]
-        public async Task DeletingProfile_CascadeDeletesItsFolderPairs()
+        public async Task DeletingProfile_CascadeDeletesItsOneWaySyncItems()
         {
             await using (var context = new BackupDbContext(_options))
             {
@@ -78,10 +78,10 @@ namespace BackupService.UnitTests.Database
                 {
                     Name = "P",
                     DateCreated = DateTimeOffset.UtcNow,
-                    FolderPairs =
+                    OneWaySyncItems =
                     {
-                        new FolderPair { Name = "p1", SourceFolder = "a", TargetFolder = "b" },
-                        new FolderPair { Name = "p2", SourceFolder = "c", TargetFolder = "d" },
+                        new OneWaySyncItem { Name = "p1", SourceFolder = "a", TargetFolder = "b" },
+                        new OneWaySyncItem { Name = "p2", SourceFolder = "c", TargetFolder = "d" },
                     },
                 });
                 await context.SaveChangesAsync();
@@ -96,7 +96,7 @@ namespace BackupService.UnitTests.Database
             await using (var context = new BackupDbContext(_options))
             {
                 (await context.Profiles.CountAsync()).Should().Be(0);
-                (await context.FolderPairs.CountAsync()).Should().Be(0);
+                (await context.OneWaySyncItems.CountAsync()).Should().Be(0);
             }
         }
     }

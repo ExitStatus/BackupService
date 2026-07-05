@@ -4,7 +4,7 @@ namespace BackupService.FileSystem
 {
     /// <summary>
     /// Abstraction over the file operations a backup needs, so the sync engine
-    /// (<see cref="Scheduling.FolderPairSynchronizer"/>) can be unit-tested against a fake. The real
+    /// (<see cref="Scheduling.OneWaySyncSynchronizer"/>) can be unit-tested against a fake. The real
     /// implementation (<see cref="BackupFileSystem"/>) is a straight pass-through to
     /// <see cref="System.IO"/>; each member throws on an IO error so the caller can log it. Only
     /// primitives live here — the crash-safe copy-through-temp orchestration is in the synchroniser

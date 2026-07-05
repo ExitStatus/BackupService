@@ -1,6 +1,6 @@
 namespace BackupService.Enumerations
 {
-    public enum FolderPairLastRunStatus
+    public enum OneWaySyncLastRunStatus
     {
         None = 0,
         Success = 1,

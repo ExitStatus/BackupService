@@ -4,7 +4,7 @@ using BackupService.Enumerations;
 namespace BackupService.Database
 {
     /// <summary>
-    /// A backup profile: a named group of one or more <see cref="FolderPair"/> records.
+    /// A backup profile: a named group of one or more <see cref="OneWaySyncItem"/> records.
     /// </summary>
     public class Profile
     {
@@ -108,7 +108,7 @@ namespace BackupService.Database
 
         public DateTimeOffset? DateLastRun { get; set; }
 
-        public ICollection<FolderPair> FolderPairs { get; set; } = new List<FolderPair>();
+        public ICollection<OneWaySyncItem> OneWaySyncItems { get; set; } = new List<OneWaySyncItem>();
 
         public ICollection<InstantSyncItem> InstantSyncItems { get; set; } = new List<InstantSyncItem>();
 

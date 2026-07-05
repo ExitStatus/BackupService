@@ -11,7 +11,7 @@ namespace BackupService.Components.Controls
     /// One source/target "location" field: a dropdown choosing <em>this machine (local)</em> or a
     /// configured connection, a folder textbox, and a Browse button that opens the local picker or the
     /// remote SMB picker as appropriate. Two-way bindable via <c>@bind-ConnectionId</c> and
-    /// <c>@bind-Path</c>. Reused by the FolderPair / InstantSync / ArchiveSync edit dialogs.
+    /// <c>@bind-Path</c>. Reused by the OneWaySyncItem / InstantSync / ArchiveSync edit dialogs.
     /// </summary>
     public partial class ConnectionLocationField : ComponentBase
     {
@@ -74,7 +74,7 @@ namespace BackupService.Components.Controls
 
         /// <summary>
         /// When false, USB <b>MTP</b> connections are excluded (they're read-only — valid as a source, not a target),
-        /// while USB mass-storage stays offered. The target side of FolderPair/ArchiveSync passes <c>AllowMtp="false"</c>.
+        /// while USB mass-storage stays offered. The target side of OneWaySync/ArchiveSync passes <c>AllowMtp="false"</c>.
         /// </summary>
         [Parameter]
         public bool AllowMtp { get; set; } = true;

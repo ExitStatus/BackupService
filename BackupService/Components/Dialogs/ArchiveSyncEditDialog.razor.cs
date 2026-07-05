@@ -8,7 +8,7 @@ namespace BackupService.Components.Dialogs
     /// Modal for adding or editing a single archive (source/target + Browse, file name,
     /// include-subfolders flag, and the retention policy). Hosts the folder browser. Edits the
     /// <see cref="Model"/> instance passed in (the parent supplies a working copy) and returns it via
-    /// <see cref="OnSave"/> when valid. The archive-sync counterpart of <see cref="FolderPairEditDialog"/>.
+    /// <see cref="OnSave"/> when valid. The archive-sync counterpart of <see cref="OneWaySyncEditDialog"/>.
     /// </summary>
     public partial class ArchiveSyncEditDialog : ComponentBase
     {

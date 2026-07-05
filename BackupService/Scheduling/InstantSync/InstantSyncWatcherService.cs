@@ -20,7 +20,7 @@ namespace BackupService.Scheduling
     public sealed class InstantSyncWatcherService(
         IDatabaseContextFactory contextFactory,
         IInstantSyncProcessor processor,
-        IFolderPairSynchronizer synchronizer,
+        IOneWaySyncSynchronizer synchronizer,
         IOperationLogFactory operationLogFactory,
         IBackupRunRecorder runRecorder,
         ILogger<InstantSyncWatcherService> logger) : BackgroundService, IInstantSyncManager
@@ -188,7 +188,7 @@ namespace BackupService.Scheduling
             private readonly int _profileId;
             private readonly int? _targetConnectionId;
             private readonly IInstantSyncProcessor _processor;
-            private readonly IFolderPairSynchronizer _synchronizer;
+            private readonly IOneWaySyncSynchronizer _synchronizer;
             private readonly IOperationLogFactory _logFactory;
             private readonly IBackupRunRecorder _runRecorder;
             private readonly ILogger _logger;
@@ -209,7 +209,7 @@ namespace BackupService.Scheduling
                 int profileId,
                 int? targetConnectionId,
                 IInstantSyncProcessor processor,
-                IFolderPairSynchronizer synchronizer,
+                IOneWaySyncSynchronizer synchronizer,
                 IOperationLogFactory logFactory,
                 IBackupRunRecorder runRecorder,
                 ILogger logger,
@@ -438,7 +438,7 @@ namespace BackupService.Scheduling
             // is on a connection). Instant sync is source-authoritative → always overwrite.
             private Task<BackupResult> ReconcileViaConnectionAsync(IOperationLogger log)
             {
-                var pair = new FolderPair
+                var pair = new OneWaySyncItem
                 {
                     Name = _item.Name,
                     SourceFolder = _item.SourceFolder,

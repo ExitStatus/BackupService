@@ -8,7 +8,7 @@ namespace BackupService.Components.Controls
     /// Editor for a profile's list of archives: shows each archive with edit and delete actions,
     /// plus an Add button that opens <see cref="ArchiveSyncEditDialog"/>. Bound to the
     /// <see cref="List{T}"/> it mutates in place. The archive-sync counterpart of
-    /// <see cref="FolderPairControl"/>.
+    /// <see cref="OneWaySyncControl"/>.
     /// </summary>
     public partial class ArchiveSyncControl : ComponentBase
     {

@@ -3,7 +3,7 @@ using BackupService.Profiles;
 namespace BackupService.Scheduling
 {
     /// <summary>
-    /// Accumulates per-file progress for a multi-step run (one step per folder pair / sync item) and pushes a
+    /// Accumulates per-file progress for a multi-step run (one step per one way sync / sync item) and pushes a
     /// <see cref="ProfileProgress"/> to <see cref="IProfileStatusService.SetProgress(int, ProfileProgress)"/>:
     /// the current step's own percent plus the overall percent across every step. The handler calls
     /// <see cref="BeginStep"/> before processing each step; the synchroniser then reports 1 per in-scope file

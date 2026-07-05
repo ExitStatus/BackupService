@@ -60,7 +60,7 @@ namespace BackupService.UnitTests.Groups
             var profile = new Profile
             {
                 Name = name,
-                Type = ProfileType.FolderPair,
+                Type = ProfileType.OneWaySync,
                 GroupId = groupId,
                 DateLastRun = lastRun,
                 DateCreated = DateTimeOffset.UtcNow,

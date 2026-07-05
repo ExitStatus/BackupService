@@ -11,7 +11,7 @@ namespace BackupService.Scheduling.TwoWaySync
 {
     /// <summary>
     /// Handles <see cref="ProfileType.TwoWaySync"/> profiles: reconciles each item's two folders in both
-    /// directions via <see cref="ITwoWaySyncEngine"/>. Scheduled like FolderPair/ArchiveSync. Owns the single
+    /// directions via <see cref="ITwoWaySyncEngine"/>. Scheduled like OneWaySync/ArchiveSync. Owns the single
     /// operation log for the run (one header rewritten to a summary in a <c>finally</c>) and records one
     /// <see cref="BackupRun"/> row. Per-item errors are logged without aborting the run; only a catastrophic
     /// failure sets the profile status to Error and re-throws.

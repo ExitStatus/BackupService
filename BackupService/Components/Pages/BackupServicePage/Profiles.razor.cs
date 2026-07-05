@@ -27,7 +27,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         // The "Arrange by Type" tabs, in display order, with their literal labels (suffixed with a count).
         private static readonly (ProfileType Type, string Label)[] TabOrder =
         [
-            (ProfileType.FolderPair, "Folder Pair Sync"),
+            (ProfileType.OneWaySync, "One Way Sync"),
             (ProfileType.ArchiveSync, "Archive Sync"),
             (ProfileType.InstantSync, "Instant Sync"),
             (ProfileType.LightroomArchive, "Lightroom Sync"),
@@ -65,7 +65,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         // flat list when the saved view is grouped.
         private bool _arrangeByType;
         private bool _initialised;
-        private ProfileType _activeType = ProfileType.FolderPair;
+        private ProfileType _activeType = ProfileType.OneWaySync;
         private IReadOnlyDictionary<ProfileType, int> _typeCounts = new Dictionary<ProfileType, int>();
 
         // "Arrange by Group" sections the flat list under group-name headings (mutually exclusive with
@@ -275,7 +275,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
-        // The Schedule cell: a USB device-triggered profile (FolderPair/ArchiveSync whose source or target is
+        // The Schedule cell: a USB device-triggered profile (OneWaySync/ArchiveSync whose source or target is
         // a USB connection) has no cron — it runs when its device(s) connect — so show the triggering
         // connection(s) instead of "Not scheduled". Reads the connections off the profile entity (included by
         // GetPageAsync) so it's always available, independent of run status. Static: purely entity-derived.
@@ -465,9 +465,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         }
 
         // The Stop button replaces the disabled Run/Edit/Delete buttons while a scheduled backup
-        // (folder pair or archive) is running, so the user can safely cancel an in-progress run.
+        // (one way sync or archive) is running, so the user can safely cancel an in-progress run.
         private bool ShowStop(Profile profile) =>
-            IsRunning(profile.Id) && profile.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
+            IsRunning(profile.Id) && profile.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
 
         // Opens the live progress dialog for a running profile (shown alongside the Stop button).
         private void OpenProgress(Profile profile) => _progressTarget = profile;

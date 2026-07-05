@@ -12,13 +12,13 @@ namespace BackupService.Scheduling
     /// Handles a manual "Run now" of an <see cref="ProfileType.InstantSync"/> profile: a one-off full
     /// source→target reconcile of every item. Live syncing is driven separately by
     /// <see cref="InstantSyncWatcherService"/>; this is the on-demand catch-up path. Each item is
-    /// reconciled by reusing the existing <see cref="IFolderPairSynchronizer"/> over a transient
-    /// <see cref="FolderPair"/> (instant sync is source-authoritative, so it uses
+    /// reconciled by reusing the existing <see cref="IOneWaySyncSynchronizer"/> over a transient
+    /// <see cref="OneWaySyncItem"/> (instant sync is source-authoritative, so it uses
     /// <see cref="OverwriteBehaviour.AlwaysOverwrite"/>). Owns the single operation log for the run.
     /// </summary>
     public sealed class InstantSyncHandler(
         IOperationLogFactory operationLogFactory,
-        IFolderPairSynchronizer synchronizer,
+        IOneWaySyncSynchronizer synchronizer,
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
         ILogger<InstantSyncHandler> logger,
@@ -129,9 +129,9 @@ namespace BackupService.Scheduling
             }
         }
 
-        // Maps an instant-sync item onto a transient folder pair for the synchroniser. Source-authoritative
+        // Maps an instant-sync item onto a transient one way sync for the synchroniser. Source-authoritative
         // → always overwrite. Shared by the file pre-count and the run so they scope identically.
-        private static FolderPair ToPair(InstantSyncItem item) => new()
+        private static OneWaySyncItem ToPair(InstantSyncItem item) => new()
         {
             Name = item.Name,
             SourceFolder = item.SourceFolder,

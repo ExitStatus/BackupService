@@ -11,23 +11,23 @@ using Microsoft.EntityFrameworkCore;
 namespace BackupService.Scheduling
 {
     /// <summary>
-    /// Handles <see cref="ProfileType.FolderPair"/> profiles: mirrors each folder pair's source into
-    /// its target via <see cref="IFolderPairSynchronizer"/>. Owns the single operation log for the run
+    /// Handles <see cref="ProfileType.OneWaySync"/> profiles: mirrors each one way sync's source into
+    /// its target via <see cref="IOneWaySyncSynchronizer"/>. Owns the single operation log for the run
     /// (one header rewritten to a summary in a <c>finally</c>) and maintains each pair's persisted
-    /// <see cref="FolderPair.Status"/>/<see cref="FolderPair.LastRunStatus"/>. Per-file errors are
+    /// <see cref="OneWaySyncItem.Status"/>/<see cref="OneWaySyncItem.LastRunStatus"/>. Per-file errors are
     /// logged (escalating the header to Error) without aborting the run; only a catastrophic failure
     /// sets the profile status to Error and re-throws.
     /// </summary>
-    public sealed class FolderPairHandler(
+    public sealed class OneWaySyncHandler(
         IOperationLogFactory operationLogFactory,
-        IFolderPairSynchronizer synchronizer,
+        IOneWaySyncSynchronizer synchronizer,
         IDatabaseContextFactory contextFactory,
         IProfileStatusService statusService,
         IBackupRunRecorder runRecorder,
-        ILogger<FolderPairHandler> logger,
+        ILogger<OneWaySyncHandler> logger,
         IDesktopNotifier? notifier = null) : IProfileTypeHandler
     {
-        public ProfileType Type => ProfileType.FolderPair;
+        public ProfileType Type => ProfileType.OneWaySync;
 
         public async Task HandleAsync(Profile profile, bool manual, CancellationToken cancellationToken)
         {
@@ -35,14 +35,14 @@ namespace BackupService.Scheduling
             var stopwatch = Stopwatch.StartNew();
             // "Run now" runs are prefixed [Manual] in the log to distinguish them from scheduled ones.
             var prefix = manual ? "[Manual] " : string.Empty;
-            var handlerName = $"{prefix}{Type.GetDescription()} Handler"; // e.g. "[Manual] Folder Pairs Handler"
+            var handlerName = $"{prefix}{Type.GetDescription()} Handler"; // e.g. "[Manual] One Way Sync Handler"
             var total = new BackupResult();
             var fatal = false;
             var cancelled = false;
             var disconnected = false;
 
             var log = await operationLogFactory.CreateAsync(
-                $"{handlerName} called with {profile.FolderPairs.Count} folder pair(s).",
+                $"{handlerName} called with {profile.OneWaySyncItems.Count} one way sync item(s).",
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
 
@@ -53,17 +53,17 @@ namespace BackupService.Scheduling
 
             try
             {
-                if (profile.FolderPairs.Count == 0)
+                if (profile.OneWaySyncItems.Count == 0)
                 {
-                    await log.AppendAsync("No folder pairs configured.");
+                    await log.AppendAsync("No one way sync items configured.");
                 }
                 else
                 {
                     // Pre-count each pair's files so the grid/progress window can show a per-step and overall
-                    // "{percent}%". Each folder pair is one step. Counting is best-effort: a failure (e.g. an
+                    // "{percent}%". Each one way sync is one step. Counting is best-effort: a failure (e.g. an
                     // unreachable source) leaves that step at 0 — the sync itself reports the real error.
                     var steps = new List<(string Name, int Count)>();
-                    foreach (var pair in profile.FolderPairs)
+                    foreach (var pair in profile.OneWaySyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         var count = 0;
@@ -86,7 +86,7 @@ namespace BackupService.Scheduling
                     var progress = new ProfileProgressReporter(statusService, profile.Id, steps);
 
                     var stepIndex = 0;
-                    foreach (var pair in profile.FolderPairs)
+                    foreach (var pair in profile.OneWaySyncItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         progress.BeginStep(stepIndex++);
@@ -117,7 +117,7 @@ namespace BackupService.Scheduling
                 // Catastrophic failure (something outside a pair's own try).
                 fatal = true;
                 statusService.Set(profile.Id, ProfileStatus.Error);
-                logger.LogError(ex, "FolderPairHandler failed for profile {ProfileId} ({ProfileName}).", profile.Id, profile.Name);
+                logger.LogError(ex, "OneWaySyncHandler failed for profile {ProfileId} ({ProfileName}).", profile.Id, profile.Name);
                 throw;
             }
             finally
@@ -159,10 +159,10 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task RunPairAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
+        private async Task RunPairAsync(OneWaySyncItem pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, BackupResult total, IProgress<int> progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
         {
-            await SetPairStatusAsync(pair.Id, FolderPairStatus.Running, lastRunStatus: null, cancellationToken);
-            await log.AppendAsync($"Folder pair '{pair.Name}': {pair.SourceFolder} -> {pair.TargetFolder}");
+            await SetPairStatusAsync(pair.Id, OneWaySyncStatus.Running, lastRunStatus: null, cancellationToken);
+            await log.AppendAsync($"One way sync '{pair.Name}': {pair.SourceFolder} -> {pair.TargetFolder}");
 
             BackupResult result;
             try
@@ -172,35 +172,35 @@ namespace BackupService.Scheduling
             catch (OperationCanceledException)
             {
                 // Mark the pair failed, then let cancellation bubble to the handler's catch.
-                await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, FolderPairLastRunStatus.Fail, CancellationToken.None);
+                await SetPairStatusAsync(pair.Id, OneWaySyncStatus.Idle, OneWaySyncLastRunStatus.Fail, CancellationToken.None);
                 throw;
             }
             catch (EndpointUnavailableException)
             {
                 // Source endpoint gone — mark the pair failed and let it bubble to the handler so the whole run
                 // aborts (the remaining pairs share the same dead device).
-                await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, FolderPairLastRunStatus.Fail, CancellationToken.None);
+                await SetPairStatusAsync(pair.Id, OneWaySyncStatus.Idle, OneWaySyncLastRunStatus.Fail, CancellationToken.None);
                 throw;
             }
             catch (Exception ex)
             {
                 // Unexpected failure for this pair — record it and carry on with the others.
                 total.Errors++;
-                await log.ErrorAsync($"Folder pair '{pair.Name}' failed", ex);
-                await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, FolderPairLastRunStatus.Fail, CancellationToken.None);
+                await log.ErrorAsync($"One way sync '{pair.Name}' failed", ex);
+                await SetPairStatusAsync(pair.Id, OneWaySyncStatus.Idle, OneWaySyncLastRunStatus.Fail, CancellationToken.None);
                 return;
             }
 
             total.Add(result);
-            var lastRun = result.Errors == 0 ? FolderPairLastRunStatus.Success : FolderPairLastRunStatus.Fail;
-            await SetPairStatusAsync(pair.Id, FolderPairStatus.Idle, lastRun, cancellationToken);
+            var lastRun = result.Errors == 0 ? OneWaySyncLastRunStatus.Success : OneWaySyncLastRunStatus.Fail;
+            await SetPairStatusAsync(pair.Id, OneWaySyncStatus.Idle, lastRun, cancellationToken);
         }
 
-        private async Task SetPairStatusAsync(int pairId, FolderPairStatus status, FolderPairLastRunStatus? lastRunStatus, CancellationToken cancellationToken)
+        private async Task SetPairStatusAsync(int pairId, OneWaySyncStatus status, OneWaySyncLastRunStatus? lastRunStatus, CancellationToken cancellationToken)
         {
             await using var db = contextFactory.CreateDbContext();
 
-            var pair = await db.FolderPairs.FirstOrDefaultAsync(p => p.Id == pairId, cancellationToken);
+            var pair = await db.OneWaySyncItems.FirstOrDefaultAsync(p => p.Id == pairId, cancellationToken);
             if (pair is null)
             {
                 return;

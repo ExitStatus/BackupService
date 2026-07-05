@@ -16,7 +16,7 @@ namespace BackupService.Scheduling
 
         /// <summary>
         /// Runs the backup work for <paramref name="profile"/>. The profile is supplied with its
-        /// <see cref="Profile.FolderPairs"/> already loaded, so the handler has the collection it needs.
+        /// <see cref="Profile.OneWaySyncItems"/> already loaded, so the handler has the collection it needs.
         /// <paramref name="manual"/> is true for an on-demand "Run now" (the handler prefixes its
         /// operation log with <c>[Manual]</c>) and false for a scheduled run.
         /// </summary>

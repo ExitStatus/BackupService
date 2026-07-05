@@ -40,13 +40,13 @@
 
             @* The connection is profile-level (shared by every row). Source only for the scheduled types —
                InstantSync/LightroomArchive are watcher-driven with a local-only source. *@
-            @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
+            @if (Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
             {
                 <ConnectionLocationField Label="Source connection" ShowFolder="false"
                                          @bind-ConnectionId="Input.SourceConnectionId" />
             }
 
-            @* FolderPair/ArchiveSync may target a read/write USB mass-storage drive (but not a read-only MTP camera);
+            @* OneWaySync/ArchiveSync may target a read/write USB mass-storage drive (but not a read-only MTP camera);
                the watcher-driven types can't target USB at all. *@
             <ConnectionLocationField Label="Target connection" ShowFolder="false" AllowUsb="@TargetAllowsUsb" AllowMtp="false"
                                      @bind-ConnectionId="Input.TargetConnectionId" />
@@ -114,8 +114,8 @@
 
             @switch (Input.Type)
             {
-                case ProfileType.FolderPair:
-                    <FolderPairControl @ref="_folderPairControl" Items="_folderPairs"
+                case ProfileType.OneWaySync:
+                    <OneWaySyncControl @ref="_oneWaySyncControl" Items="_oneWaySyncItems"
                                        SourceConnectionId="Input.SourceConnectionId" TargetConnectionId="Input.TargetConnectionId" />
                     break;
                 case ProfileType.InstantSync:
@@ -159,8 +159,8 @@
                         @NotifyLabel("completed")
                     </label>
 
-                    @* Only FolderPair/ArchiveSync/TwoWaySync can eject a USB drive after an automatic run. *@
-                    @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
+                    @* Only OneWaySync/ArchiveSync/TwoWaySync can eject a USB drive after an automatic run. *@
+                    @if (Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
                     {
                         <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")"
                                title="Show a notification when this profile ejects a USB drive after an automatic run.">

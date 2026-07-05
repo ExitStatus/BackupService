@@ -8,7 +8,7 @@ namespace BackupService.Scheduling
     /// <summary>
     /// Default <see cref="IInstantSyncProcessor"/>. Copies each changed source path to its rebased
     /// target location (crash-safe, via a dot-prefixed temp then rename — the same idiom as
-    /// <see cref="FolderPairSynchronizer"/>) and, when deletions are allowed, mirrors removals. All
+    /// <see cref="OneWaySyncSynchronizer"/>) and, when deletions are allowed, mirrors removals. All
     /// filesystem access goes through <see cref="IBackupFileSystem"/> so the logic is unit-testable.
     /// Instant sync is source-authoritative: a changed file always overwrites the target.
     /// </summary>

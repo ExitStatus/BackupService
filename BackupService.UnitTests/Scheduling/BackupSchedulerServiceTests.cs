@@ -54,7 +54,7 @@ namespace BackupService.UnitTests.Scheduling
             var profile = new Profile
             {
                 Name = "P",
-                Type = ProfileType.FolderPair,
+                Type = ProfileType.OneWaySync,
                 Enabled = enabled,
                 Schedule = schedule,
                 DateCreated = DateTimeOffset.UtcNow,

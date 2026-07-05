@@ -6,16 +6,16 @@ using BackupService.Logging;
 namespace BackupService.Scheduling
 {
     /// <summary>
-    /// Default <see cref="IFolderPairSynchronizer"/>. Walks the source tree one folder at a time and
+    /// Default <see cref="IOneWaySyncSynchronizer"/>. Walks the source tree one folder at a time and
     /// mirrors it into the target per the pair's rules (see <c>CLAUDE.md</c> / the handler). The source
     /// and target may live on different filesystems (local or a remote SMB connection): each side is
     /// resolved to an <see cref="IBackupFileSystem"/> via <see cref="IEndpointFileSystemFactory"/>, and a
     /// copy streams from the source filesystem into a crash-safe temp on the target filesystem before
     /// renaming. All filesystem access goes through the abstraction so the decision logic is testable.
     /// </summary>
-    public sealed class FolderPairSynchronizer(IEndpointFileSystemFactory endpointFactory) : IFolderPairSynchronizer
+    public sealed class OneWaySyncSynchronizer(IEndpointFileSystemFactory endpointFactory) : IOneWaySyncSynchronizer
     {
-        public async Task<BackupResult> SyncAsync(FolderPair pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
+        public async Task<BackupResult> SyncAsync(OneWaySyncItem pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
         {
             var result = new BackupResult();
             // Include/exclude rules filter which files are synced (empty includes = all files).
@@ -43,7 +43,7 @@ namespace BackupService.Scheduling
             return result;
         }
 
-        public async Task<int> CountFilesAsync(FolderPair pair, int? sourceConnectionId, CancellationToken cancellationToken)
+        public async Task<int> CountFilesAsync(OneWaySyncItem pair, int? sourceConnectionId, CancellationToken cancellationToken)
         {
             var filter = new BackupFilter(pair.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
             var source = await endpointFactory.ResolveAsync(sourceConnectionId, pair.SourceFolder, cancellationToken);
@@ -59,7 +59,7 @@ namespace BackupService.Scheduling
 
         // Source-only walk mirroring SyncDirectoryAsync's scoping: counts in-scope files, recursing the same
         // sub-folders the sync would. An unreadable folder contributes nothing (the sync will log that error).
-        private static int CountDirectory(IBackupFileSystem fs, string dir, IReadOnlyList<string> ancestors, FolderPair pair, BackupFilter filter, CancellationToken ct)
+        private static int CountDirectory(IBackupFileSystem fs, string dir, IReadOnlyList<string> ancestors, OneWaySyncItem pair, BackupFilter filter, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -550,6 +550,6 @@ namespace BackupService.Scheduling
         }
 
         /// <summary>The resolved filesystems and rules for one sync run.</summary>
-        private sealed record SyncContext(IBackupFileSystem SourceFs, IBackupFileSystem TargetFs, FolderPair Pair, BackupFilter Filter, Action<string?>? OnCurrentFile);
+        private sealed record SyncContext(IBackupFileSystem SourceFs, IBackupFileSystem TargetFs, OneWaySyncItem Pair, BackupFilter Filter, Action<string?>? OnCurrentFile);
     }
 }

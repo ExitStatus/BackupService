@@ -7,7 +7,7 @@ namespace BackupService.Components.Controls
     /// Editor for a profile's list of instant sync items: shows each item (source/target) with
     /// edit and delete actions, plus an Add button that opens <see cref="InstantSyncEditDialog"/>.
     /// Bound to the <see cref="List{T}"/> it mutates in place. The instant-sync counterpart of
-    /// <see cref="FolderPairControl"/>.
+    /// <see cref="OneWaySyncControl"/>.
     /// </summary>
     public partial class InstantSyncControl : ComponentBase
     {

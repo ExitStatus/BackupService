@@ -185,10 +185,10 @@ namespace BackupService.UnitTests.Connections
         }
 
         [Test]
-        public async Task DeleteAsync_IsBlocked_WhenReferencedByAFolderPair()
+        public async Task DeleteAsync_IsBlocked_WhenReferencedByAOneWaySyncItem()
         {
             var id = await _service.CreateAsync("NAS", ConnectionType.Smb, Smb());
-            await SeedFolderPairUsingConnectionAsync(id);
+            await SeedOneWaySyncItemUsingConnectionAsync(id);
 
             var result = await _service.DeleteAsync(id);
 
@@ -210,12 +210,12 @@ namespace BackupService.UnitTests.Connections
             summaries.Should().OnlyContain(s => s.Type == ConnectionType.Smb);
         }
 
-        private async Task SeedFolderPairUsingConnectionAsync(int connectionId)
+        private async Task SeedOneWaySyncItemUsingConnectionAsync(int connectionId)
         {
             await using var db = new BackupDbContext(_options);
             // The connection is profile-level now (shared by all rows).
-            var profile = new Profile { Name = "P", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow, SourceConnectionId = connectionId };
-            profile.FolderPairs.Add(new FolderPair
+            var profile = new Profile { Name = "P", Type = ProfileType.OneWaySync, DateCreated = DateTimeOffset.UtcNow, SourceConnectionId = connectionId };
+            profile.OneWaySyncItems.Add(new OneWaySyncItem
             {
                 Name = "pair",
                 SourceFolder = "in",

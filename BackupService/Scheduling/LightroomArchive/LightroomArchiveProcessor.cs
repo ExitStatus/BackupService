@@ -7,7 +7,7 @@ namespace BackupService.Scheduling
 {
     /// <summary>
     /// Default <see cref="ILightroomArchiveProcessor"/>. Endpoint-aware (modelled on
-    /// <see cref="FolderPairSynchronizer"/>'s cross-filesystem copy rather than the local-only
+    /// <see cref="OneWaySyncSynchronizer"/>'s cross-filesystem copy rather than the local-only
     /// <see cref="InstantSyncProcessor"/>): the source and Lightroom catalog are always local, while the
     /// target is resolved through <see cref="IEndpointFileSystemFactory"/> so a copy streams from the local
     /// filesystem into a crash-safe temp on the target filesystem (local or a remote connection). Each copied
@@ -277,7 +277,7 @@ namespace BackupService.Scheduling
         /// dot-prefixed temp on the target filesystem, stamps it with the source's last-write-time, then (on
         /// success) removes any existing destination and renames the temp onto it. On any failure the temp is
         /// removed so a partial/temp file is never left behind. (Idiom duplicated from
-        /// <see cref="FolderPairSynchronizer"/>, per project convention.) Returns success.
+        /// <see cref="OneWaySyncSynchronizer"/>, per project convention.) Returns success.
         /// </summary>
         private async Task<bool> CopyThroughTempAsync(Ctx ctx, string source, string dest, string targetDir, IOperationLogger log, BackupResult result, CancellationToken ct)
         {

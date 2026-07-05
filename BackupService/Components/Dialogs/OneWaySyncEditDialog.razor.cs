@@ -4,15 +4,15 @@ using Microsoft.AspNetCore.Components;
 namespace BackupService.Components.Dialogs
 {
     /// <summary>
-    /// Modal for adding or editing a single folder pair. Each side (source/target) is edited by a
+    /// Modal for adding or editing a single one way sync. Each side (source/target) is edited by a
     /// <see cref="ConnectionLocationField"/> — "this machine" (local) or one of the configured connections,
     /// with a connection-aware Browse. Edits the <see cref="Model"/> instance passed in and returns it via
     /// <see cref="OnSave"/> when valid.
     /// </summary>
-    public partial class FolderPairEditDialog : ComponentBase
+    public partial class OneWaySyncEditDialog : ComponentBase
     {
         [Parameter]
-        public FolderPairModel Model { get; set; } = default!;
+        public OneWaySyncItemModel Model { get; set; } = default!;
 
         /// <summary>Profile-level source connection (null = local); the source folder Browse uses it.</summary>
         [Parameter]
@@ -23,7 +23,7 @@ namespace BackupService.Components.Dialogs
         public int? TargetConnectionId { get; set; }
 
         [Parameter]
-        public EventCallback<FolderPairModel> OnSave { get; set; }
+        public EventCallback<OneWaySyncItemModel> OnSave { get; set; }
 
         [Parameter]
         public EventCallback OnCancel { get; set; }

@@ -9,7 +9,7 @@ using FluentAssertions;
 namespace BackupService.UnitTests.Scheduling
 {
     [TestFixture]
-    public class FolderPairSynchronizerTests
+    public class OneWaySyncSynchronizerTests
     {
         private const string Source = @"C:\src";
         private const string Target = @"C:\dst";
@@ -19,7 +19,7 @@ namespace BackupService.UnitTests.Scheduling
 
         private FakeFileSystem _fs = null!;
         private CapturingLogger _log = null!;
-        private FolderPairSynchronizer _sut = null!;
+        private OneWaySyncSynchronizer _sut = null!;
 
         [SetUp]
         public void SetUp()
@@ -27,10 +27,10 @@ namespace BackupService.UnitTests.Scheduling
             _fs = new FakeFileSystem();
             _fs.AddDirectory(Source);
             _log = new CapturingLogger();
-            _sut = new FolderPairSynchronizer(new SingleFsEndpointFactory(_fs));
+            _sut = new OneWaySyncSynchronizer(new SingleFsEndpointFactory(_fs));
         }
 
-        private static FolderPair Pair(
+        private static OneWaySyncItem Pair(
             bool allowDeletions = false,
             bool includeSubFolders = false,
             OverwriteBehaviour overwrite = OverwriteBehaviour.DoNotOverwriteNewer) => new()
@@ -43,7 +43,7 @@ namespace BackupService.UnitTests.Scheduling
                 OverwriteBehaviour = overwrite,
             };
 
-        private Task<BackupResult> Run(FolderPair pair) => _sut.SyncAsync(pair, null, null, _log, CancellationToken.None);
+        private Task<BackupResult> Run(OneWaySyncItem pair) => _sut.SyncAsync(pair, null, null, _log, CancellationToken.None);
 
         [Test]
         public async Task NewFile_IsCopiedThroughTemp_LeavingNoTemp()
@@ -363,7 +363,7 @@ namespace BackupService.UnitTests.Scheduling
 
         // ---- Include/exclude filters ----
 
-        private static FolderPairFilter Filter(FilterDirection direction, FilterKind kind, string pattern) =>
+        private static OneWaySyncFilter Filter(FilterDirection direction, FilterKind kind, string pattern) =>
             new() { Direction = direction, Kind = kind, Pattern = pattern };
 
         [Test]
@@ -530,7 +530,7 @@ namespace BackupService.UnitTests.Scheduling
             var targetFs = new FakeFileSystem();
             targetFs.AddDirectory(Target);
 
-            var sut = new FolderPairSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs));
+            var sut = new OneWaySyncSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs));
 
             var result = await sut.SyncAsync(Pair(), null, null, _log, CancellationToken.None);
 

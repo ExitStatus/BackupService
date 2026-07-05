@@ -15,7 +15,7 @@ namespace BackupService.Database
 
         public DbSet<Profile> Profiles => Set<Profile>();
 
-        public DbSet<FolderPair> FolderPairs => Set<FolderPair>();
+        public DbSet<OneWaySyncItem> OneWaySyncItems => Set<OneWaySyncItem>();
 
         public DbSet<InstantSyncItem> InstantSyncItems => Set<InstantSyncItem>();
 
@@ -25,7 +25,7 @@ namespace BackupService.Database
 
         public DbSet<TwoWaySyncItem> TwoWaySyncItems => Set<TwoWaySyncItem>();
 
-        public DbSet<FolderPairFilter> FolderPairFilters => Set<FolderPairFilter>();
+        public DbSet<OneWaySyncFilter> OneWaySyncFilters => Set<OneWaySyncFilter>();
 
         public DbSet<ArchiveSyncFilter> ArchiveSyncFilters => Set<ArchiveSyncFilter>();
 

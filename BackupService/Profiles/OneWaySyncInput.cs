@@ -3,10 +3,10 @@ using BackupService.Enumerations;
 namespace BackupService.Profiles
 {
     /// <summary>
-    /// A folder pair supplied when creating or updating a profile. <see cref="Id"/> is 0 for
-    /// a new pair, or the existing <c>FolderPair.Id</c> when updating one.
+    /// A one way sync supplied when creating or updating a profile. <see cref="Id"/> is 0 for
+    /// a new pair, or the existing <c>OneWaySyncItem.Id</c> when updating one.
     /// </summary>
-    public sealed record FolderPairInput(
+    public sealed record OneWaySyncInput(
         int Id,
         string Name,
         string SourceFolder,

@@ -134,12 +134,12 @@ namespace BackupService.UnitTests.Logging
                 var a = new OperationLog { Name = "a", TimestampUtc = Now.AddDays(-1) };
                 db.OperationLogs.Add(a);
                 db.OperationLogs.Add(new OperationLog { Name = "b", TimestampUtc = Now }); // detail-less
-                var profile = new Profile { Name = "p", Type = ProfileType.FolderPair };
+                var profile = new Profile { Name = "p", Type = ProfileType.OneWaySync };
                 db.Profiles.Add(profile);
                 db.SaveChanges();
                 withLinesId = a.Id;
                 a.LogFile = _logStore.Store.FileNameFor(withLinesId);
-                db.BackupRuns.Add(new BackupRun { ProfileId = profile.Id, Type = ProfileType.FolderPair, StartedUtc = Now, Outcome = RunOutcome.Success });
+                db.BackupRuns.Add(new BackupRun { ProfileId = profile.Id, Type = ProfileType.OneWaySync, StartedUtc = Now, Outcome = RunOutcome.Success });
                 db.SaveChanges();
             }
 

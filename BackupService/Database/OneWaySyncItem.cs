@@ -7,7 +7,7 @@ namespace BackupService.Database
     /// A source/target folder mapping within a <see cref="Profile"/>. The owning profile
     /// carries the cron schedule that drives the backup.
     /// </summary>
-    public class FolderPair
+    public class OneWaySyncItem
     {
         public int Id { get; set; }
 
@@ -30,11 +30,11 @@ namespace BackupService.Database
 
         public OverwriteBehaviour OverwriteBehaviour { get; set; }
 
-        public FolderPairStatus Status { get; set; }
+        public OneWaySyncStatus Status { get; set; }
 
-        public FolderPairLastRunStatus LastRunStatus { get; set; }
+        public OneWaySyncLastRunStatus LastRunStatus { get; set; }
 
         /// <summary>Include/exclude rules that filter which source files are synced.</summary>
-        public ICollection<FolderPairFilter> Filters { get; set; } = new List<FolderPairFilter>();
+        public ICollection<OneWaySyncFilter> Filters { get; set; } = new List<OneWaySyncFilter>();
     }
 }

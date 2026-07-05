@@ -6,7 +6,7 @@ namespace BackupService.Profiles
 {
     /// <summary>
     /// Default <see cref="ITwoWaySyncItemService"/>. A stateless helper over the tracked
-    /// <see cref="Profile"/> entity graph (no DbContext), mirroring <see cref="FolderPairService"/>.
+    /// <see cref="Profile"/> entity graph (no DbContext), mirroring <see cref="OneWaySyncItemService"/>.
     /// </summary>
     public sealed class TwoWaySyncItemService : ITwoWaySyncItemService
     {

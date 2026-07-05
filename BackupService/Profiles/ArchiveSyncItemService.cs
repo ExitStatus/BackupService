@@ -7,7 +7,7 @@ namespace BackupService.Profiles
 {
     /// <summary>
     /// Default <see cref="IArchiveSyncItemService"/>. A stateless helper over the tracked
-    /// <see cref="Profile"/> entity graph (no DbContext), mirroring <see cref="FolderPairService"/> and
+    /// <see cref="Profile"/> entity graph (no DbContext), mirroring <see cref="OneWaySyncItemService"/> and
     /// <see cref="InstantSyncItemService"/>. The per-item <c>RunCount</c> (which drives the GFS
     /// promotion cadence) is owned by the run, so it is left untouched here. Archive passwords are
     /// encrypted at rest via <see cref="ISecretProtector"/> and never logged.

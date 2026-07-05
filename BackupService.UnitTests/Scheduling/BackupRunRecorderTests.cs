@@ -41,7 +41,7 @@ namespace BackupService.UnitTests.Scheduling
         private async Task<int> SeedProfileAsync()
         {
             await using var db = new BackupDbContext(_options);
-            var profile = new Profile { Name = "Docs", Type = ProfileType.FolderPair, DateCreated = DateTimeOffset.UtcNow };
+            var profile = new Profile { Name = "Docs", Type = ProfileType.OneWaySync, DateCreated = DateTimeOffset.UtcNow };
             db.Profiles.Add(profile);
             await db.SaveChangesAsync();
             return profile.Id;
@@ -56,7 +56,7 @@ namespace BackupService.UnitTests.Scheduling
 
             await recorder.RecordAsync(
                 profileId,
-                ProfileType.FolderPair,
+                ProfileType.OneWaySync,
                 manual: true,
                 startedUtc: started,
                 durationMs: 2500.6,
@@ -68,7 +68,7 @@ namespace BackupService.UnitTests.Scheduling
             var run = await verify.BackupRuns.SingleAsync();
 
             run.ProfileId.Should().Be(profileId);
-            run.Type.Should().Be(ProfileType.FolderPair);
+            run.Type.Should().Be(ProfileType.OneWaySync);
             run.Manual.Should().BeTrue();
             run.DurationMs.Should().Be(2501); // rounded from 2500.6
             run.Outcome.Should().Be(RunOutcome.CompletedWithErrors);

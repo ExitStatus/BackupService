@@ -8,7 +8,7 @@ namespace BackupService.Enumerations
     /// </summary>
     public enum RunKind
     {
-        /// <summary>A backup profile run (FolderPair / InstantSync / ArchiveSync / LightroomArchive).</summary>
+        /// <summary>A backup profile run (OneWaySyncItem / InstantSync / ArchiveSync / LightroomArchive).</summary>
         [Description("Backup")]
         Backup = 0,
 
