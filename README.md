@@ -98,3 +98,7 @@ are also included.
 This is a personal project in **early development**. Features may change or be removed, data formats may change
 between versions, and it has not been hardened or audited for production use. There is **no warranty** — always
 keep an independent copy of anything you care about.
+
+## License
+
+Licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the full text.
