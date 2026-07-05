@@ -1,5 +1,6 @@
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Extensions;
 using BackupService.FileSystem;
 using BackupService.Logging;
 
@@ -98,8 +99,8 @@ namespace BackupService.Scheduling.TwoWaySync
             }
 
             var subs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var d in ListDirsSafe(leftFs, leftDir)) subs.Add(Path.GetFileName(d)!);
-            foreach (var d in ListDirsSafe(rightFs, rightDir)) subs.Add(Path.GetFileName(d)!);
+            foreach (var d in ListDirsSafe(leftFs, leftDir)) subs.Add(PathHelper.GetLeafName(d));
+            foreach (var d in ListDirsSafe(rightFs, rightDir)) subs.Add(PathHelper.GetLeafName(d));
 
             foreach (var sub in subs)
             {
@@ -146,8 +147,8 @@ namespace BackupService.Scheduling.TwoWaySync
             }
 
             var subs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var d in ListDirsSafe(ctx.LeftFs, leftDir)) subs.Add(Path.GetFileName(d)!);
-            foreach (var d in ListDirsSafe(ctx.RightFs, rightDir)) subs.Add(Path.GetFileName(d)!);
+            foreach (var d in ListDirsSafe(ctx.LeftFs, leftDir)) subs.Add(PathHelper.GetLeafName(d));
+            foreach (var d in ListDirsSafe(ctx.RightFs, rightDir)) subs.Add(PathHelper.GetLeafName(d));
 
             foreach (var sub in subs)
             {
@@ -542,7 +543,7 @@ namespace BackupService.Scheduling.TwoWaySync
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var path in files)
             {
-                var name = Path.GetFileName(path)!;
+                var name = PathHelper.GetLeafName(path);
                 if (IsCrashSafeTempName(name))
                 {
                     TryDeleteTemp(fs, path); // leftover from an interrupted run — never real content
@@ -570,7 +571,7 @@ namespace BackupService.Scheduling.TwoWaySync
 
             foreach (var path in files)
             {
-                var name = Path.GetFileName(path)!;
+                var name = PathHelper.GetLeafName(path);
                 if (!IsCrashSafeTempName(name) && filter.IsFileInScope(name, ancestors))
                 {
                     yield return name;

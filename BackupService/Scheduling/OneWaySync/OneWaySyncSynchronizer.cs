@@ -1,5 +1,6 @@
 using BackupService.Database;
 using BackupService.Enumerations;
+using BackupService.Extensions;
 using BackupService.FileSystem;
 using BackupService.Logging;
 
@@ -66,7 +67,7 @@ namespace BackupService.Scheduling
             int count;
             try
             {
-                count = fs.GetFiles(dir).Count(p => filter.IsFileInScope(Path.GetFileName(p)!, ancestors));
+                count = fs.GetFiles(dir).Count(p => filter.IsFileInScope(PathHelper.GetLeafName(p), ancestors));
             }
             catch
             {
@@ -87,7 +88,7 @@ namespace BackupService.Scheduling
 
                 foreach (var sub in dirs)
                 {
-                    var name = Path.GetFileName(sub)!;
+                    var name = PathHelper.GetLeafName(sub);
                     if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
                     {
                         continue;
@@ -151,13 +152,13 @@ namespace BackupService.Scheduling
             // 3a. Sweep leftover crash-safe temp files from a previously interrupted run (e.g. the machine
             // hibernated mid-copy). A ".{name}.tmp" that isn't itself a source file is never real backup
             // content, so remove it regardless of AllowDeletions and exclude it from the rest of this folder.
-            var sourceFileNames = new HashSet<string>(sourceFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
-            if (targetFiles.Any(p => IsCrashSafeTempName(Path.GetFileName(p)!) && !sourceFileNames.Contains(Path.GetFileName(p)!)))
+            var sourceFileNames = new HashSet<string>(sourceFiles.Select(PathHelper.GetLeafName), StringComparer.OrdinalIgnoreCase);
+            if (targetFiles.Any(p => IsCrashSafeTempName(PathHelper.GetLeafName(p)) && !sourceFileNames.Contains(PathHelper.GetLeafName(p))))
             {
                 var kept = new List<string>(targetFiles.Count);
                 foreach (var targetPath in targetFiles)
                 {
-                    var name = Path.GetFileName(targetPath)!;
+                    var name = PathHelper.GetLeafName(targetPath);
                     if (!IsCrashSafeTempName(name) || sourceFileNames.Contains(name))
                     {
                         kept.Add(targetPath);
@@ -179,11 +180,11 @@ namespace BackupService.Scheduling
                 targetFiles = kept;
             }
 
-            var targetNames = new HashSet<string>(targetFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
+            var targetNames = new HashSet<string>(targetFiles.Select(PathHelper.GetLeafName), StringComparer.OrdinalIgnoreCase);
 
             // Only files in scope per the include/exclude rules are synced (empty includes = all files).
             var inScopeSourceFiles = sourceFiles
-                .Where(p => filter.IsFileInScope(Path.GetFileName(p)!, ancestors))
+                .Where(p => filter.IsFileInScope(PathHelper.GetLeafName(p), ancestors))
                 .ToList();
 
             // 4. Copy/update each in-scope source file. Each one reports a single unit of progress when done
@@ -193,7 +194,7 @@ namespace BackupService.Scheduling
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    var name = Path.GetFileName(sourcePath)!;
+                    var name = PathHelper.GetLeafName(sourcePath);
                     var destPath = Path.Combine(targetDir, name);
 
                     if (!targetNames.Contains(name))
@@ -251,11 +252,11 @@ namespace BackupService.Scheduling
             // out of scope (e.g. matches an exclude rule, or isn't in the include list) is left untouched.
             if (pair.AllowDeletions)
             {
-                var sourceNames = new HashSet<string>(inScopeSourceFiles.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
+                var sourceNames = new HashSet<string>(inScopeSourceFiles.Select(PathHelper.GetLeafName), StringComparer.OrdinalIgnoreCase);
                 foreach (var targetPath in targetFiles)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var targetName = Path.GetFileName(targetPath)!;
+                    var targetName = PathHelper.GetLeafName(targetPath);
                     if (sourceNames.Contains(targetName) || !filter.IsFileInScope(targetName, ancestors))
                     {
                         continue;
@@ -297,7 +298,7 @@ namespace BackupService.Scheduling
 
                 foreach (var sourceSub in sourceDirs)
                 {
-                    var name = Path.GetFileName(sourceSub)!;
+                    var name = PathHelper.GetLeafName(sourceSub);
                     // An excluded folder's (by name, or by exact relative path) whole subtree is left out.
                     if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
                     {
@@ -308,11 +309,11 @@ namespace BackupService.Scheduling
 
                 if (pair.AllowDeletions)
                 {
-                    var sourceSubNames = new HashSet<string>(sourceDirs.Select(p => Path.GetFileName(p)!), StringComparer.OrdinalIgnoreCase);
+                    var sourceSubNames = new HashSet<string>(sourceDirs.Select(PathHelper.GetLeafName), StringComparer.OrdinalIgnoreCase);
                     foreach (var targetSub in targetDirs)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var targetSubName = Path.GetFileName(targetSub)!;
+                        var targetSubName = PathHelper.GetLeafName(targetSub);
                         // Don't delete an excluded target subtree (it's out of scope, not an orphan).
                         if (!sourceSubNames.Contains(targetSubName) &&
                             !filter.ExcludesFolder(targetSubName) &&
