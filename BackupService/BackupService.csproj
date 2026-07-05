@@ -12,15 +12,19 @@
          1GB+ working set in Task Manager with no actual leak. Workstation GC returns memory eagerly;
          the throughput difference is irrelevant for one admin on localhost. -->
     <ServerGarbageCollection>false</ServerGarbageCollection>
+
+    <!-- Versioning scheme: Major.Minor.Build, baked into the assembly and read back at runtime (BuildInfo,
+         shown in the sidebar). A plain build/run is a local dev build → 0.0.0-dev (the default below). The
+         Install publish profile overrides this to 0.0.{buildnumber.txt}-published; CI overrides it by passing
+         -p:Version={Major}.{Minor}.{build} (Major/Minor from appsettings.json → "Version"). -->
+    <VersionPrefix>0.0.0</VersionPrefix>
+    <VersionSuffix>dev</VersionSuffix>
+    <!-- Keep InformationalVersion clean (no trailing "+<git sha>" the SDK would otherwise append). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="BackupService.UnitTests" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- Deployed next to the exe and read at runtime (BuildInfo); the publish profile bumps it on every deploy. -->
-    <Content Include="buildnumber.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

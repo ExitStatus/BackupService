@@ -1,25 +1,38 @@
+using System.Reflection;
+
 namespace BackupService
 {
     /// <summary>
-    /// Exposes the deployed build number, read once from <c>buildnumber.txt</c> next to the executable. The number is
-    /// bumped by the publish profile on every deploy (see <c>Properties/PublishProfiles/Install.pubxml</c>) and shown
-    /// at the bottom of the sidebar, so a running instance can be confirmed to match the build that was just published.
+    /// Exposes the application version, read once from the executable's baked
+    /// <see cref="AssemblyInformationalVersionAttribute"/>. The version follows the scheme Major.Minor.Build and is
+    /// baked at build time (see <c>BackupService.csproj</c> / <c>Properties/PublishProfiles/Install.pubxml</c>):
+    /// a local dev build is <c>0.0.0-dev</c>, a local publish is <c>0.0.{buildnumber.txt}-published</c>, and a CI
+    /// build is <c>{Major}.{Minor}.{build}</c> (Major/Minor from <c>appsettings.json</c>). Shown in the sidebar.
     /// </summary>
     public static class BuildInfo
     {
-        private static readonly Lazy<string> LazyNumber = new(() =>
+        private static readonly Lazy<string> LazyVersion = new(() =>
         {
             try
             {
-                var path = Path.Combine(AppContext.BaseDirectory, "buildnumber.txt");
-                return File.Exists(path) ? File.ReadAllText(path).Trim() : "?";
+                var assembly = Assembly.GetEntryAssembly() ?? typeof(BuildInfo).Assembly;
+                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (string.IsNullOrWhiteSpace(informational))
+                {
+                    return "0.0.0-dev";
+                }
+
+                // Strip any "+<source revision>" build metadata the SDK may append, leaving just the version.
+                var plus = informational.IndexOf('+');
+                return plus >= 0 ? informational[..plus] : informational;
             }
             catch
             {
-                return "?";
+                return "0.0.0-dev";
             }
         });
 
-        public static string Number => LazyNumber.Value;
+        /// <summary>The application version (e.g. <c>0.0.0-dev</c>, <c>0.0.42-published</c>, <c>1.0.42</c>).</summary>
+        public static string Version => LazyVersion.Value;
     }
 }

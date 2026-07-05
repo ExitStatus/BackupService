@@ -1,0 +1,49 @@
+name: Build
+
+# Builds, tests, and publishes the app, applying the build number to the version. The version is
+# {Major}.{Minor}.{build}, where Major/Minor come from BackupService/appsettings.json ("Version") and the
+# build number is this workflow run's number (github.run_number). The version is baked into the assembly
+# (read back at runtime by BuildInfo and shown in the sidebar).
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Compute version
+        id: version
+        run: |
+          MAJOR=$(jq -r '.Version.Major' BackupService/appsettings.json)
+          MINOR=$(jq -r '.Version.Minor' BackupService/appsettings.json)
+          VERSION="${MAJOR}.${MINOR}.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        run: dotnet test -c Release --no-build --no-restore
+
+      - name: Publish
+        run: dotnet publish BackupService/BackupService.csproj -c Release --no-build --no-restore -p:Version=${{ steps.version.outputs.version }} -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackupService-${{ steps.version.outputs.version }}
+          path: publish
