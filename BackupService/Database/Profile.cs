@@ -115,5 +115,7 @@ namespace BackupService.Database
         public ICollection<ArchiveSyncItem> ArchiveSyncItems { get; set; } = new List<ArchiveSyncItem>();
 
         public ICollection<LightroomArchiveItem> LightroomArchiveItems { get; set; } = new List<LightroomArchiveItem>();
+
+        public ICollection<TwoWaySyncItem> TwoWaySyncItems { get; set; } = new List<TwoWaySyncItem>();
     }
 }

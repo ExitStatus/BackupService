@@ -1,0 +1,62 @@
+<div class="modal-overlay">
+    <div class="modal tabbed" role="dialog" aria-modal="true" aria-label="Two way sync">
+        <h2>Two way sync</h2>
+
+        <TabBar Items="_tabs" @bind-SelectedKey="_activeTab" />
+
+        <div class="modal-tab-content">
+            @if (_activeTab == "detail")
+            {
+                <label>
+                    Name
+                    <input type="text" @bind="Model.Name" />
+                    @if (_nameError)
+                    {
+                        <span class="validation-message">The Name field is required.</span>
+                    }
+                </label>
+
+                <ConnectionLocationField Label="Source" Grouped="true" ShowLocation="false" ConnectionId="SourceConnectionId" @bind-Path="Model.SourceFolder"
+                                         Error="@(_sourceError ? "The Source folder field is required." : null)" />
+
+                <ConnectionLocationField Label="Target" Grouped="true" ShowLocation="false" ConnectionId="TargetConnectionId" @bind-Path="Model.TargetFolder"
+                                         AllowCreateFolder="true"
+                                         Error="@(_targetError ? "The Target folder field is required." : null)" />
+
+                <div class="check-rows">
+                    <label class="check">
+                        <input type="checkbox" @bind="Model.IncludeSubFolders" />
+                        Include Sub-Folders
+                    </label>
+
+                    <label class="check" title="When a file is deleted on one side, delete it from the other too. When off, the file is restored from the surviving side instead.">
+                        <input type="checkbox" @bind="Model.PropagateDeletions" />
+                        Propagate deletions
+                    </label>
+                </div>
+
+                <label>
+                    Conflict resolution
+                    <Dropdown TValue="ConflictResolution"
+                              @bind-Value="Model.ConflictResolution"
+                              Items="Enum.GetValues<ConflictResolution>()"
+                              DisplayText="c => c.GetDescription()" />
+                </label>
+                <p class="help-text">@Model.ConflictResolution.GetHelpText()</p>
+            }
+            else if (_activeTab == "includes")
+            {
+                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" SourceFolder="@Model.SourceFolder" />
+            }
+            else
+            {
+                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" SourceFolder="@Model.SourceFolder" />
+            }
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary" @onclick="OnCancel">Cancel</button>
+            <button type="button" @onclick="SaveAsync">Save</button>
+        </div>
+    </div>
+</div>

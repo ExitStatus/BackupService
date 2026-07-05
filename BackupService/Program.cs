@@ -94,6 +94,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Profiles.IInstantSyncItemService, Profiles.InstantSyncItemService>();
                 builder.Services.AddSingleton<Profiles.IArchiveSyncItemService, Profiles.ArchiveSyncItemService>();
                 builder.Services.AddSingleton<Profiles.ILightroomArchiveItemService, Profiles.LightroomArchiveItemService>();
+                builder.Services.AddSingleton<Profiles.ITwoWaySyncItemService, Profiles.TwoWaySyncItemService>();
                 builder.Services.AddSingleton<Profiles.IProfileStatusService, Profiles.ProfileStatusService>();
                 builder.Services.AddSingleton(TimeProvider.System);
                 builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
@@ -163,11 +164,14 @@ namespace BackupService
                 builder.Services.AddSingleton<Scheduling.IInstantSyncProcessor, Scheduling.InstantSyncProcessor>();
                 builder.Services.AddSingleton<Scheduling.IArchiveSyncProcessor, Scheduling.ArchiveSyncProcessor>();
                 builder.Services.AddSingleton<Scheduling.ILightroomArchiveProcessor, Scheduling.LightroomArchiveProcessor>();
+                builder.Services.AddSingleton<Scheduling.TwoWaySync.ITwoWaySyncStateStore, Scheduling.TwoWaySync.TwoWaySyncStateStore>();
+                builder.Services.AddSingleton<Scheduling.TwoWaySync.ITwoWaySyncEngine, Scheduling.TwoWaySync.TwoWaySyncEngine>();
                 builder.Services.AddSingleton<Scheduling.IBackupRunRecorder, Scheduling.BackupRunRecorder>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.FolderPairHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.InstantSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.ArchiveSyncHandler>();
                 builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.LightroomArchiveHandler>();
+                builder.Services.AddSingleton<Scheduling.IProfileTypeHandler, Scheduling.TwoWaySync.TwoWaySyncHandler>();
                 builder.Services.AddSingleton<Scheduling.Usb.IUsbRunGate, Scheduling.Usb.UsbRunGate>();
                 builder.Services.AddSingleton<Scheduling.Groups.IGroupRunGate, Scheduling.Groups.GroupRunGate>();
                 builder.Services.AddSingleton<Scheduling.IBackupRunner, Scheduling.BackupRunner>();

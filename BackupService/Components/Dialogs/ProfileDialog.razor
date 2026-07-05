@@ -40,7 +40,7 @@
 
             @* The connection is profile-level (shared by every row). Source only for the scheduled types —
                InstantSync/LightroomArchive are watcher-driven with a local-only source. *@
-            @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync)
+            @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
             {
                 <ConnectionLocationField Label="Source connection" ShowFolder="false"
                                          @bind-ConnectionId="Input.SourceConnectionId" />
@@ -130,6 +130,10 @@
                     <LightroomArchiveControl @ref="_lightroomArchiveControl" Items="_lightroomArchiveItems"
                                              TargetConnectionId="Input.TargetConnectionId" />
                     break;
+                case ProfileType.TwoWaySync:
+                    <TwoWaySyncControl @ref="_twoWaySyncControl" Items="_twoWaySyncItems"
+                                       SourceConnectionId="Input.SourceConnectionId" TargetConnectionId="Input.TargetConnectionId" />
+                    break;
             }
 
             </div>
@@ -155,8 +159,8 @@
                         @NotifyLabel("completed")
                     </label>
 
-                    @* Only FolderPair/ArchiveSync can eject a USB drive after an automatic run. *@
-                    @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync)
+                    @* Only FolderPair/ArchiveSync/TwoWaySync can eject a USB drive after an automatic run. *@
+                    @if (Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
                     {
                         <label class="check@(Input.NotificationsEnabled ? "" : " check-disabled")"
                                title="Show a notification when this profile ejects a USB drive after an automatic run.">

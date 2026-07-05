@@ -467,7 +467,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         // The Stop button replaces the disabled Run/Edit/Delete buttons while a scheduled backup
         // (folder pair or archive) is running, so the user can safely cancel an in-progress run.
         private bool ShowStop(Profile profile) =>
-            IsRunning(profile.Id) && profile.Type is ProfileType.FolderPair or ProfileType.ArchiveSync;
+            IsRunning(profile.Id) && profile.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
 
         // Opens the live progress dialog for a running profile (shown alongside the Stop button).
         private void OpenProgress(Profile profile) => _progressTarget = profile;

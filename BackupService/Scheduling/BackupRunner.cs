@@ -58,6 +58,7 @@ namespace BackupService.Scheduling
                     .Include(p => p.InstantSyncItems)
                     .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                     .Include(p => p.LightroomArchiveItems)
+                    .Include(p => p.TwoWaySyncItems).ThenInclude(t => t.Filters)
                     .Include(p => p.Group)
                     .FirstOrDefaultAsync(p => p.Id == profileId, cancellationToken);
 

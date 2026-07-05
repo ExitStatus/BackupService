@@ -18,6 +18,7 @@ namespace BackupService.Profiles
         IInstantSyncItemService instantSyncItemService,
         IArchiveSyncItemService archiveSyncItemService,
         ILightroomArchiveItemService lightroomArchiveItemService,
+        ITwoWaySyncItemService twoWaySyncItemService,
         IBackupScheduler scheduler,
         IInstantSyncManager instantSyncManager,
         ILightroomArchiveManager lightroomArchiveManager,
@@ -32,6 +33,7 @@ namespace BackupService.Profiles
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            IReadOnlyList<TwoWaySyncInput>? twoWaySyncItems = null,
             string? lightroomFolder = null,
             string? rawFormats = null,
             string? rawFolderName = null,
@@ -50,6 +52,7 @@ namespace BackupService.Profiles
             var instantItems = instantSyncItems ?? [];
             var archiveItems = archiveSyncItems ?? [];
             var lightroomItems = lightroomArchiveItems ?? [];
+            var twoWayItems = twoWaySyncItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
@@ -85,6 +88,9 @@ namespace BackupService.Profiles
                     ApplyLightroomSettings(profile, lightroomFolder, rawFormats, rawFolderName);
                     lightroomArchiveItemService.Add(profile, lightroomItems);
                     break;
+                case ProfileType.TwoWaySync:
+                    twoWaySyncItemService.Add(profile, twoWayItems);
+                    break;
                 default:
                     folderPairService.Add(profile, folderPairs);
                     break;
@@ -96,7 +102,7 @@ namespace BackupService.Profiles
             var sourceLabel = await ConnectionLabelAsync(db, sourceConnectionId, cancellationToken);
             var targetLabel = await ConnectionLabelAsync(db, targetConnectionId, cancellationToken);
             await LogProfileCreatedAsync(profile.Id, name, type, scheduleCron, enabled, handleMissedSync, sourceLabel, targetLabel,
-                notificationsEnabled, notifyOnStart, notifyOnComplete, notifyOnEject, showProgressWindow, folderPairs, instantItems, archiveItems, lightroomItems, cancellationToken);
+                notificationsEnabled, notifyOnStart, notifyOnComplete, notifyOnEject, showProgressWindow, folderPairs, instantItems, archiveItems, lightroomItems, twoWayItems, cancellationToken);
 
             // Track the new profile's status (starts Idle), then register it with all drivers — the
             // scheduler (cron-driven types) and the watcher managers (watcher-driven types). Each is a
@@ -147,6 +153,7 @@ namespace BackupService.Profiles
             IReadOnlyList<InstantSyncInput> instantSyncItems,
             IReadOnlyList<ArchiveSyncInput> archiveSyncItems,
             IReadOnlyList<LightroomArchiveInput> lightroomArchiveItems,
+            IReadOnlyList<TwoWaySyncInput> twoWaySyncItems,
             CancellationToken cancellationToken)
         {
             var log = await operationLogFactory.CreateAsync($"Profile created: {name}", profileId: profileId, cancellationToken: cancellationToken);
@@ -166,6 +173,7 @@ namespace BackupService.Profiles
                 ProfileType.InstantSync => instantSyncItemService.DescribeForCreateLog(instantSyncItems),
                 ProfileType.ArchiveSync => archiveSyncItemService.DescribeForCreateLog(archiveSyncItems),
                 ProfileType.LightroomArchive => lightroomArchiveItemService.DescribeForCreateLog(lightroomArchiveItems),
+                ProfileType.TwoWaySync => twoWaySyncItemService.DescribeForCreateLog(twoWaySyncItems),
                 _ => folderPairService.DescribeForCreateLog(folderPairs),
             };
             if (itemLines.Count > 0)
@@ -183,6 +191,7 @@ namespace BackupService.Profiles
                 .Include(p => p.InstantSyncItems)
                 .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                 .Include(p => p.LightroomArchiveItems)
+                .Include(p => p.TwoWaySyncItems).ThenInclude(t => t.Filters)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
             if (source is null)
             {
@@ -269,6 +278,22 @@ namespace BackupService.Profiles
                     IncludeSubFolders = l.IncludeSubFolders,
                     AllowDeletions = l.AllowDeletions,
                 }).ToList<LightroomArchiveItem>(),
+                TwoWaySyncItems = source.TwoWaySyncItems.Select(t => new TwoWaySyncItem
+                {
+                    Name = t.Name,
+                    SourceFolder = t.SourceFolder,
+                    TargetFolder = t.TargetFolder,
+                    IncludeSubFolders = t.IncludeSubFolders,
+                    ConflictResolution = t.ConflictResolution,
+                    PropagateDeletions = t.PropagateDeletions,
+                    // A duplicate starts with NO baseline manifest (sync state is not copied).
+                    Filters = t.Filters.Select(f => new TwoWaySyncFilter
+                    {
+                        Direction = f.Direction,
+                        Kind = f.Kind,
+                        Pattern = f.Pattern,
+                    }).ToList<TwoWaySyncFilter>(),
+                }).ToList<TwoWaySyncItem>(),
             };
 
             db.Profiles.Add(copy);
@@ -370,6 +395,7 @@ namespace BackupService.Profiles
                 .Include(p => p.InstantSyncItems)
                 .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                 .Include(p => p.LightroomArchiveItems)
+                .Include(p => p.TwoWaySyncItems).ThenInclude(t => t.Filters)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         }
 
@@ -463,6 +489,7 @@ namespace BackupService.Profiles
             IReadOnlyList<InstantSyncInput>? instantSyncItems = null,
             IReadOnlyList<ArchiveSyncInput>? archiveSyncItems = null,
             IReadOnlyList<LightroomArchiveInput>? lightroomArchiveItems = null,
+            IReadOnlyList<TwoWaySyncInput>? twoWaySyncItems = null,
             string? lightroomFolder = null,
             string? rawFormats = null,
             string? rawFolderName = null,
@@ -481,6 +508,7 @@ namespace BackupService.Profiles
             var instantItems = instantSyncItems ?? [];
             var archiveItems = archiveSyncItems ?? [];
             var lightroomItems = lightroomArchiveItems ?? [];
+            var twoWayItems = twoWaySyncItems ?? [];
 
             await using var db = contextFactory.CreateDbContext();
 
@@ -489,6 +517,7 @@ namespace BackupService.Profiles
                 .Include(p => p.InstantSyncItems)
                 .Include(p => p.ArchiveSyncItems).ThenInclude(a => a.Filters)
                 .Include(p => p.LightroomArchiveItems)
+                .Include(p => p.TwoWaySyncItems).ThenInclude(t => t.Filters)
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
             if (profile is null)
@@ -526,6 +555,7 @@ namespace BackupService.Profiles
                 ProfileType.InstantSync => instantSyncItemService.Sync(profile, instantItems),
                 ProfileType.ArchiveSync => archiveSyncItemService.Sync(profile, archiveItems),
                 ProfileType.LightroomArchive => SyncLightroom(profile, lightroomItems, lightroomFolder, rawFormats, rawFolderName),
+                ProfileType.TwoWaySync => twoWaySyncItemService.Sync(profile, twoWayItems),
                 _ => folderPairService.Sync(profile, folderPairs),
             };
 

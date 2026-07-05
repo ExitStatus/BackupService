@@ -266,11 +266,11 @@ namespace BackupService.Scheduling.Usb
 
             var connectionIds = matched.Select(m => m.ConnectionId).ToList();
 
-            // Candidates: enabled FolderPair/ArchiveSync whose source OR target is one of the arrived connections.
+            // Candidates: enabled FolderPair/ArchiveSync/TwoWaySync whose source OR target is one of the arrived connections.
             var candidates = await db.Profiles
                 .AsNoTracking()
                 .Where(p => p.Enabled
-                    && (p.Type == ProfileType.FolderPair || p.Type == ProfileType.ArchiveSync)
+                    && (p.Type == ProfileType.FolderPair || p.Type == ProfileType.ArchiveSync || p.Type == ProfileType.TwoWaySync)
                     && ((p.SourceConnectionId != null && connectionIds.Contains(p.SourceConnectionId.Value))
                         || (p.TargetConnectionId != null && connectionIds.Contains(p.TargetConnectionId.Value))))
                 .Select(p => new { p.Id, p.SourceConnectionId, p.TargetConnectionId, p.EjectAfterRun, p.NotificationsEnabled, p.NotifyOnEject })

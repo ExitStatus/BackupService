@@ -23,9 +23,13 @@ namespace BackupService.Database
 
         public DbSet<LightroomArchiveItem> LightroomArchiveItems => Set<LightroomArchiveItem>();
 
+        public DbSet<TwoWaySyncItem> TwoWaySyncItems => Set<TwoWaySyncItem>();
+
         public DbSet<FolderPairFilter> FolderPairFilters => Set<FolderPairFilter>();
 
         public DbSet<ArchiveSyncFilter> ArchiveSyncFilters => Set<ArchiveSyncFilter>();
+
+        public DbSet<TwoWaySyncFilter> TwoWaySyncFilters => Set<TwoWaySyncFilter>();
 
         public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
 

@@ -48,6 +48,7 @@ namespace BackupService.Components.Dialogs
         private readonly List<InstantSyncItemModel> _instantSyncItems = [];
         private readonly List<ArchiveSyncItemModel> _archiveSyncItems = [];
         private readonly List<LightroomArchiveItemModel> _lightroomArchiveItems = [];
+        private readonly List<TwoWaySyncItemModel> _twoWaySyncItems = [];
         private InputText? _nameInput;
 
         // Remembers the last folder browsed (per connection) for this dialog session, so browsing to a
@@ -58,6 +59,7 @@ namespace BackupService.Components.Dialogs
         private InstantSyncControl? _instantSyncControl;
         private ArchiveSyncControl? _archiveSyncControl;
         private LightroomArchiveControl? _lightroomArchiveControl;
+        private TwoWaySyncControl? _twoWaySyncControl;
         private ScheduleDefinition? _schedule;
         private string? _existingScheduleCron;
         private bool _showSchedule;
@@ -108,13 +110,13 @@ namespace BackupService.Components.Dialogs
 
         // FolderPair/ArchiveSync may target a read/write USB mass-storage drive (read-only MTP is excluded by the
         // target picker).
-        private bool TargetAllowsUsb => Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync;
+        private bool TargetAllowsUsb => Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
 
         // A FolderPair/ArchiveSync profile whose (profile-level) source OR target is a USB connection is run when the
         // device is plugged in, not on a schedule — so the Schedule field is replaced with a note and no cron is
         // saved. Recomputed on render, so it reflects the source/target connections picked above.
         private bool IsDeviceTriggered =>
-            Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync
+            Input.Type is ProfileType.FolderPair or ProfileType.ArchiveSync or ProfileType.TwoWaySync
             && (IsUsbConnection(Input.SourceConnectionId) || IsUsbConnection(Input.TargetConnectionId));
 
         private bool IsUsbConnection(int? connectionId) =>
@@ -261,6 +263,22 @@ namespace BackupService.Components.Dialogs
                     AllowDeletions = item.AllowDeletions,
                 });
             }
+
+            foreach (var item in profile.TwoWaySyncItems)
+            {
+                _twoWaySyncItems.Add(new TwoWaySyncItemModel
+                {
+                    Id = item.Id,
+                    Name = item.Name,
+                    SourceFolder = item.SourceFolder,
+                    TargetFolder = item.TargetFolder,
+                    IncludeSubFolders = item.IncludeSubFolders,
+                    ConflictResolution = item.ConflictResolution,
+                    PropagateDeletions = item.PropagateDeletions,
+                    Includes = FilterModels(item.Filters, FilterDirection.Include),
+                    Excludes = FilterModels(item.Filters, FilterDirection.Exclude),
+                });
+            }
         }
 
         // When creating a new profile, put the cursor in the Name field so the user can start typing
@@ -309,6 +327,7 @@ namespace BackupService.Components.Dialogs
                 ProfileType.InstantSync => await SubmitInstantSyncAsync(),
                 ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
                 ProfileType.LightroomArchive => await SubmitLightroomArchiveAsync(),
+                ProfileType.TwoWaySync => await SubmitTwoWaySyncAsync(),
                 _ => await SubmitFolderPairAsync(),
             };
 
@@ -347,6 +366,39 @@ namespace BackupService.Components.Dialogs
             else
             {
                 await ProfileService.CreateAsync(Input.Name, ProfileType.FolderPair, scheduleCron, Input.Enabled, folderPairs, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
+            }
+
+            return true;
+        }
+
+        private async Task<bool> SubmitTwoWaySyncAsync()
+        {
+            if (_twoWaySyncControl is null || !_twoWaySyncControl.Validate())
+            {
+                _activeTab = "actions";
+                return false;
+            }
+
+            // A USB-sourced/targeted profile is device-triggered, not scheduled — save it with no cron.
+            var scheduleCron = IsDeviceTriggered ? null : _schedule?.ToCron() ?? _existingScheduleCron;
+
+            var items = _twoWaySyncItems
+                .Select(t => new TwoWaySyncInput(t.Id, t.Name, t.SourceFolder, t.TargetFolder, t.IncludeSubFolders, t.ConflictResolution, t.PropagateDeletions, BuildFilters(t.Includes, t.Excludes)))
+                .ToList();
+
+            if (ProfileId is { } id)
+            {
+                await ProfileService.UpdateAsync(id, Input.Name, scheduleCron, Input.Enabled, folderPairs: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
+                    sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
+                    notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
+                    notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
+            }
+            else
+            {
+                await ProfileService.CreateAsync(Input.Name, ProfileType.TwoWaySync, scheduleCron, Input.Enabled, folderPairs: [], twoWaySyncItems: items, handleMissedSync: Input.HandleMissedSync,
                     sourceConnectionId: Input.SourceConnectionId, targetConnectionId: Input.TargetConnectionId, groupId: Input.GroupId,
                     notificationsEnabled: Input.NotificationsEnabled, notifyOnStart: Input.NotifyOnStart, notifyOnComplete: Input.NotifyOnComplete,
                     notifyOnEject: Input.NotifyOnEject, showProgressWindow: Input.ShowProgressWindow, ejectAfterRun: Input.EjectAfterRun);
@@ -466,6 +518,11 @@ namespace BackupService.Components.Dialogs
                 .ToList();
 
         private static List<FilterEntryModel> FilterModels(IEnumerable<ArchiveSyncFilter> filters, FilterDirection direction) =>
+            filters.Where(f => f.Direction == direction)
+                .Select(f => new FilterEntryModel { Id = f.Id, Kind = f.Kind, Pattern = f.Pattern })
+                .ToList();
+
+        private static List<FilterEntryModel> FilterModels(IEnumerable<TwoWaySyncFilter> filters, FilterDirection direction) =>
             filters.Where(f => f.Direction == direction)
                 .Select(f => new FilterEntryModel { Id = f.Id, Kind = f.Kind, Pattern = f.Pattern })
                 .ToList();
