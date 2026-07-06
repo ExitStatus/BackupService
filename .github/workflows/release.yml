@@ -1,0 +1,83 @@
+name: Release
+
+# Release build. Triggered by pushes to a release/<major>.<minor> branch (its creation and any
+# subsequent change). The version is <major>.<minor>.{run_number}, where major/minor are parsed from
+# the branch name (e.g. release/1.2 -> 1.2.{run_number}). Produces two self-contained, portable ZIPs
+# (Windows win-x64 and Linux linux-x64) and publishes a GitHub Release tagged v{version} with both ZIPs
+# attached. No installers are produced.
+
+on:
+  push:
+    branches: [ 'release/**' ]
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        run: bash .github/scripts/compute-version.sh
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test -c Release
+
+  build:
+    needs: [ version, test ]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [ win-x64, linux-x64 ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish portable (${{ matrix.rid }})
+        run: >
+          dotnet publish BackupService/BackupService.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:Version=${{ needs.version.outputs.version }} -o portable
+
+      - name: Zip portable build
+        run: cd portable && zip -r "../BackupService-portable-${{ matrix.rid }}-${{ needs.version.outputs.version }}.zip" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackupService-portable-${{ matrix.rid }}-${{ needs.version.outputs.version }}
+          path: BackupService-portable-${{ matrix.rid }}-${{ needs.version.outputs.version }}.zip
+
+  release:
+    needs: [ version, build ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download portable ZIPs
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          files: artifacts/*.zip

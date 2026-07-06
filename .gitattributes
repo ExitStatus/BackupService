@@ -1,6 +1,10 @@
 # Windows project: check out all text files with CRLF line endings.
 * text=auto eol=crlf
 
+# Shell scripts must stay LF — they run on the Linux CI runner, where a CRLF
+# shebang/line ending (\r) breaks execution.
+*.sh text eol=lf
+
 # Binary assets: never alter line endings.
 *.png binary
 *.ico binary
