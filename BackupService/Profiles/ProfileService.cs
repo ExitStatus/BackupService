@@ -335,11 +335,13 @@ namespace BackupService.Profiles
             await using var db = contextFactory.CreateDbContext();
 
             // Include the profile-level source/target connections so the grid can show a device-triggered
-            // profile's connection(s) in the Schedule column without a separate lookup. LightroomArchive items are
-            // included too so the Schedule column can list a Lightroom profile's monitored source folders.
+            // profile's connection(s) in the Schedule column without a separate lookup. The watcher-driven types'
+            // items (InstantSync/LightroomArchive) are included too so the Schedule column can list their
+            // monitored source folders instead of "Not scheduled".
             IQueryable<Profile> query = db.Profiles.AsNoTracking()
                 .Include(p => p.SourceConnection)
                 .Include(p => p.TargetConnection)
+                .Include(p => p.InstantSyncItems)
                 .Include(p => p.LightroomArchiveItems);
             if (type is { } t)
             {

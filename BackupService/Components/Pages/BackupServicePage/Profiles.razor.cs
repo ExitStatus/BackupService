@@ -281,18 +281,27 @@ namespace BackupService.Components.Pages.BackupServicePage
         // GetPageAsync) so it's always available, independent of run status. Static: purely entity-derived.
         private static string ScheduleCell(Profile profile)
         {
-            // LightroomArchive is watcher-driven (never scheduled); rather than "Not scheduled", list the folder
-            // names it monitors — the source folder of each of its actions, names only (not the full paths),
-            // comma-separated and capped at 128 characters.
-            if (profile.Type == ProfileType.LightroomArchive && profile.LightroomArchiveItems.Count > 0)
+            // The watcher-driven types (InstantSync/LightroomArchive) are never scheduled; rather than
+            // "Not scheduled", list the folder names they monitor — the source folder of each of their actions,
+            // names only (not the full paths), comma-separated and capped at 128 characters.
+            var monitoredSources = profile.Type switch
             {
-                var folders = string.Join(", ", profile.LightroomArchiveItems.Select(i => FolderName(i.SourceFolder)));
-                if (folders.Length > MonitorFoldersMaxLength)
+                ProfileType.InstantSync => profile.InstantSyncItems.Select(i => i.SourceFolder),
+                ProfileType.LightroomArchive => profile.LightroomArchiveItems.Select(i => i.SourceFolder),
+                _ => null
+            };
+            if (monitoredSources is not null)
+            {
+                var folders = string.Join(", ", monitoredSources.Select(FolderName).Where(n => !string.IsNullOrEmpty(n)));
+                if (folders.Length > 0)
                 {
-                    folders = folders[..(MonitorFoldersMaxLength - 1)].TrimEnd() + "…";
-                }
+                    if (folders.Length > MonitorFoldersMaxLength)
+                    {
+                        folders = folders[..(MonitorFoldersMaxLength - 1)].TrimEnd() + "…";
+                    }
 
-                return $"Monitor: {folders}";
+                    return $"Monitor: {folders}";
+                }
             }
 
             var usbNames = new List<string>();
