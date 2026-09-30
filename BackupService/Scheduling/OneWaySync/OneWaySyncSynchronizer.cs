@@ -226,7 +226,15 @@ namespace BackupService.Scheduling
 
                     if (WriteTimesEqual(sourceTime, destTime))
                     {
-                        // Same timestamp (within filesystem granularity) — no change, nothing logged.
+                        // Same timestamp (within filesystem granularity) — normally no change, nothing logged. But a
+                        // size mismatch means the destination is not a faithful copy (e.g. an earlier transfer that
+                        // was truncated yet stamped with the source's time), so repair it rather than skip forever.
+                        if (SizesDiffer(ctx, sourcePath, destPath)
+                            && await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
+                        {
+                            result.Updated++;
+                            await log.AppendAsync(OperationLogLevel.Warning, $"Repaired '{destPath}' (size differed from source — previous copy was incomplete)");
+                        }
                     }
                     else if (sourceTime > destTime)
                     {
@@ -382,6 +390,7 @@ namespace BackupService.Scheduling
             try
             {
                 var sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(source);
+                var expectedSize = TryGetSize(ctx.SourceFs, source);
 
                 using (var input = ctx.SourceFs.OpenRead(source))
                 using (var output = ctx.TargetFs.OpenWrite(tempPath))
@@ -389,6 +398,15 @@ namespace BackupService.Scheduling
                     // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch
                     // below removes the partial temp, so nothing is left behind).
                     await input.CopyToAsync(output, ct);
+                }
+
+                // Never commit a short copy: a source stream that ended early (e.g. a flaky MTP transfer) would
+                // otherwise be renamed into place and stamped with the source's time, so later runs would see it
+                // as unchanged. A file that grew mid-copy (a live log) is larger, not smaller, so only short fails.
+                var writtenSize = ctx.TargetFs.GetFileSize(tempPath);
+                if (expectedSize is { } expected && writtenSize < expected)
+                {
+                    throw new IOException($"Incomplete copy: only {writtenSize} of {expected} bytes were transferred.");
                 }
 
                 // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
@@ -400,7 +418,7 @@ namespace BackupService.Scheduling
                     ctx.TargetFs.DeleteFile(dest);
                 }
                 ctx.TargetFs.MoveFile(tempPath, dest, overwrite: false);
-                result.BytesCopied += TrySize(ctx, source);
+                result.BytesCopied += writtenSize;
                 return true;
             }
             catch (OperationCanceledException)
@@ -465,18 +483,26 @@ namespace BackupService.Scheduling
             return StreamCompare.Equal(a, b);
         }
 
-        // Best-effort source file size for the bytes-copied stat — never let a stats read fail the copy.
-        private static long TrySize(SyncContext ctx, string path)
+        // Best-effort file size (null when it can't be read); a gone endpoint still aborts the run.
+        private static long? TryGetSize(IBackupFileSystem fs, string path)
         {
             try
             {
-                return ctx.SourceFs.GetFileSize(path);
+                return fs.GetFileSize(path);
+            }
+            catch (EndpointUnavailableException)
+            {
+                throw;
             }
             catch
             {
-                return 0;
+                return null;
             }
         }
+
+        // True only when both sizes are readable and differ — an unreadable size never forces a re-copy.
+        private static bool SizesDiffer(SyncContext ctx, string source, string dest) =>
+            TryGetSize(ctx.SourceFs, source) is { } s && TryGetSize(ctx.TargetFs, dest) is { } d && s != d;
 
         // The crash-safe copy writes each file to a deterministic dot-prefixed temp before renaming it into
         // place ("report.pdf" -> ".report.pdf.tmp"). Centralised so the writer and the leftover-sweep agree.

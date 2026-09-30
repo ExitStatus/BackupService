@@ -92,6 +92,37 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task SourceStreamEndsEarly_CopyIsNotCommitted_AndIsAnError()
+        {
+            // A flaky MTP transfer can end the source stream early without throwing. The truncated data must
+            // not be renamed into place (and stamped with the source time, which would hide it from later runs).
+            _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
+            _fs.OpenReadOverride = _ => new MemoryStream(Encoding.UTF8.GetBytes("full"), writable: false);
+
+            var result = await Run(Pair());
+
+            _fs.FileExists(@"C:\dst\photo.arw").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Copied.Should().Be(0);
+            result.Errors.Should().Be(1);
+            _log.Errors.Should().Contain(m => m.Contains("Incomplete copy"));
+        }
+
+        [Test]
+        public async Task EqualTimestampButDifferentSize_IsRepaired()
+        {
+            // A previously truncated copy carries the source's timestamp; the size mismatch must trigger a re-copy.
+            _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
+            _fs.AddFile(@"C:\dst\photo.arw", T1, "full");
+
+            var result = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\photo.arw").Should().Be("full-content");
+            result.Updated.Should().Be(1);
+            _log.Messages.Should().Contain(m => m.Contains("Repaired"));
+        }
+
+        [Test]
         public async Task BytesCopied_SumsCopiedAndUpdatedFileSizes_SkippedFilesContributeNothing()
         {
             _fs.AddFile(@"C:\src\new.txt", T1, "hello");  // 5 bytes — new copy

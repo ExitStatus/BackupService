@@ -273,18 +273,47 @@ namespace BackupService.FileSystem.Mtp
         }
 
         // Downloads the device file to a fresh local temp (with reconnect/retry). Caller owns the returned path.
+        // A WPD transfer can end early WITHOUT throwing (the device's stream just reports end-of-data when the session
+        // hiccups), which silently produced truncated/corrupt copies. So the downloaded length is verified against
+        // the size the device reports for the object; a short download is discarded and re-fetched on a fresh
+        // session, and if it never completes the read fails (a per-file error) rather than returning partial data.
         private string DownloadToTemp(string path)
         {
             var tempPath = LocalTempPath();
             try
             {
-                WithRetry(() =>
+                for (var attempt = 1; ; attempt++)
                 {
-                    // Re-truncate the temp on a retry so a partially-downloaded file from a dropped session is discarded.
-                    using var fileStream = System.IO.File.Create(tempPath);
-                    _device!.DownloadFile(Normalize(path), fileStream);
-                    return true;
-                });
+                    var expected = WithRetry(() => (long)_device!.GetFileInfo(Normalize(path)).Length);
+                    var actual = WithRetry(() =>
+                    {
+                        // Re-truncate the temp on a retry so a partially-downloaded file from a dropped session is discarded.
+                        using var fileStream = System.IO.File.Create(tempPath);
+                        _device!.DownloadFile(Normalize(path), fileStream);
+                        fileStream.Flush();
+                        return fileStream.Length;
+                    });
+
+                    // A device reporting 0 for a non-empty object gives us nothing to verify against — accept it.
+                    if (expected <= 0 || actual == expected)
+                    {
+                        break;
+                    }
+
+                    _logger?.LogWarning(
+                        "MTP: incomplete download of '{File}' ({Actual} of {Expected} bytes, attempt {Attempt}/{MaxAttempts}).",
+                        DisplayName(path), actual, expected, attempt, MaxAttempts);
+
+                    if (attempt >= MaxAttempts)
+                    {
+                        throw new IOException(
+                            $"Incomplete transfer from the MTP device: received {actual} of {expected} bytes after {MaxAttempts} attempts.");
+                    }
+
+                    // Start the next attempt on a fresh session — a truncated transfer usually means the session is unwell.
+                    InvalidateDevice();
+                    Thread.Sleep(ReconnectDelayMs);
+                }
             }
             catch
             {
