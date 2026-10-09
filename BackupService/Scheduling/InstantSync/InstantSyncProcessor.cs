@@ -179,11 +179,8 @@ namespace BackupService.Scheduling
             try
             {
                 fileSystem.CopyFile(source, tempPath, overwrite: true); // fresh temp, clobbering any stale one
-                if (fileSystem.FileExists(dest))
-                {
-                    fileSystem.DeleteFile(dest);
-                }
-                fileSystem.MoveFile(tempPath, dest, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                fileSystem.MoveFile(tempPath, dest, overwrite: true);
                 result.BytesCopied += TrySize(source);
                 return true;
             }

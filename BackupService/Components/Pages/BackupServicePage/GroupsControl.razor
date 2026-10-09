@@ -24,7 +24,7 @@ else
                 <th><button class="sort-header" @onclick="() => SortByAsync(GroupSortColumn.Concurrency)">Concurrency@(SortIndicator(GroupSortColumn.Concurrency))</button></th>
                 <th>Profiles</th>
                 <th>Running</th>
-                <th>Last run started</th>
+                <th title="When a member profile last finished a run">Last run</th>
                 <th class="action-col"></th>
             </tr>
         </thead>
@@ -36,7 +36,7 @@ else
                     <td>@group.Concurrency.GetDescription()</td>
                     <td>@ProfileCount(group.Id)</td>
                     <td>@RunningCount(group.Id)</td>
-                    <td>@LastRunStarted(group.Id)</td>
+                    <td>@LastRun(group.Id)</td>
                     <td class="action-col">
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Edit group"

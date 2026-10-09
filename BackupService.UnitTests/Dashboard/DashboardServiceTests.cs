@@ -225,6 +225,49 @@ namespace BackupService.UnitTests.Dashboard
         }
 
         [Test]
+        public async Task GetAsync_CountsEveryRunInThePeriod_NotJustTheNewest5000()
+        {
+            // A busy watcher records a run per flush; the old 5,000-row cap silently dropped the older days.
+            var profile = SeedProfile("Busy", enabled: true);
+            var start = DateTimeOffset.UtcNow.AddHours(-1);
+            using (var db = new BackupDbContext(_options))
+            {
+                db.BackupRuns.AddRange(Enumerable.Range(0, 6000).Select(i => new BackupRun
+                {
+                    ProfileId = profile,
+                    Type = ProfileType.InstantSync,
+                    Outcome = RunOutcome.Success,
+                    DurationMs = 10,
+                    StartedUtc = start.AddMilliseconds(i * 100),
+                    Copied = 1,
+                }));
+                db.SaveChanges();
+            }
+
+            var data = await _service.GetAsync(days: 7);
+
+            data.RunsInPeriod.Should().Be(6000);
+            data.FilesSyncedInPeriod.Should().Be(6000);
+        }
+
+        [Test]
+        public async Task GetAsync_TheCardsCoverTheSameDaysAsTheCharts()
+        {
+            // The cards used a rolling now-minus-N-days cutoff while the charts start at midnight N-1 days ago, so a
+            // run in between was counted in the totals but drawn in no column.
+            var profile = SeedProfile("Alpha", enabled: true);
+            var firstChartDay = new DateTimeOffset(DateTime.Today.AddDays(-6));
+            AddRun(profile, RunOutcome.Success, 1000, firstChartDay.AddMinutes(-1));
+            AddRun(profile, RunOutcome.Success, 1000, firstChartDay.AddMinutes(1));
+
+            var data = await _service.GetAsync(days: 7);
+
+            data.RunsInPeriod.Should().Be(1);
+            data.OutcomesByDay.Sum(d => d.Success + d.Warnings + d.CompletedWithErrors + d.Failed)
+                .Should().Be(data.RunsInPeriod);
+        }
+
+        [Test]
         public async Task GetAsync_WhenNoRuns_ReturnsZeroedStats()
         {
             SeedProfile("Alpha", enabled: true);

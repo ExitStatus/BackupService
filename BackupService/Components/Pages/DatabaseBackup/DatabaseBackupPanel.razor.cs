@@ -115,9 +115,20 @@ namespace BackupService.Components.Pages.DatabaseBackup
             try
             {
                 var ran = await DbBackupService.RunBackupAsync(manual: true);
-                _notification.Show(
-                    ran ? "Database backup created" : "Database backup failed — see Logs",
-                    ran ? NotificationLevel.Success : NotificationLevel.Error);
+                if (ran)
+                {
+                    _notification.Show("Database backup created", NotificationLevel.Success);
+                }
+                else if (DbBackupService.IsRunning)
+                {
+                    // Skipped, not failed: the scheduled backup (or another tab's) is still going, and Logs has no
+                    // failure to show.
+                    _notification.Show("A database backup is already running — it will appear here when it finishes.", NotificationLevel.Warning);
+                }
+                else
+                {
+                    _notification.Show("Database backup failed — see Logs", NotificationLevel.Error);
+                }
                 await LoadBackupsAsync();
             }
             finally

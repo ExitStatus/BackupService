@@ -37,6 +37,14 @@ namespace BackupService.Components.Pages.BackupServicePage
         private PagedResult<OperationLog>? _logs;
         private bool _disposed;
 
+        // The latest header load (see LoadAsync) and the pending debounced one from typing in the name filter.
+        private int _loadVersion;
+        private CancellationTokenSource? _loadCts;
+        private CancellationTokenSource? _filterDebounce;
+
+        // Logs with a "Load previous" read in flight.
+        private readonly HashSet<int> _loadingEarlier = [];
+
         private string _filter = string.Empty;
         private bool _includeMessages;
         private OperationLogLevel? _level;
@@ -242,9 +250,30 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
+        // Only the latest load is applied: with "Include Messages" a load scans every log file, so an earlier,
+        // slower one could finish last and overwrite newer results (a cleared filter then still showed the old
+        // matches). Each load cancels the one before and remembers its number.
         private async Task LoadAsync()
         {
-            var page = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId);
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            var cts = _loadCts = new CancellationTokenSource();
+            var version = ++_loadVersion;
+
+            PagedResult<OperationLog> page;
+            try
+            {
+                page = await OperationLogService.GetPageAsync(1, PageSize, _filter, _includeMessages, _level, _profileId, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return; // superseded by a newer load
+            }
+            if (version != _loadVersion || _disposed)
+            {
+                return;
+            }
+
             _logs = ExcludeInProgressRuns(page);
 
             // Collapse everything when the (re)load happens — the visible set may differ — releasing all
@@ -253,15 +282,54 @@ namespace BackupService.Components.Pages.BackupServicePage
             ClearAllDetailState();
         }
 
-        // Hides the in-progress run's log — the newest log of any profile currently running — so the Logs page
-        // shows only finished runs. A page's rows are the full result set (PageSize is unbounded), so a simple
-        // in-memory filter suffices; the live run is followed in the View Progress dialog instead.
+        // Typing in the name filter waits for a pause, so a word doesn't start one load per letter — each of which,
+        // with "Include Messages", scans every log file.
+        private void ScheduleLoad()
+        {
+            _filterDebounce?.Cancel();
+            _filterDebounce?.Dispose();
+            var cts = _filterDebounce = new CancellationTokenSource();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(SearchDebounceMs, cts.Token);
+                    await InvokeAsync(async () =>
+                    {
+                        if (!cts.IsCancellationRequested && !_disposed)
+                        {
+                            await LoadAsync();
+                            StateHasChanged();
+                        }
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer keystroke, or the page was disposed.
+                }
+            });
+        }
+
+        private void CancelScheduledLoad()
+        {
+            _filterDebounce?.Cancel();
+            _filterDebounce?.Dispose();
+            _filterDebounce = null;
+        }
+
+        // Hides the in-progress run's log — exactly the one its handler recorded — so the Logs page shows only
+        // finished runs; the live run is followed in the View Progress dialog instead. (It used to hide "the newest
+        // log of a running profile", which under a level filter, or for a run still queued with no log yet, was an
+        // older, finished run's.) A page's rows are the full result set (PageSize is unbounded), so a simple
+        // in-memory filter suffices.
         private PagedResult<OperationLog> ExcludeInProgressRuns(PagedResult<OperationLog> page)
         {
             var inProgress = page.Items
-                .Where(l => l.Profile is not null && StatusService.Get(l.Profile.Id) == ProfileStatus.Running)
-                .GroupBy(l => l.Profile!.Id)
-                .Select(g => g.Max(l => l.Id))
+                .Where(l => l.Profile is not null)
+                .Select(l => l.Profile!.Id)
+                .Distinct()
+                .Select(StatusService.GetRunLog)
+                .OfType<int>()
                 .ToHashSet();
 
             if (inProgress.Count == 0)
@@ -273,14 +341,15 @@ namespace BackupService.Components.Pages.BackupServicePage
             return new PagedResult<OperationLog>(items, items.Count, page.PageNumber, page.PageSize);
         }
 
-        private async Task OnFilterChanged(ChangeEventArgs e)
+        private void OnFilterChanged(ChangeEventArgs e)
         {
             _filter = e.Value?.ToString() ?? string.Empty;
-            await LoadAsync();
+            ScheduleLoad();
         }
 
         private async Task ClearFilter()
         {
+            CancelScheduledLoad();
             _filter = string.Empty;
             await LoadAsync();
         }
@@ -319,26 +388,48 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
 
             _expanded.Add(logId);
+            var version = _loadVersion;
 
             // Load the tail window — the end of the log is where the summary and errors live.
             var window = await OperationLogService.GetDetailWindowAsync(logId, skip: null, take: DetailWindowLines);
-            ApplyWindow(logId, window);
+
+            // Collapsed again (or the list reloaded) while that read ran: keeping the lines would hold them for a log
+            // that isn't showing.
+            if (version == _loadVersion && _expanded.Contains(logId) && !_disposed)
+            {
+                ApplyWindow(logId, window);
+            }
         }
 
         /// <summary>Walks the window backwards: prepends the previous chunk of earlier lines.</summary>
         private async Task LoadEarlierAsync(int logId)
         {
             var start = DetailStart(logId);
-            if (start <= 0 || !_details.TryGetValue(logId, out var lines))
+            // One walk-back at a time per log: a double-click otherwise read the same chunk twice and prepended both.
+            if (start <= 0 || !_details.TryGetValue(logId, out var lines) || !_loadingEarlier.Add(logId))
             {
                 return;
             }
 
-            var skip = Math.Max(0, start - DetailWindowLines);
-            var window = await OperationLogService.GetDetailWindowAsync(logId, skip, take: start - skip);
-            lines.InsertRange(0, window.Lines);
-            _detailStart[logId] = window.StartIndex;
+            try
+            {
+                var skip = Math.Max(0, start - DetailWindowLines);
+                var window = await OperationLogService.GetDetailWindowAsync(logId, skip, take: start - skip);
+
+                // Only if this log still shows the same lines (not collapsed or reloaded meanwhile).
+                if (_details.TryGetValue(logId, out var current) && ReferenceEquals(current, lines))
+                {
+                    lines.InsertRange(0, window.Lines);
+                    _detailStart[logId] = window.StartIndex;
+                }
+            }
+            finally
+            {
+                _loadingEarlier.Remove(logId);
+            }
         }
+
+        private bool LoadingEarlier(int logId) => _loadingEarlier.Contains(logId);
 
         private void ApplyWindow(int logId, OperationLogWindow window)
         {
@@ -395,6 +486,10 @@ namespace BackupService.Components.Pages.BackupServicePage
         public void Dispose()
         {
             _disposed = true;
+            CancelScheduledLoad();
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = null;
             _expanded.Clear();
             ClearAllDetailState();
             _logs = null;

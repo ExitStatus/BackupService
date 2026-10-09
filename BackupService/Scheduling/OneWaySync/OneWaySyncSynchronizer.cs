@@ -90,7 +90,7 @@ namespace BackupService.Scheduling
                 foreach (var sub in dirs)
                 {
                     var name = PathHelper.GetLeafName(sub);
-                    if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
+                    if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]) || DirectoryLinkLoop.Target(fs, sub) is not null)
                     {
                         continue;
                     }
@@ -356,6 +356,11 @@ namespace BackupService.Scheduling
                     {
                         continue;
                     }
+                    if (DirectoryLinkLoop.Target(ctx.SourceFs, sourceSub) is { } loopTarget)
+                    {
+                        await log.AppendAsync($"Skipped '{sourceSub}' — it's a link back to '{loopTarget}', which this backup is already inside");
+                        continue;
+                    }
                     await SyncDirectoryAsync(sourceSub, Path.Combine(targetDir, name), [.. ancestors, name], ctx, log, result, fileProgress, ct);
                 }
 
@@ -451,7 +456,15 @@ namespace BackupService.Scheduling
                     // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch below
                     // removes the partial temp, so nothing is left behind). Counting the bytes as they stream
                     // saves a metadata round trip on the target to find out how much was written.
-                    written = await CopyCountingAsync(input, output, ct);
+                    try
+                    {
+                        written = await CopyCountingAsync(input, output, ct);
+                    }
+                    catch
+                    {
+                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                        throw;
+                    }
                 }
 
                 // Never commit a short copy: a source stream that ended early (e.g. a flaky transfer) would
@@ -476,11 +489,8 @@ namespace BackupService.Scheduling
                 // timestamp across (a fresh-write "now" timestamp would look newer on the next run).
                 TryStampWriteTime(ctx.TargetFs, tempPath, sourceStat.LastWriteTimeUtc);
 
-                if (ctx.TargetFs.FileExists(dest))
-                {
-                    ctx.TargetFs.DeleteFile(dest);
-                }
-                ctx.TargetFs.MoveFile(tempPath, dest, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                ctx.TargetFs.MoveFile(tempPath, dest, overwrite: true);
                 result.BytesCopied += written;
                 return true;
             }

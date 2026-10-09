@@ -28,6 +28,9 @@ namespace BackupService.DatabaseBackup
         /// </summary>
         Task<bool> RunBackupAsync(bool manual, CancellationToken cancellationToken = default);
 
+        /// <summary>Whether a backup is running right now — so a skipped "Back up now" can say why.</summary>
+        bool IsRunning { get; }
+
         /// <summary>The backups in the configured target folder, newest first (foreign files ignored).</summary>
         Task<IReadOnlyList<DatabaseBackupInfo>> ListBackupsAsync(CancellationToken cancellationToken = default);
 

@@ -33,6 +33,12 @@ namespace BackupService.FileSystem
         /// </summary>
         bool IsDirectoryLink(string path) => false;
 
+        /// <summary>
+        /// Where a directory link (junction or symlink) finally points, or null when <paramref name="path"/> isn't
+        /// one. Lets a walk spot a link back to a folder it's already inside, which it would otherwise follow forever.
+        /// </summary>
+        string? GetDirectoryLinkTarget(string path) => null;
+
         /// <summary>True when nothing can be written here (an MTP device) — every write member throws.</summary>
         bool IsReadOnly => false;
 

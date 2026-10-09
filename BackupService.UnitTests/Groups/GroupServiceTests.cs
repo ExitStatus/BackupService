@@ -121,7 +121,7 @@ namespace BackupService.UnitTests.Groups
 
             stats.Should().ContainKey(id);
             stats[id].Count.Should().Be(2);
-            stats[id].LastRunStarted.Should().Be(newer);
+            stats[id].LastRun.Should().Be(newer);
             stats[id].ProfileIds.Should().BeEquivalentTo(new[] { p1, p2 });
         }
 

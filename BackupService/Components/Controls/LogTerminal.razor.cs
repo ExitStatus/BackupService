@@ -38,6 +38,7 @@ namespace BackupService.Components.Controls
         private bool _subscribed;
         private bool _disposed;
         private bool _refreshing;
+        private bool _refreshAgain; // a push arrived during a refresh — read once more after it
         private bool _scrollPending;
 
         private string TerminalElementId => $"log-terminal-view-{LogId}";
@@ -78,24 +79,36 @@ namespace BackupService.Components.Controls
             // Raised on a background thread — marshal onto the renderer and reload in place.
             _ = InvokeAsync(async () =>
             {
-                if (_disposed || _refreshing)
+                if (_disposed)
                 {
+                    return;
+                }
+                if (_refreshing)
+                {
+                    // Not dropped: if it was the run's last push (its final lines and summary), nothing else would
+                    // trigger a read. The refresh in flight reads once more when it finishes.
+                    _refreshAgain = true;
                     return;
                 }
                 _refreshing = true;
                 try
                 {
-                    // Compare the last line (not the count) to detect new content — the count plateaus at
-                    // MaxLines once the log is capped, so growth would otherwise stop being noticed.
-                    var oldLast = _lines is { Count: > 0 } ? _lines[^1] : null;
-                    var details = await OperationLogService.GetRecentDetailsAsync(LogId, MaxLines);
-                    _lines = details as List<OperationLogLine> ?? details.ToList();
-                    var newLast = _lines.Count > 0 ? _lines[^1] : null;
-                    if (!_paused && newLast is not null && !newLast.Equals(oldLast))
+                    do
                     {
-                        _scrollPending = true; // follow the new lines to the bottom
+                        _refreshAgain = false;
+                        // Compare the last line (not the count) to detect new content — the count plateaus at
+                        // MaxLines once the log is capped, so growth would otherwise stop being noticed.
+                        var oldLast = _lines is { Count: > 0 } ? _lines[^1] : null;
+                        var details = await OperationLogService.GetRecentDetailsAsync(LogId, MaxLines);
+                        _lines = details as List<OperationLogLine> ?? details.ToList();
+                        var newLast = _lines.Count > 0 ? _lines[^1] : null;
+                        if (!_paused && newLast is not null && !newLast.Equals(oldLast))
+                        {
+                            _scrollPending = true; // follow the new lines to the bottom
+                        }
+                        StateHasChanged();
                     }
-                    StateHasChanged();
+                    while (_refreshAgain && !_disposed);
                 }
                 catch
                 {

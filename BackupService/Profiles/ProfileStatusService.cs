@@ -11,7 +11,9 @@ namespace BackupService.Profiles
     {
         private readonly ConcurrentDictionary<int, ProfileStatus> _statuses = new();
         private readonly ConcurrentDictionary<int, ProfileProgress> _progress = new();
-        private readonly ConcurrentDictionary<int, byte> _locked = new();
+        // Lock holders per profile: two tabs can have the same profile open, and one closing mustn't unlock the other.
+        private readonly Dictionary<int, int> _lockCounts = new();
+        private readonly ConcurrentDictionary<int, int> _runLogs = new();
         private readonly object _runLock = new();
 
         public event Action<int>? Changed;
@@ -79,6 +81,7 @@ namespace BackupService.Profiles
                     return false;
                 }
                 _statuses[profileId] = ProfileStatus.Running;
+                _runLogs.TryRemove(profileId, out _); // none yet — a queued run creates its log once it starts
             }
 
             Changed?.Invoke(profileId);
@@ -90,21 +93,63 @@ namespace BackupService.Profiles
             lock (_runLock)
             {
                 _activeRuns.TryRemove(profileId, out _);
+                _runLogs.TryRemove(profileId, out _);
             }
             Set(profileId, finalStatus);
         }
 
+        public void SetRunLog(int profileId, int operationLogId)
+        {
+            _runLogs[profileId] = operationLogId;
+            ProgressChanged?.Invoke(profileId);
+        }
+
+        public int? GetRunLog(int profileId) =>
+            IsRunning(profileId) && _runLogs.TryGetValue(profileId, out var logId) ? logId : null;
+
         public void Remove(int profileId)
         {
             _statuses.TryRemove(profileId, out _);
-            _locked.TryRemove(profileId, out _);
             _activeRuns.TryRemove(profileId, out _);
+            _runLogs.TryRemove(profileId, out _);
+            lock (_lockCounts)
+            {
+                _lockCounts.Remove(profileId);
+            }
         }
 
-        public void Lock(int profileId) => _locked[profileId] = 0;
+        public void Lock(int profileId)
+        {
+            lock (_lockCounts)
+            {
+                _lockCounts[profileId] = _lockCounts.GetValueOrDefault(profileId) + 1;
+            }
+        }
 
-        public void Unlock(int profileId) => _locked.TryRemove(profileId, out _);
+        public void Unlock(int profileId)
+        {
+            lock (_lockCounts)
+            {
+                if (_lockCounts.TryGetValue(profileId, out var count))
+                {
+                    if (count <= 1)
+                    {
+                        _lockCounts.Remove(profileId);
+                    }
+                    else
+                    {
+                        _lockCounts[profileId] = count - 1;
+                    }
+                }
+            }
+        }
 
-        public bool IsLocked(int profileId) => _locked.ContainsKey(profileId);
+        public bool IsLocked(int profileId)
+        {
+            lock (_lockCounts)
+            {
+                return _lockCounts.ContainsKey(profileId);
+            }
+        }
     }
 }

@@ -45,6 +45,20 @@ namespace BackupService.DatabaseBackup
                 return false;
             }
 
+            // Claimed before anything changes, by renaming it, so it's applied at most once: deleting it only after the
+            // swap could fail (a scanner holding it), and the next startup would then apply the same restore again —
+            // over everything changed since, and over the insurance copy. A leftover ".applying" is never picked up.
+            var applying = pending + ".applying";
+            try
+            {
+                File.Move(pending, applying, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message; // nothing has changed; the next startup tries again
+                return false;
+            }
+
             var wal = databasePath + "-wal";
             var shm = databasePath + "-shm";
             var incoming = databasePath + ".restoring";
@@ -69,7 +83,7 @@ namespace BackupService.DatabaseBackup
                 }
 
                 // Stage the restored file beside the database. A failure up to here has changed nothing.
-                File.Copy(pending, incoming, overwrite: true);
+                File.Copy(applying, incoming, overwrite: true);
 
                 // Swap. The old WAL/SHM must not be applied to the restored file, so they're set aside first — and
                 // put back if the swap fails, so the live database is never left without its journal.
@@ -87,17 +101,18 @@ namespace BackupService.DatabaseBackup
                 }
                 TryDelete(walAside);
                 TryDelete(shmAside);
-
-                File.Delete(pending);
-                ArchiveSupersededLogFiles(dataDirectory, databasePath);
-                return true;
             }
             catch (Exception ex)
             {
                 TryDelete(incoming);
+                PutBack(applying, pending); // not applied — stage it again so the next startup retries
                 error = ex.Message;
                 return false;
             }
+
+            TryDelete(applying); // consumed; one that can't be deleted is harmless (only pending-restore.db is applied)
+            ArchiveSupersededLogFiles(dataDirectory, databasePath);
+            return true;
         }
 
         // Turns the insurance pair ("{copy}" + "{copy}-wal") into one standalone file, so restoring it by hand is a

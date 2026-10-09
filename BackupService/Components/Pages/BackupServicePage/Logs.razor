@@ -134,7 +134,7 @@ else
                                             else
                                             {
                                                 <span>@WindowStatus(log.Id)</span>
-                                                <button type="button" class="btn-secondary log-load-earlier"
+                                                <button type="button" class="btn-secondary log-load-earlier" disabled="@LoadingEarlier(log.Id)"
                                                         @onclick="() => LoadEarlierAsync(log.Id)">Load previous @EarlierChunk(log.Id).ToString("N0")</button>
                                             }
                                         </div>

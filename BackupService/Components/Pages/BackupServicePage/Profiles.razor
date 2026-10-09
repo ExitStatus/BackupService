@@ -159,7 +159,7 @@ else
                 <td>@GroupName(profile.GroupId)</td>
             }
             <td>@ScheduleCell(profile)</td>
-            <td>@(profile.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
+            <td>@(profile.DateLastRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
             <td>@StatusText(profile.Id)</td>
             <td class="action-col">
                 <div class="row-actions">

@@ -30,6 +30,21 @@ namespace BackupService.FileSystem
             return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
         }
 
+        public string? GetDirectoryLinkTarget(string path)
+        {
+            try
+            {
+                var info = new DirectoryInfo(path);
+                return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0
+                    ? info.ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                    : null;
+            }
+            catch (Exception)
+            {
+                return null; // unreadable link — treated as an ordinary folder
+            }
+        }
+
         public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
 
         public long GetFileSize(string path) => LengthOf(new FileInfo(path));
@@ -180,6 +195,40 @@ namespace BackupService.FileSystem
             }
         }
 
+        // The files to archive, listed folder by folder: one sub-folder that can't be read (System Volume Information
+        // on a drive's root, a folder this account may not open) is reported as skipped instead of failing the whole
+        // archive, as a single listing of the tree did. The source folder itself being unreadable still fails.
+        private static IEnumerable<string> EnumerateSourceFiles(string root, SearchOption searchOption, List<ZipSkippedFile> skipped)
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                var directory = pending.Pop();
+                string[] files, subDirectories;
+                try
+                {
+                    files = Directory.GetFiles(directory);
+                    subDirectories = searchOption == SearchOption.AllDirectories ? Directory.GetDirectories(directory) : [];
+                }
+                catch (Exception ex) when (directory != root && ex is UnauthorizedAccessException or IOException)
+                {
+                    var folder = Path.GetRelativePath(root, directory).Replace('\\', '/') + "/";
+                    skipped.Add(new ZipSkippedFile(folder, $"the folder couldn't be read: {ex.Message}"));
+                    continue;
+                }
+
+                foreach (var file in files)
+                {
+                    yield return file;
+                }
+                for (var i = subDirectories.Length - 1; i >= 0; i--)
+                {
+                    pending.Push(subDirectories[i]); // popped in listing order
+                }
+            }
+        }
+
         private static ZipBuildResult CreatePlainZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, Action<string>? onEntryProcessed)
         {
             // Build the archive entry-by-entry (rather than ZipFile.CreateFromDirectory) so the caller
@@ -194,7 +243,7 @@ namespace BackupService.FileSystem
             {
                 zip.Comment = comment; // stored in the EOCD record (the "only copy on change" fingerprint)
             }
-            foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
+            foreach (var file in EnumerateSourceFiles(sourceDirectory, searchOption, skipped))
             {
                 var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/'); // zip-standard separators
                 if (includeEntry is not null && !includeEntry(entryName))
@@ -239,7 +288,7 @@ namespace BackupService.FileSystem
                 zip.SetComment(comment); // EOCD comment — the "only copy on change" fingerprint
             }
 
-            foreach (var file in Directory.GetFiles(sourceDirectory, "*", searchOption))
+            foreach (var file in EnumerateSourceFiles(sourceDirectory, searchOption, skipped))
             {
                 var entryName = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/');
                 if (includeEntry is not null && !includeEntry(entryName))

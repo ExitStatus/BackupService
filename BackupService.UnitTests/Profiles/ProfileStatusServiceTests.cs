@@ -176,5 +176,47 @@ namespace BackupService.UnitTests.Profiles
 
             service.GetProgress(5).Should().Be(55);
         }
+
+        [Test]
+        public void ALockHeldInTwoPlaces_StaysUntilBothRelease()
+        {
+            // Two tabs editing the same profile: one closing mustn't let a scheduled run fire under the other.
+            var service = new ProfileStatusService();
+            service.Lock(3);
+            service.Lock(3);
+
+            service.Unlock(3);
+            service.IsLocked(3).Should().BeTrue();
+
+            service.Unlock(3);
+            service.IsLocked(3).Should().BeFalse();
+        }
+
+        [Test]
+        public void TheRunLog_IsKnownOnlyWhileThatRunIsInProgress()
+        {
+            var service = new ProfileStatusService();
+            service.TryBeginRun(2).Should().BeTrue();
+            service.GetRunLog(2).Should().BeNull("a queued run hasn't created its log yet");
+
+            service.SetRunLog(2, 41);
+            service.GetRunLog(2).Should().Be(41);
+
+            service.EndRun(2, ProfileStatus.Idle);
+            service.GetRunLog(2).Should().BeNull();
+        }
+
+        [Test]
+        public void ANewRun_DoesNotInheritThePreviousRunsLog()
+        {
+            var service = new ProfileStatusService();
+            service.TryBeginRun(2);
+            service.SetRunLog(2, 41);
+            service.EndRun(2, ProfileStatus.Idle);
+
+            service.TryBeginRun(2);
+
+            service.GetRunLog(2).Should().BeNull();
+        }
     }
 }

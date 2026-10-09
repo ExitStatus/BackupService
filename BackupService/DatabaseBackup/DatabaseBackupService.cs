@@ -30,6 +30,8 @@ namespace BackupService.DatabaseBackup
         // Single-instance gate: 1 while a backup is running (a second call is skipped, not queued).
         private int _running;
 
+        public bool IsRunning => Volatile.Read(ref _running) != 0;
+
         public async Task<DatabaseBackupSettings> GetSettingsAsync(CancellationToken cancellationToken = default)
         {
             await using var db = contextFactory.CreateDbContext();
@@ -102,7 +104,14 @@ namespace BackupService.DatabaseBackup
                     // 2. Zip it locally (the snapshot sits alone in its temp folder, so the zip has one entry).
                     var zipPath = fileSystem.GetTempFilePath(fileName);
                     zipDir = Path.GetDirectoryName(zipPath);
-                    fileSystem.CreateZipFromDirectory(snapshotDir!, zipPath, includeSubfolders: false);
+                    // A snapshot that couldn't be read is skipped by the zip builder, not thrown — and an empty or
+                    // partial archive counted as a good backup would push the real ones out of retention.
+                    var zip = fileSystem.CreateZipFromDirectory(snapshotDir!, zipPath, includeSubfolders: false);
+                    if (zip.Added.Count == 0 || zip.Skipped.Count > 0)
+                    {
+                        var reason = zip.Skipped.Count > 0 ? zip.Skipped[0].Reason : "the snapshot file wasn't found";
+                        throw new IOException($"The database snapshot couldn't be archived: {reason}");
+                    }
 
                     // 3. Crash-safe copy into the target (local folder or connection), then retention.
                     var errors = 0;
@@ -187,7 +196,9 @@ namespace BackupService.DatabaseBackup
                 var backups = new List<DatabaseBackupInfo>();
                 foreach (var path in endpoint.FileSystem.GetFiles(endpoint.BasePath))
                 {
-                    var name = Path.GetFileName(path);
+                    // Separator-agnostic: an SMB/Drive target lists backslash paths even on Linux, where
+                    // Path.GetFileName keeps the folder — and StageRestoreAsync then refused the name.
+                    var name = PathHelper.GetLeafName(path);
                     if (!DatabaseBackupNaming.TryParseTimestamp(name, out var timestamp))
                     {
                         continue; // not one of ours
@@ -269,14 +280,19 @@ namespace BackupService.DatabaseBackup
                 using (var input = fileSystem.OpenRead(localSource))
                 using (var output = targetFs.OpenWrite(tempPath))
                 {
-                    await input.CopyToAsync(output, cancellationToken);
+                    try
+                    {
+                        await input.CopyToAsync(output, cancellationToken);
+                    }
+                    catch
+                    {
+                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                        throw;
+                    }
                 }
 
-                if (targetFs.FileExists(dest))
-                {
-                    targetFs.DeleteFile(dest);
-                }
-                targetFs.MoveFile(tempPath, dest, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                targetFs.MoveFile(tempPath, dest, overwrite: true);
             }
             catch
             {

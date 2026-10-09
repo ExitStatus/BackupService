@@ -98,6 +98,47 @@ namespace BackupService.UnitTests.DatabaseBackup
         }
 
         [Test]
+        public void ApplyIfPending_IsAppliedOnce_EvenWhenTheConsumedFileIsLeftBehind()
+        {
+            // The staged file is claimed by renaming it before the swap. A leftover claimed copy (one that couldn't be
+            // deleted afterwards) must never be applied again over later changes.
+            File.WriteAllText(_dbPath, "current");
+            var pending = PendingRestoreApplier.PendingPathFor(_dataDir);
+            File.WriteAllText(pending, "restored");
+            PendingRestoreApplier.ApplyIfPending(_dataDir, _dbPath, out _).Should().BeTrue();
+            File.Exists(pending).Should().BeFalse();
+
+            File.WriteAllText(pending + ".applying", "restored"); // as if its delete had failed
+            File.WriteAllText(_dbPath, "changed since the restore");
+
+            PendingRestoreApplier.ApplyIfPending(_dataDir, _dbPath, out _).Should().BeFalse();
+            File.ReadAllText(_dbPath).Should().Be("changed since the restore");
+        }
+
+        [Test]
+        public void ApplyIfPending_AStagedFileThatCantBeClaimed_ChangesNothing()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Ignore("Needs Windows file locking to stop the rename.");
+                return;
+            }
+            File.WriteAllText(_dbPath, "current");
+            var pending = PendingRestoreApplier.PendingPathFor(_dataDir);
+            File.WriteAllText(pending, "restored");
+
+            using (File.Open(pending, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                PendingRestoreApplier.ApplyIfPending(_dataDir, _dbPath, out var error).Should().BeFalse();
+                error.Should().NotBeNull();
+            }
+
+            File.ReadAllText(_dbPath).Should().Be("current");
+            File.Exists(pending).Should().BeTrue("it's retried on the next startup");
+            File.Exists(_dbPath + ".pre-restore").Should().BeFalse("nothing was touched");
+        }
+
+        [Test]
         public void ApplyIfPending_InsuranceCopy_IncludesDataThatWasOnlyInTheWal()
         {
             // The live database runs in WAL mode and is never checkpointed on exit, so its rows can sit entirely in

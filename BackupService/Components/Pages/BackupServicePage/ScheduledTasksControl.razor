@@ -41,7 +41,7 @@ else
                     <td>@task.Description</td>
                     <td>@ScheduleDefinition.Describe(task.Schedule)</td>
                     <td>@task.Steps.Count</td>
-                    <td>@(task.DateLastRun?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
+                    <td>@(task.DateLastRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
                     <td>@(task.DateNextRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</td>
                     <td>@StatusText(task.Id)</td>
                     <td class="action-col">

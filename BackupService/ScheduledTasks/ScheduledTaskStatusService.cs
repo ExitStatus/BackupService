@@ -11,7 +11,7 @@ namespace BackupService.ScheduledTasks
     public sealed class ScheduledTaskStatusService : IScheduledTaskStatusService
     {
         private readonly ConcurrentDictionary<int, ProfileStatus> _statuses = new();
-        private readonly ConcurrentDictionary<int, byte> _locked = new();
+        private readonly ConcurrentDictionary<int, int> _locked = new();
         private readonly object _runLock = new();
 
         public event Action<int>? Changed;
@@ -54,9 +54,22 @@ namespace BackupService.ScheduledTasks
             _locked.TryRemove(taskId, out _);
         }
 
-        public void Lock(int taskId) => _locked[taskId] = 0;
+        // Counted, so two tabs with the same task open each hold the lock (see ProfileStatusService).
+        public void Lock(int taskId) => _locked.AddOrUpdate(taskId, 1, (_, count) => count + 1);
 
-        public void Unlock(int taskId) => _locked.TryRemove(taskId, out _);
+        public void Unlock(int taskId)
+        {
+            while (_locked.TryGetValue(taskId, out var count))
+            {
+                var released = count <= 1
+                    ? _locked.TryRemove(new KeyValuePair<int, int>(taskId, count))
+                    : _locked.TryUpdate(taskId, count - 1, count);
+                if (released)
+                {
+                    return;
+                }
+            }
+        }
 
         public bool IsLocked(int taskId) => _locked.ContainsKey(taskId);
     }

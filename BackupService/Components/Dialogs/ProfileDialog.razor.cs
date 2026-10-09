@@ -158,6 +158,7 @@ namespace BackupService.Components.Dialogs
             ProfileType.InstantSync => "An instant sync profile watches each source folder and copies changes to the target as they happen, after a short debounce.",
             ProfileType.ArchiveSync => "An archive sync profile creates a timestamped ZIP of each source folder on a schedule and keeps a retained history in the target folder.",
             ProfileType.LightroomArchive => "A lightroom archive profile watches each source folder like instant sync, and for every copied file also pulls the matching raw originals from the Lightroom folder into a RAW folder beside the copy.",
+            ProfileType.TwoWaySync => "A two way sync profile keeps two folders in step on a schedule: changes made on either side are copied to the other, and a file changed on both is resolved by the conflict rule you choose.",
             _ => "A one way sync profile is a one way copy from the source folder to the target folder for a file oriented backup.",
         };
 

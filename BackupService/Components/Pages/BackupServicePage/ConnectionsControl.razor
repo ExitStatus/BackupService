@@ -86,7 +86,7 @@ else
                             <span class="muted" title="The connection could not be reached">No</span>
                         }
                     </td>
-                    <td>@connection.DateCreated.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@connection.DateCreated.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
                     <td class="action-col">
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Edit connection"

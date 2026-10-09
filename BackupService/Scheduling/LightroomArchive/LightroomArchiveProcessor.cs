@@ -383,17 +383,22 @@ namespace BackupService.Scheduling
                 using (var input = ctx.SourceFs.OpenRead(source))
                 using (var output = ctx.TargetFs.OpenWrite(tempPath))
                 {
-                    await input.CopyToAsync(output, ct);
+                    try
+                    {
+                        await input.CopyToAsync(output, ct);
+                    }
+                    catch
+                    {
+                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                        throw;
+                    }
                 }
 
                 // Carry the source's timestamp across so the next run sees the target as up to date.
                 ctx.TargetFs.SetLastWriteTimeUtc(tempPath, sourceTime);
 
-                if (ctx.TargetFs.FileExists(dest))
-                {
-                    ctx.TargetFs.DeleteFile(dest);
-                }
-                ctx.TargetFs.MoveFile(tempPath, dest, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                ctx.TargetFs.MoveFile(tempPath, dest, overwrite: true);
                 result.BytesCopied += TrySize(ctx, source);
                 return true;
             }

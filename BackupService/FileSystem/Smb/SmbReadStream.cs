@@ -47,7 +47,7 @@ namespace BackupService.FileSystem.Smb
             // lock conflict, an expired session), and treating that as end-of-file silently truncated the copy.
             if (status != NTStatus.STATUS_SUCCESS && status != NTStatus.STATUS_END_OF_FILE)
             {
-                throw new IOException($"SMB read failed at offset {_position} ({status}).");
+                throw SmbStatusErrors.Create(status, $"SMB read failed at offset {_position} ({status}).");
             }
             if (status == NTStatus.STATUS_END_OF_FILE || data is null || data.Length == 0)
             {

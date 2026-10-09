@@ -532,6 +532,21 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task ALinkBackToAFolderAbove_IsNotWalked()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            _fs.AddFile(@"C:\left\loop\inside.txt", T1, "would repeat forever");
+            _fs.DirectoryLinks[@"C:\left\loop"] = Left;
+
+            var result = await Run(Item());
+
+            _fs.FileExists(@"C:\right\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\right\loop\inside.txt").Should().BeFalse();
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("link back to"));
+        }
+
+        [Test]
         public async Task AReadOnlySide_IsRefusedUpFront_InsteadOfFailingEveryCopyEveryRun()
         {
             // An MTP phone as a two-way source: nothing can be written back to it.
@@ -610,6 +625,11 @@ namespace BackupService.UnitTests.Scheduling
             private readonly HashSet<string> _dirs = new(FakeFsPath.Comparer);
 
             public bool IsReadOnly { get; set; }
+
+            /// <summary>Directory links: link path → where it points.</summary>
+            public Dictionary<string, string> DirectoryLinks { get; } = new(FakeFsPath.Comparer);
+
+            public string? GetDirectoryLinkTarget(string path) => DirectoryLinks.GetValueOrDefault(path);
 
             public void AddDirectory(string path)
             {
@@ -738,9 +758,21 @@ namespace BackupService.UnitTests.Scheduling
                 {
                     throw new FileNotFoundException(source);
                 }
-                if (_files.ContainsKey(destination) && !overwrite)
+                if (_files.ContainsKey(destination))
                 {
-                    throw new IOException($"File exists: {destination}");
+                    if (!overwrite)
+                    {
+                        throw new IOException($"File exists: {destination}");
+                    }
+                    // Replacing a file is refused wherever deleting it would be (a protected or locked file).
+                    if (Protected.Contains(destination))
+                    {
+                        throw new ProtectedFileException($"'{destination}' is protected.", "it's a Google Docs file");
+                    }
+                    if (DeleteShouldFail?.Invoke(destination) == true)
+                    {
+                        throw new IOException($"Replace failed: {destination}");
+                    }
                 }
                 _files[destination] = e;
                 _files.Remove(source);

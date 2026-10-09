@@ -37,6 +37,41 @@ namespace BackupService.UnitTests.FileSystem
             try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort temp cleanup */ }
         }
 
+        [TestCase(null)]
+        [TestCase("hunter2")]
+        public void ASubFolderThatCantBeListed_IsSkipped_NotAFailedArchive(string? password)
+        {
+            // System Volume Information on a drive's root, or a folder this account may not open, used to fail the
+            // whole archive because the tree was listed in one go.
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Ignore("Denies the folder through a Windows ACL.");
+                return;
+            }
+            var locked = Path.Combine(_source, "locked");
+            Directory.CreateDirectory(locked);
+            File.WriteAllText(Path.Combine(locked, "hidden.txt"), "x");
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+            var deny = new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.ListDirectory, System.Security.AccessControl.AccessControlType.Deny);
+            var info = new DirectoryInfo(locked);
+            var security = info.GetAccessControl();
+            security.AddAccessRule(deny);
+            info.SetAccessControl(security);
+            try
+            {
+                var result = _fs.CreateZipFromDirectory(_source, _zip, includeSubfolders: true, password: password);
+
+                result.Added.Should().Contain(EntryName);
+                result.Skipped.Should().ContainSingle().Which.EntryName.Should().Be("locked/");
+            }
+            finally
+            {
+                security.RemoveAccessRule(deny);
+                info.SetAccessControl(security);
+            }
+        }
+
         [Test]
         public void Aes_EncryptedArchive_RoundTripsWithCorrectPassword()
         {

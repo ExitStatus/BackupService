@@ -123,7 +123,13 @@ namespace BackupService.FileSystem.Mtp
                 }
             }
 
-            // Rare: no WPD date and the EXIF wasn't in the header window — fall back to the whole file (slow).
+            // Rare: no WPD date and the EXIF wasn't in the header window — fall back to the whole file (slow). Only for
+            // a file that can hold EXIF at all: a video never does, so this downloaded every video in full, on every
+            // run, just to find no date.
+            if (!ExifFiles.MayHoldExif(path))
+            {
+                return DateTime.MinValue;
+            }
             _logger?.LogWarning("MTP: no WPD or header-EXIF date for '{File}'; downloading the whole file to read its date.",
                 DisplayName(path));
             using var full = OpenRead(path);

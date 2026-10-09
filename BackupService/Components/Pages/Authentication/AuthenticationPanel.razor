@@ -32,7 +32,7 @@
                 @foreach (var entry in _history.Items)
                 {
                     <tr>
-                        <td>@entry.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@entry.TimestampUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
                         <td>@DescribeEvent(entry.EventType)</td>
                     </tr>
                 }

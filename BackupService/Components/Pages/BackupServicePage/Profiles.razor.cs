@@ -28,6 +28,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         private static readonly (ProfileType Type, string Label)[] TabOrder =
         [
             (ProfileType.OneWaySync, "One Way Sync"),
+            (ProfileType.TwoWaySync, "Two Way Sync"),
             (ProfileType.ArchiveSync, "Archive Sync"),
             (ProfileType.InstantSync, "Instant Sync"),
             (ProfileType.LightroomArchive, "Lightroom Sync"),
@@ -53,6 +54,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private bool _showDialog;
         private int? _editId;
+
+        // The profile this page currently holds an edit lock on (null when none).
+        private int? _lockedId;
         private Profile? _progressTarget;
         private Notification _notification = default!;
 
@@ -440,6 +444,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         {
             // Lock the profile so a scheduled run won't fire while it's being edited.
             StatusService.Lock(id);
+            _lockedId = id;
             _editId = id;
             _showDialog = true;
         }
@@ -459,10 +464,13 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
+        // Releases the lock this page took, once. It used to unlock "the profile last edited" again on every close and
+        // when the page was left — releasing the lock another tab held while it had the same profile open.
         private void UnlockEditing()
         {
-            if (_editId is int id)
+            if (_lockedId is int id)
             {
+                _lockedId = null;
                 StatusService.Unlock(id);
             }
         }

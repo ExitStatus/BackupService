@@ -31,7 +31,7 @@ namespace BackupService.FileSystem.Smb
                 var status = store.WriteFile(out var bytesWritten, handle, _position, slice);
                 if (status != NTStatus.STATUS_SUCCESS)
                 {
-                    throw new IOException($"SMB write failed ({status}).");
+                    throw SmbStatusErrors.Create(status, $"SMB write failed ({status}).");
                 }
                 if (bytesWritten <= 0)
                 {

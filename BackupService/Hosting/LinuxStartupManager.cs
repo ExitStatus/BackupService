@@ -12,14 +12,15 @@ namespace BackupService.Hosting
     /// file, so the registered exe path tracks the current location after a redeploy.
     /// </summary>
     [SupportedOSPlatform("linux")]
-    public sealed class LinuxStartupManager(ILogger<LinuxStartupManager> logger) : IStartupManager
+    public sealed class LinuxStartupManager(ILogger<LinuxStartupManager> logger, IHostEnvironment environment) : IStartupManager
     {
-        private const string DesktopFileName = "backupservice.desktop";
+        // Per environment, so a development run never touches the installed app's entry (see AutostartNames).
+        private readonly string _desktopFileName = AutostartNames.LinuxDesktopFileName(environment.EnvironmentName);
 
         private static string AutostartDirectory =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "autostart");
 
-        private static string DesktopFilePath => Path.Combine(AutostartDirectory, DesktopFileName);
+        private string DesktopFilePath => Path.Combine(AutostartDirectory, _desktopFileName);
 
         public void Apply(bool enabled)
         {

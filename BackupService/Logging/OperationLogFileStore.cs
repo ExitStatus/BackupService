@@ -216,7 +216,11 @@ namespace BackupService.Logging
 
             try
             {
-                foreach (var line in await ReadAllLinesSharedAsync(path, cancellationToken))
+                // Streamed a line at a time, stopping at the first match: the Logs page's message filter runs this
+                // over every log, and a huge one must not be loaded into memory whole.
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, LogFileShare, bufferSize: 4096, useAsync: true);
+                using var reader = new StreamReader(stream);
+                while (await reader.ReadLineAsync(cancellationToken) is { } line)
                 {
                     if (line.Contains(text, StringComparison.OrdinalIgnoreCase))
                     {

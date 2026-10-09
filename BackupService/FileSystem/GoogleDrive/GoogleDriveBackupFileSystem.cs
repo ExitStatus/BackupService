@@ -320,7 +320,15 @@ namespace BackupService.FileSystem.GoogleDrive
         {
             using var input = OpenRead(source);
             using var output = OpenWrite(destination);
-            input.CopyTo(output);
+            try
+            {
+                input.CopyTo(output);
+            }
+            catch
+            {
+                AbandonableWrite.Abandon(output); // don't upload a partial copy
+                throw;
+            }
         }
 
         public void MoveFile(string source, string destination, bool overwrite)
@@ -335,15 +343,20 @@ namespace BackupService.FileSystem.GoogleDrive
             var sourceParentId = FolderId(sourceParent);
             var destParentId = FolderId(destParent);
 
+            // The file being replaced is removed only after the rename has worked. Drive allows two items with the same
+            // name for that moment; deleting first (Files.Delete bypasses the Trash) lost both if the rename failed.
+            DriveFile? replaced = null;
             if (overwrite)
             {
-                var existing = FindChild(destParentId, destName, isFolder: false);
-                if (existing is not null)
+                replaced = FindChild(destParentId, destName, isFolder: false);
+                if (replaced is not null)
                 {
-                    ThrowIfProtected(existing.MimeType, destination);
-                    _drive.Files.Delete(existing.Id).Execute();
-                    _files.Remove(destNorm);
+                    ThrowIfProtected(replaced.MimeType, destination);
                 }
+            }
+            else if (FindChild(destParentId, destName, isFolder: false) is not null)
+            {
+                throw new IOException($"'{destination}' already exists.");
             }
 
             // A metadata-only files.update (rename/move) otherwise resets Drive's modifiedTime to "now", which
@@ -367,6 +380,11 @@ namespace BackupService.FileSystem.GoogleDrive
 
             _files.Remove(sourceNorm);
             _files[destNorm] = ToEntry(result);
+
+            if (replaced is not null && !string.Equals(replaced.Id, result.Id, StringComparison.Ordinal))
+            {
+                _drive.Files.Delete(replaced.Id).Execute();
+            }
         }
 
         public void DeleteFile(string path)
@@ -702,7 +720,7 @@ namespace BackupService.FileSystem.GoogleDrive
         private sealed record DriveEntry(string Id, string Name, bool IsFolder, long Size, DateTime WriteTimeUtc, string? MimeType);
 
         // A write stream that buffers to a local temp file and uploads it to Drive on close.
-        private sealed class UploadStream : Stream
+        private sealed class UploadStream : Stream, IAbandonableWrite
         {
             private readonly GoogleDriveBackupFileSystem _fs;
             private readonly string _normalizedPath;
@@ -712,6 +730,9 @@ namespace BackupService.FileSystem.GoogleDrive
             private readonly string _tempPath;
             private readonly FileStream _temp;
             private bool _completed;
+
+            // The copy into this stream failed or was stopped: closing discards the buffer instead of uploading it.
+            public void Abandon() => _completed = true;
 
             public UploadStream(GoogleDriveBackupFileSystem fs, string normalizedPath, string parentId, string name, string? existingId)
             {
@@ -742,14 +763,17 @@ namespace BackupService.FileSystem.GoogleDrive
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing && !_completed)
+                if (disposing)
                 {
-                    _completed = true;
                     try
                     {
-                        _temp.Flush();
-                        _temp.Position = 0;
-                        _fs.CompleteUpload(_normalizedPath, _parentId, _name, _existingId, _temp);
+                        if (!_completed)
+                        {
+                            _completed = true;
+                            _temp.Flush();
+                            _temp.Position = 0;
+                            _fs.CompleteUpload(_normalizedPath, _parentId, _name, _existingId, _temp);
+                        }
                     }
                     finally
                     {

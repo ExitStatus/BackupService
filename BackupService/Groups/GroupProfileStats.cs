@@ -5,5 +5,5 @@ namespace BackupService.Groups
     /// group, when the group last had a run, and the member profile ids (so the grid can count how many
     /// are running live via <c>IProfileStatusService</c>).
     /// </summary>
-    public sealed record GroupProfileStats(int Count, DateTimeOffset? LastRunStarted, IReadOnlyList<int> ProfileIds);
+    public sealed record GroupProfileStats(int Count, DateTimeOffset? LastRun, IReadOnlyList<int> ProfileIds);
 }

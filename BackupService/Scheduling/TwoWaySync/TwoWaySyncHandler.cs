@@ -41,6 +41,8 @@ namespace BackupService.Scheduling.TwoWaySync
                 $"{handlerName} called with {profile.TwoWaySyncItems.Count} item(s).",
                 profileId: profile.Id,
                 cancellationToken: cancellationToken);
+            // This run's log, so View Progress follows it and the Logs page hides it until the run ends.
+            statusService.SetRunLog(profile.Id, log.OperationLogId);
 
             if (profile.NotificationsEnabled && profile.NotifyOnStart)
             {

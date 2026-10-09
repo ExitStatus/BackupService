@@ -22,7 +22,8 @@ namespace BackupService.Profiles
         IBackupScheduler scheduler,
         IInstantSyncManager instantSyncManager,
         ILightroomArchiveManager lightroomArchiveManager,
-        IProfileStatusService statusService) : IProfileService
+        IProfileStatusService statusService,
+        IOperationLogFileStore? logFileStore = null) : IProfileService
     {
         public async Task CreateAsync(
             string name,
@@ -438,9 +439,23 @@ namespace BackupService.Profiles
             // Capture the details before the row is removed so we can log what was deleted.
             var name = profile.Name;
             var type = profile.Type;
+            // The profile's logs cascade-delete with it, but their detail files live outside the database — nothing
+            // else would ever remove them.
+            var logIds = await db.OperationLogs
+                .Where(l => l.ProfileId == id)
+                .Select(l => l.Id)
+                .ToListAsync(cancellationToken);
 
             db.Profiles.Remove(profile);
             await db.SaveChangesAsync(cancellationToken);
+
+            if (logFileStore is not null)
+            {
+                foreach (var logId in logIds)
+                {
+                    logFileStore.Delete(logId);
+                }
+            }
 
             // Not associated with the profile (it's gone, and that association would cascade-delete
             // this very record) — the deletion log is meant to survive.

@@ -12,8 +12,14 @@ namespace BackupService.Dashboard
     /// </summary>
     public sealed class DashboardService(IDatabaseContextFactory contextFactory) : IDashboardService
     {
-        /// <summary>Safety cap on how many recent run rows are pulled into memory.</summary>
-        private const int MaxRows = 5000;
+        /// <summary>How many run rows are read per round trip while paging back to the start of the period.</summary>
+        private const int PageRows = 5000;
+
+        /// <summary>
+        /// A safety cap on the rows read in all. Far above a real period: a busy watcher flush records a run each
+        /// time, so a single page (the old cap) could cover only part of a 30-day view.
+        /// </summary>
+        private const int MaxRows = 200_000;
 
         /// <summary>Most profiles to show on the per-profile duration chart (keeps it readable).</summary>
         private const int MaxProfilesInChart = 12;
@@ -33,33 +39,10 @@ namespace BackupService.Dashboard
             var totalProfiles = profiles.Count;
             var enabledProfiles = profiles.Count(enabled => enabled);
 
-            // Newest-first by Id (SQLite can't ORDER BY a DateTimeOffset). Project the profile name via the
-            // navigation so no Include is needed.
-            var recent = await db.BackupRuns.AsNoTracking()
-                .OrderByDescending(r => r.Id)
-                .Take(MaxRows)
-                .Select(r => new RunRow(
-                    r.Id,
-                    r.Kind,
-                    r.Kind == RunKind.ScheduledTask
-                        ? (r.ScheduledTask != null ? r.ScheduledTask.Name : "(deleted task)")
-                        : (r.Profile != null ? r.Profile.Name : "(deleted profile)"),
-                    r.Type,
-                    r.StartedUtc,
-                    r.DurationMs,
-                    r.Outcome,
-                    r.Copied,
-                    r.Updated,
-                    r.Deleted,
-                    r.Errors,
-                    r.Warnings,
-                    r.BytesCopied,
-                    r.Manual,
-                    r.OperationLogId))
-                .ToListAsync(cancellationToken);
-
-            var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromDays(days);
-            var inPeriod = recent.Where(r => r.StartedUtc >= cutoff).ToList();
+            // The period is whole local days — the same window the charts draw — so the cards add up to the charts.
+            var periodStart = new DateTimeOffset(DateTime.Today.AddDays(-(days - 1)));
+            var recent = await ReadRunsSinceAsync(db, periodStart, cancellationToken);
+            var inPeriod = recent.Where(r => r.StartedUtc >= periodStart).ToList();
 
             var runsInPeriod = inPeriod.Count;
             var totalSuccess = inPeriod.Count(r => r.Outcome == RunOutcome.Success);
@@ -92,6 +75,54 @@ namespace BackupService.Dashboard
                 BytesByDay: BuildBytesByDay(inPeriod, days),
                 DurationByProfile: BuildDurationByProfile(inPeriod),
                 RecentRuns: recent.Take(10).Select(ToRecentRun).ToList());
+        }
+
+        // Newest-first by Id (SQLite can't ORDER BY or compare a DateTimeOffset), a page at a time, until the rows
+        // reach back past the period start. A row is written when its run finishes, so Ids follow finish times:
+        // once a row finished before the period started, every older row did too (and so started before it) — a
+        // row that merely *started* earlier may be a long run, with shorter in-period runs written before it.
+        // Projects the profile/task name via the navigation so no Include is needed.
+        private static async Task<List<RunRow>> ReadRunsSinceAsync(BackupDbContext db, DateTimeOffset periodStart, CancellationToken cancellationToken)
+        {
+            var rows = new List<RunRow>();
+            var beforeId = int.MaxValue;
+            while (rows.Count < MaxRows)
+            {
+                var below = beforeId;
+                var page = await db.BackupRuns.AsNoTracking()
+                    .Where(r => r.Id < below)
+                    .OrderByDescending(r => r.Id)
+                    .Take(PageRows)
+                    .Select(r => new RunRow(
+                        r.Id,
+                        r.Kind,
+                        r.Kind == RunKind.ScheduledTask
+                            ? (r.ScheduledTask != null ? r.ScheduledTask.Name : "(deleted task)")
+                            : (r.Profile != null ? r.Profile.Name : "(deleted profile)"),
+                        r.Type,
+                        r.StartedUtc,
+                        r.DurationMs,
+                        r.Outcome,
+                        r.Copied,
+                        r.Updated,
+                        r.Deleted,
+                        r.Errors,
+                        r.Warnings,
+                        r.BytesCopied,
+                        r.Manual,
+                        r.OperationLogId))
+                    .ToListAsync(cancellationToken);
+
+                rows.AddRange(page);
+                if (page.Count < PageRows
+                    || page.Any(r => r.StartedUtc.AddMilliseconds(r.DurationMs) < periodStart))
+                {
+                    break;
+                }
+                beforeId = page[^1].Id;
+            }
+
+            return rows;
         }
 
         // A continuous series over the last `days` local-calendar days (zero-filled), oldest → newest.

@@ -25,6 +25,16 @@ namespace BackupService.UnitTests.FileSystem
         }
 
         [Test]
+        public void StarDotStar_MeansEveryFile_IncludingOnesWithNoExtension()
+        {
+            // As on Windows. A simple expression needs a dot, so Makefile and LICENSE were quietly left out.
+            var filter = Filter(Include("*.*"));
+
+            filter.IncludesFile("Makefile").Should().BeTrue();
+            filter.IncludesFile("report.docx").Should().BeTrue();
+        }
+
+        [Test]
         public void Includes_RestrictToMatchingNames()
         {
             var filter = Filter(Include("*.txt"));

@@ -42,7 +42,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         {
             // A member's run started/finished — re-render so the live "Running" count updates. No DB reload
             // is needed for the tick (the count is computed from the status service), but a completed run
-            // updates DateLastRun, so reload the stats to refresh "Last run started" too.
+            // updates DateLastRun, so reload the stats to refresh "Last run" too.
             InvokeAsync(async () =>
             {
                 _stats = await GroupService.GetProfileStatsAsync();
@@ -86,9 +86,9 @@ namespace BackupService.Components.Pages.BackupServicePage
                 ? stats.ProfileIds.Count(StatusService.IsRunning)
                 : 0;
 
-        private string LastRunStarted(int groupId) =>
-            _stats.GetValueOrDefault(groupId)?.LastRunStarted is { } when
-                ? when.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+        private string LastRun(int groupId) =>
+            _stats.GetValueOrDefault(groupId)?.LastRun is { } when
+                ? when.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
                 : "Never";
 
         private void OpenCreate()

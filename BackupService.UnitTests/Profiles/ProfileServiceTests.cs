@@ -48,7 +48,8 @@ namespace BackupService.UnitTests.Profiles
                 Mock.Of<IBackupScheduler>(),
                 Mock.Of<IInstantSyncManager>(),
                 Mock.Of<ILightroomArchiveManager>(),
-                new ProfileStatusService());
+                new ProfileStatusService(),
+                _logStore.Store);
         }
 
         [TearDown]
@@ -315,6 +316,25 @@ namespace BackupService.UnitTests.Profiles
             await using var context = new BackupDbContext(_options);
             (await context.Profiles.CountAsync()).Should().Be(0);
             (await context.OneWaySyncItems.CountAsync()).Should().Be(0);
+        }
+
+        [Test]
+        public async Task DeleteAsync_RemovesTheDetailFilesOfTheLogsDeletedWithIt()
+        {
+            // The logs cascade-delete in the database, but their files live outside it — nothing else removed them.
+            await _service.CreateAsync("Docs", ProfileType.OneWaySync, null, enabled: true,
+                [new OneWaySyncInput(0, "Src pair", @"C:\Src", @"D:\Dst", IncludeSubFolders: false, AllowDeletions: false, OverwriteBehaviour: OverwriteBehaviour.DoNotOverwriteNewer)]);
+            var id = await GetOnlyProfileIdAsync();
+            int createdLogId;
+            await using (var before = new BackupDbContext(_options))
+            {
+                createdLogId = (await before.OperationLogs.SingleAsync(l => l.ProfileId == id)).Id;
+            }
+            (await _logStore.Store.ReadAsync(createdLogId)).Should().NotBeEmpty("precondition: the create log has detail lines");
+
+            await _service.DeleteAsync(id);
+
+            (await _logStore.Store.ReadAsync(createdLogId)).Should().BeEmpty();
         }
 
         [Test]

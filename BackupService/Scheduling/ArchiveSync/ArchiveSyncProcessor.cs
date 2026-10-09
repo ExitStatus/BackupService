@@ -32,10 +32,10 @@ namespace BackupService.Scheduling
         {
             var result = new BackupResult();
 
-            var targetEndpoint = await endpointFactory.ResolveAsync(targetConnectionId, item.TargetFolder, cancellationToken);
+            var connection = new TargetConnection(endpointFactory, targetConnectionId, item.TargetFolder);
             try
             {
-                var target = new Target(targetEndpoint.FileSystem, targetEndpoint.BasePath);
+                var target = await connection.ConnectAsync(cancellationToken);
 
                 // 1. Resolve the source to a local directory to zip — directly when it's local (a local folder, or a
                 //    connection that resolves to the local filesystem, like a mass-storage USB drive), or by staging
@@ -101,7 +101,7 @@ namespace BackupService.Scheduling
 
                 try
                 {
-                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, log, result, progress, onCurrentFile, cancellationToken);
+                    await BuildAndStoreAsync(item, runIndex, timestamp, sourceDir, target, connection, log, result, progress, onCurrentFile, cancellationToken);
                 }
                 finally
                 {
@@ -115,14 +115,14 @@ namespace BackupService.Scheduling
             }
             finally
             {
-                targetEndpoint.Session.Dispose();
+                connection.Dispose();
             }
 
             return result;
         }
 
         private async Task BuildAndStoreAsync(
-            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, IOperationLogger log, BackupResult result, IProgress<double>? progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
+            ArchiveSyncItem item, long runIndex, DateTime timestamp, string sourceDir, Target target, TargetConnection connection, IOperationLogger log, BackupResult result, IProgress<double>? progress, Action<string?>? onCurrentFile, CancellationToken cancellationToken)
         {
             var gfs = item.RetentionMode == ArchiveRetentionMode.GrandfatherFatherSon;
             var stamp = timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture);
@@ -231,11 +231,14 @@ namespace BackupService.Scheduling
                 foreach (var skip in build.Skipped)
                 {
                     result.Warnings++;
-                    await log.AppendAsync(OperationLogLevel.Warning,
-                        $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
+                    await log.AppendAsync(OperationLogLevel.Warning, skip.EntryName.EndsWith('/')
+                        ? $"Skipped folder '{skip.EntryName.TrimEnd('/')}': {skip.Reason}"
+                        : $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
                 }
 
-                // 3. Crash-safe copy into the target folder (local, or over the connection).
+                // 3. Crash-safe copy into the target folder (local, or over the connection — reopened, since its
+                // session may have been dropped while it sat idle during the build).
+                target = await connection.RefreshAsync(target, cancellationToken);
                 if (!await EnsureDirectoryAsync(target.Fs, target.Base, log, result))
                 {
                     return;
@@ -338,7 +341,21 @@ namespace BackupService.Scheduling
             ct.ThrowIfCancellationRequested();
             fileSystem.CreateDirectory(localDir);
 
-            foreach (var file in sourceFs.GetFiles(sourceDir))
+            // A sub-folder that can't be listed is left out (as a warning) rather than failing the archive; the source
+            // folder itself still has to be readable.
+            IReadOnlyList<string> files, subDirectories;
+            try
+            {
+                files = sourceFs.GetFiles(sourceDir);
+                subDirectories = includeSubFolders ? sourceFs.GetDirectories(sourceDir) : [];
+            }
+            catch (Exception ex) when (ancestors.Count > 0 && ex is not OperationCanceledException and not EndpointUnavailableException)
+            {
+                problems.Add((sourceDir, $"the folder couldn't be read: {ex.Message}", false));
+                return;
+            }
+
+            foreach (var file in files)
             {
                 ct.ThrowIfCancellationRequested();
                 var name = PathHelper.GetLeafName(file);
@@ -364,7 +381,7 @@ namespace BackupService.Scheduling
 
             if (includeSubFolders)
             {
-                foreach (var sub in sourceFs.GetDirectories(sourceDir))
+                foreach (var sub in subDirectories)
                 {
                     var name = PathHelper.GetLeafName(sub);
                     if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
@@ -436,16 +453,24 @@ namespace BackupService.Scheduling
 
         private void GatherFiles(string root, string dir, bool includeSubFolders, List<(string Entry, string Path)> into)
         {
-            foreach (var file in fileSystem.GetFiles(dir))
+            IReadOnlyList<string> files, subDirectories;
+            try
+            {
+                files = fileSystem.GetFiles(dir);
+                subDirectories = includeSubFolders ? fileSystem.GetDirectories(dir) : [];
+            }
+            catch (Exception ex) when (dir != root && ex is UnauthorizedAccessException or IOException)
+            {
+                return; // an unreadable sub-folder is left out — the zip build reports it as a warning
+            }
+
+            foreach (var file in files)
             {
                 into.Add((Path.GetRelativePath(root, file).Replace('\\', '/'), file));
             }
-            if (includeSubFolders)
+            foreach (var sub in subDirectories)
             {
-                foreach (var sub in fileSystem.GetDirectories(dir))
-                {
-                    GatherFiles(root, sub, includeSubFolders, into);
-                }
+                GatherFiles(root, sub, includeSubFolders, into);
             }
         }
 
@@ -670,21 +695,26 @@ namespace BackupService.Scheduling
                     var buffer = new byte[81920];
                     long copiedBytes = 0;
                     int read;
-                    while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+                    try
                     {
-                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                        copiedBytes += read;
-                        progress?.Report(totalBytes > 0
-                            ? ZipPhaseShare + (1 - ZipPhaseShare) * copiedBytes / totalBytes
-                            : 1.0);
+                        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+                        {
+                            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                            copiedBytes += read;
+                            progress?.Report(totalBytes > 0
+                                ? ZipPhaseShare + (1 - ZipPhaseShare) * copiedBytes / totalBytes
+                                : 1.0);
+                        }
+                    }
+                    catch
+                    {
+                        AbandonableWrite.Abandon(output); // a partial archive isn't uploaded on the way out
+                        throw;
                     }
                 }
 
-                if (target.Fs.FileExists(dest))
-                {
-                    target.Fs.DeleteFile(dest);
-                }
-                target.Fs.MoveFile(tempPath, dest, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                target.Fs.MoveFile(tempPath, dest, overwrite: true);
                 try
                 {
                     result.BytesCopied += target.Fs.GetFileSize(dest); // the archive's size
@@ -754,5 +784,29 @@ namespace BackupService.Scheduling
 
         /// <summary>The resolved target filesystem and base path for one archive run.</summary>
         private sealed record Target(IBackupFileSystem Fs, string Base);
+
+        /// <summary>
+        /// The target's connection, which can be opened afresh. Building a large archive can take long enough for a
+        /// server to drop an idle SMB session (Windows' AutoDisconnect is 15 minutes), after which the copy and
+        /// retention would fail on the dead session — so the connection is reopened once the archive is built.
+        /// </summary>
+        private sealed class TargetConnection(IEndpointFileSystemFactory factory, int? connectionId, string folder) : IDisposable
+        {
+            private EndpointFileSystem? _endpoint;
+
+            public async Task<Target> ConnectAsync(CancellationToken cancellationToken)
+            {
+                _endpoint?.Session.Dispose();
+                _endpoint = null;
+                _endpoint = await factory.ResolveAsync(connectionId, folder, cancellationToken);
+                return new Target(_endpoint.FileSystem, _endpoint.BasePath);
+            }
+
+            /// <summary>Reopens a target on a connection; a local target has no session to lose.</summary>
+            public async Task<Target> RefreshAsync(Target current, CancellationToken cancellationToken) =>
+                connectionId is null ? current : await ConnectAsync(cancellationToken);
+
+            public void Dispose() => _endpoint?.Session.Dispose();
+        }
     }
 }

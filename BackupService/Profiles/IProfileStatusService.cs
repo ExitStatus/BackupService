@@ -33,6 +33,19 @@ namespace BackupService.Profiles
         /// <summary>Ends the run begun by <see cref="TryBeginRun"/>, setting its final status.</summary>
         void EndRun(int profileId, ProfileStatus finalStatus);
 
+        /// <summary>
+        /// Records the operation log of the run in progress (the handler calls this when it creates it). Raises
+        /// <see cref="ProgressChanged"/>, so a View Progress dialog opened while the run was queued can pick it up.
+        /// </summary>
+        void SetRunLog(int profileId, int operationLogId);
+
+        /// <summary>
+        /// The operation log of the run in progress, or null when nothing is running or the run hasn't created its log
+        /// yet (still queued behind its group or a USB device). Lets the UI follow — or hide — exactly that log,
+        /// rather than guessing at "the profile's newest".
+        /// </summary>
+        int? GetRunLog(int profileId);
+
         /// <summary>Drops a profile's tracked status and any lock (call when the profile is deleted).</summary>
         void Remove(int profileId);
 
@@ -67,11 +80,12 @@ namespace BackupService.Profiles
 
         /// <summary>
         /// Marks a profile as locked because an admin has it open in a dialog (edit or
-        /// delete-confirmation). A locked profile's scheduled run is skipped.
+        /// delete-confirmation). A locked profile's scheduled run is skipped. Counted: each Lock needs its own
+        /// <see cref="Unlock"/>, so two tabs with the same profile open each hold the lock.
         /// </summary>
         void Lock(int profileId);
 
-        /// <summary>Clears the lock taken by <see cref="Lock"/> (a no-op if not locked).</summary>
+        /// <summary>Releases one <see cref="Lock"/> (a no-op if not locked); the profile stays locked while others hold it.</summary>
         void Unlock(int profileId);
 
         /// <summary>Whether the profile is currently locked (open in an edit/delete dialog).</summary>

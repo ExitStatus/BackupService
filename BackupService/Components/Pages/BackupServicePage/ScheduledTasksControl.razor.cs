@@ -28,6 +28,9 @@ namespace BackupService.Components.Pages.BackupServicePage
 
         private bool _showDialog;
         private int? _editId;
+
+        // The task this page currently holds an edit lock on (null when none).
+        private int? _lockedId;
         private ScheduledTask? _deleteTarget;
         private Notification _notification = default!;
 
@@ -102,6 +105,7 @@ namespace BackupService.Components.Pages.BackupServicePage
         {
             // Lock the task so a scheduled run won't fire while it's being edited.
             StatusService.Lock(id);
+            _lockedId = id;
             _editId = id;
             _showDialog = true;
         }
@@ -121,10 +125,13 @@ namespace BackupService.Components.Pages.BackupServicePage
             await LoadAsync();
         }
 
+        // Releases the lock this page took, once — not "the task last edited" again on every close and on leaving
+        // the page, which released the lock another tab held on the same task.
         private void UnlockEditing()
         {
-            if (_editId is int id)
+            if (_lockedId is int id)
             {
+                _lockedId = null;
                 StatusService.Unlock(id);
             }
         }

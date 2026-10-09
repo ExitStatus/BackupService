@@ -157,7 +157,8 @@ namespace BackupService.Scheduling.TwoWaySync
 
             foreach (var sub in subs)
             {
-                if (filter.ExcludesFolder(sub) || filter.ExcludesPath([.. ancestors, sub]))
+                if (filter.ExcludesFolder(sub) || filter.ExcludesPath([.. ancestors, sub])
+                    || LinkLoopTarget(leftFs, Path.Combine(leftDir, sub), rightFs, Path.Combine(rightDir, sub)) is not null)
                 {
                     continue;
                 }
@@ -221,9 +222,20 @@ namespace BackupService.Scheduling.TwoWaySync
                 {
                     continue;
                 }
+                if (LinkLoopTarget(ctx.LeftFs, Path.Combine(leftDir, sub), ctx.RightFs, Path.Combine(rightDir, sub)) is { } loopTarget)
+                {
+                    // Not walked (it would repeat without end), so whatever it held keeps its baseline.
+                    await log.AppendAsync($"Skipped '{sub}' — it's a link back to '{loopTarget}', which this sync is already inside");
+                    KeepBaselineUnder([.. ancestors, sub], ctx, includeFilesHere: true);
+                    continue;
+                }
                 await SyncDirectoryAsync(Path.Combine(leftDir, sub), Path.Combine(rightDir, sub), [.. ancestors, sub], ctx, log, result, fileProgress, ct);
             }
         }
+
+        // A sub-folder that's a link back up the tree on either side (see DirectoryLinkLoop), or null.
+        private static string? LinkLoopTarget(IBackupFileSystem leftFs, string leftPath, IBackupFileSystem rightFs, string rightPath) =>
+            DirectoryLinkLoop.Target(leftFs, leftPath) ?? DirectoryLinkLoop.Target(rightFs, rightPath);
 
         // The previous baseline entry for a file whose fate wasn't settled this run (a failed read, copy or delete)
         // is carried forward, so next run compares against the same state. Dropping it instead would make a one-sided
@@ -539,7 +551,15 @@ namespace BackupService.Scheduling.TwoWaySync
                 using (var input = fromFs.OpenRead(fromPath, ct))
                 using (var output = toFs.OpenWrite(tempPath))
                 {
-                    written = await CopyCountingAsync(input, output, ct);
+                    try
+                    {
+                        written = await CopyCountingAsync(input, output, ct);
+                    }
+                    catch
+                    {
+                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                        throw;
+                    }
                 }
 
                 // Never commit a short copy. In a two-way sync a truncated copy stamped with the source's time would
@@ -560,11 +580,8 @@ namespace BackupService.Scheduling.TwoWaySync
 
                 TryStampWriteTime(toFs, tempPath, from.Mtime);
 
-                if (toFs.FileExists(destPath))
-                {
-                    toFs.DeleteFile(destPath);
-                }
-                toFs.MoveFile(tempPath, destPath, overwrite: false);
+                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                toFs.MoveFile(tempPath, destPath, overwrite: true);
                 result.BytesCopied += written;
                 return true;
             }

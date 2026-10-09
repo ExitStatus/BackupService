@@ -11,10 +11,12 @@ namespace BackupService.Hosting
     /// after a redeploy.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public sealed class WindowsStartupManager(ILogger<WindowsStartupManager> logger) : IStartupManager
+    public sealed class WindowsStartupManager(ILogger<WindowsStartupManager> logger, IHostEnvironment environment) : IStartupManager
     {
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string ValueName = "BackupService";
+
+        // Per environment, so a development run never touches the installed app's entry (see AutostartNames).
+        private readonly string _valueName = AutostartNames.WindowsValueName(environment.EnvironmentName);
 
         public void Apply(bool enabled)
         {
@@ -35,11 +37,11 @@ namespace BackupService.Hosting
                         return;
                     }
 
-                    key.SetValue(ValueName, $"\"{exePath}\" -background");
+                    key.SetValue(_valueName, $"\"{exePath}\" -background");
                 }
                 else
                 {
-                    key.DeleteValue(ValueName, throwOnMissingValue: false);
+                    key.DeleteValue(_valueName, throwOnMissingValue: false);
                 }
             }
             catch (Exception ex)
@@ -53,7 +55,7 @@ namespace BackupService.Hosting
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath);
-                return key?.GetValue(ValueName) is not null;
+                return key?.GetValue(_valueName) is not null;
             }
             catch (Exception ex)
             {

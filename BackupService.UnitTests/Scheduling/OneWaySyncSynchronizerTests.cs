@@ -92,6 +92,69 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task ALinkBackToAFolderAbove_IsNotFollowed()
+        {
+            // Followed, a junction to an ancestor walks the same tree inside itself without end.
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\src\docs\loop\inside.txt", T1, "would repeat forever");
+            _fs.DirectoryLinks[@"C:\src\docs\loop"] = @"C:\src";
+            _fs.AddFile(@"C:\src\docs\other\b.txt", T1, "b");
+            _fs.DirectoryLinks[@"C:\src\docs\other"] = @"D:\elsewhere"; // a link elsewhere is still followed
+
+            var result = await Run(Pair(includeSubFolders: true));
+
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\docs\other\b.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\dst\docs\loop\inside.txt").Should().BeFalse();
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("link back to"));
+        }
+
+        [Test]
+        public async Task AReplaceWhoseRenameFails_KeepsTheOldCopy()
+        {
+            // The old copy used to be deleted before the new one was renamed in, so a failed rename lost both.
+            _fs.AddFile(@"C:\src\a.txt", T2, "new");
+            _fs.AddFile(@"C:\dst\a.txt", T1, "old");
+            _fs.MoveShouldFail = dest => dest.EndsWith("a.txt", StringComparison.OrdinalIgnoreCase);
+
+            var result = await Run(Pair());
+
+            result.Errors.Should().Be(1);
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("old");
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        [Test]
+        public async Task ACopyThatFailsPartWay_AbandonsTheWrite_SoNothingPartialIsUploaded()
+        {
+            // Google Drive uploads a write on close; without abandoning it, a failed or stopped copy uploaded its
+            // partial file first (a Stop took as long as that upload), only for the copy to delete it.
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            _fs.OpenReadOverride = _ => new FailingReadStream();
+
+            var result = await Run(Pair());
+
+            _fs.AbandonedWrites.Should().Be(1);
+            result.Errors.Should().Be(1);
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        private sealed class FailingReadStream : Stream
+        {
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => 0; set => throw new NotSupportedException(); }
+            public override int Read(byte[] buffer, int offset, int count) => throw new IOException("The network went away.");
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+
+        [Test]
         public async Task SourceStreamEndsEarly_CopyIsNotCommitted_AndIsAnError()
         {
             // A flaky MTP transfer can end the source stream early without throwing. The truncated data must
@@ -1199,7 +1262,7 @@ namespace BackupService.UnitTests.Scheduling
                 }
                 // Register the file (with a placeholder timestamp) when the stream is disposed; the engine
                 // then stamps it via SetLastWriteTimeUtc.
-                return new FakeWriteStream(bytes => _files[path] = new Entry(default, Encoding.UTF8.GetString(bytes)));
+                return new FakeWriteStream(bytes => _files[path] = new Entry(default, Encoding.UTF8.GetString(bytes)), () => AbandonedWrites++);
             }
 
             public void CopyFile(string source, string destination, bool overwrite)
@@ -1223,10 +1286,27 @@ namespace BackupService.UnitTests.Scheduling
                 _files[destination] = e; // record is immutable — safe to share
             }
 
-            // A write stream that hands the written bytes to a callback on dispose.
-            private sealed class FakeWriteStream(Action<byte[]> onClose) : MemoryStream
+            /// <summary>How many writes were abandoned (and so never landed) — like Drive, which uploads on close.</summary>
+            public int AbandonedWrites { get; private set; }
+
+            /// <summary>Directory links: link path → where it points.</summary>
+            public Dictionary<string, string> DirectoryLinks { get; } = new(FakeFsPath.Comparer);
+
+            public string? GetDirectoryLinkTarget(string path) => DirectoryLinks.GetValueOrDefault(path);
+
+            // A write stream that hands the written bytes to a callback on dispose — unless it was abandoned.
+            private sealed class FakeWriteStream(Action<byte[]> onClose, Action? onAbandon = null) : MemoryStream, IAbandonableWrite
             {
                 private bool _done;
+
+                public void Abandon()
+                {
+                    if (!_done)
+                    {
+                        _done = true;
+                        onAbandon?.Invoke();
+                    }
+                }
 
                 protected override void Dispose(bool disposing)
                 {
@@ -1249,9 +1329,21 @@ namespace BackupService.UnitTests.Scheduling
                 {
                     throw new FileNotFoundException(source);
                 }
-                if (_files.ContainsKey(destination) && !overwrite)
+                if (_files.ContainsKey(destination))
                 {
-                    throw new IOException($"File exists: {destination}");
+                    if (!overwrite)
+                    {
+                        throw new IOException($"File exists: {destination}");
+                    }
+                    // Replacing a file is refused wherever deleting it would be (a protected or locked file).
+                    if (Protected.Contains(destination))
+                    {
+                        throw new ProtectedFileException($"'{destination}' is protected.", "it's a Google Docs file");
+                    }
+                    if (DeleteShouldFail?.Invoke(destination) == true)
+                    {
+                        throw new IOException($"Replace failed: {destination}");
+                    }
                 }
                 _files[destination] = e;
                 _files.Remove(source);

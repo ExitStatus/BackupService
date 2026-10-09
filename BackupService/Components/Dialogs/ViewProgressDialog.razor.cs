@@ -8,8 +8,8 @@ namespace BackupService.Components.Dialogs
     /// <summary>
     /// A large modal showing the live progress of a running backup profile: an overall progress bar, the
     /// current detail item's progress bar, the file currently being copied, and the run's log terminal
-    /// (with the full line filters). Reads live progress from <see cref="IProfileStatusService"/> and finds
-    /// the run's operation log (the newest for the profile). Opened from the Profiles grid's run row.
+    /// (with the full line filters). Reads live progress — and which operation log is the run's — from
+    /// <see cref="IProfileStatusService"/>. Opened from the Profiles grid's run row.
     /// </summary>
     public partial class ViewProgressDialog : ComponentBase, IDisposable
     {
@@ -61,9 +61,16 @@ namespace BackupService.Components.Dialogs
         {
             _last = StatusService.GetProgressDetail(ProfileId);
 
-            // The run creates its operation log at start, so the newest log for this profile is the run's.
-            var page = await OperationLogService.GetPageAsync(1, 1, profileId: ProfileId);
-            _logId = page.Items.Count > 0 ? page.Items[0].Id : null;
+            // The run's own log, recorded by its handler. A run still queued (behind its group or a USB device) has
+            // none yet — it's picked up when the run starts (OnProgressChanged). "The profile's newest log" was the
+            // previous run's in that case, and the dialog never moved on from it.
+            _logId = StatusService.GetRunLog(ProfileId);
+            if (_logId is null && !StatusService.IsRunning(ProfileId))
+            {
+                // The run finished before the dialog opened: show its log, now the newest.
+                var page = await OperationLogService.GetPageAsync(1, 1, profileId: ProfileId);
+                _logId = page.Items.Count > 0 ? page.Items[0].Id : null;
+            }
         }
 
         protected override void OnAfterRender(bool firstRender)
@@ -83,6 +90,10 @@ namespace BackupService.Components.Dialogs
                 if (StatusService.GetProgressDetail(ProfileId) is { } p)
                 {
                     _last = p; // remember the latest snapshot for after the run ends
+                }
+                if (_logId is null && StatusService.GetRunLog(ProfileId) is { } runLog)
+                {
+                    _logId = runLog; // a queued run has started and created its log
                 }
                 _ = InvokeAsync(StateHasChanged);
             }

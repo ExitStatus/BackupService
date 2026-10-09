@@ -133,6 +133,58 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task RemoteTarget_IsReconnected_AfterTheArchiveIsBuilt()
+        {
+            // A long build can leave the target's SMB session idle long enough for the server to drop it, and the
+            // copy then failed on the dead session. The archive goes over a freshly opened connection instead.
+            var localFs = new FakeFileSystem();
+            localFs.AddDirectory(Source);
+            localFs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var remoteFs = new FakeFileSystem();
+            var factory = new SessionCountingFactory(localFs, remoteConnectionId: 7, remoteFs);
+            var sut = new ArchiveSyncProcessor(localFs, factory, new ReversibleProtector());
+            var item = new ArchiveSyncItem
+            {
+                Name = "A",
+                SourceFolder = Source,
+                TargetFolder = "archives",
+                FileName = "Backup",
+                RetentionMode = ArchiveRetentionMode.KeepLastN,
+                RetentionCount = 5,
+                MaxLevels = 1,
+            };
+
+            var result = await sut.CreateArchiveAsync(item, null, 7, 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            factory.RemoteSessions.Should().HaveCount(2, "one for the 'only copy on change' look-up, a fresh one for the copy");
+            factory.RemoteSessions.Should().OnlyContain(s => s.Disposed, "both sessions are closed by the end");
+            remoteFs.FileExists($@"archives\Backup_{RunTime:yyyy-MM-dd_HHmmss}.zip").Should().BeTrue();
+        }
+
+        private sealed class SessionCountingFactory(IBackupFileSystem localFs, int remoteConnectionId, IBackupFileSystem remoteFs) : IEndpointFileSystemFactory
+        {
+            public List<TrackedSession> RemoteSessions { get; } = [];
+
+            public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default)
+            {
+                if (connectionId != remoteConnectionId)
+                {
+                    return Task.FromResult(new EndpointFileSystem(localFs, configuredPath, NoopDisposable.Instance));
+                }
+                var session = new TrackedSession();
+                RemoteSessions.Add(session);
+                return Task.FromResult(new EndpointFileSystem(remoteFs, configuredPath, session));
+            }
+        }
+
+        private sealed class TrackedSession : IDisposable
+        {
+            public bool Disposed { get; private set; }
+            public void Dispose() => Disposed = true;
+        }
+
+        [Test]
         public async Task RemoteSource_FileThatCantBeDownloaded_IsLeftOutAsWarning_ArchiveStillCreated()
         {
             // Staging a remote (e.g. Drive) source used to abort the whole archive on the first unreadable file. A

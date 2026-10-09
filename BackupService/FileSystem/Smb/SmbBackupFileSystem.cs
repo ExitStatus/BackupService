@@ -442,7 +442,7 @@ namespace BackupService.FileSystem.Smb
         {
             if (status != NTStatus.STATUS_SUCCESS)
             {
-                throw new IOException($"SMB failed to {action} ({status}).");
+                throw SmbStatusErrors.Create(status, $"SMB failed to {action} ({status}).");
             }
         }
 

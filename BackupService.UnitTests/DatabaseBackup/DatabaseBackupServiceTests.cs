@@ -169,6 +169,63 @@ namespace BackupService.UnitTests.DatabaseBackup
         }
 
         [Test]
+        public async Task RunBackup_ASnapshotThatCouldntBeArchived_FailsWithoutTouchingTheTarget()
+        {
+            // The zip builder skips an unreadable file rather than throwing. Counted as a good backup, an empty archive
+            // would have pushed a real backup out of retention.
+            var tempRoot = Path.Combine(Path.GetTempPath(), "BackupServiceTests", Guid.NewGuid().ToString("N"));
+            var fs = new Mock<IBackupFileSystem>();
+            fs.Setup(f => f.GetTempFilePath(It.IsAny<string>()))
+                .Returns((string name) =>
+                {
+                    var dir = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dir);
+                    return Path.Combine(dir, name);
+                });
+            fs.Setup(f => f.CreateZipFromDirectory(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<Func<string, bool>?>(),
+                    It.IsAny<string?>(), It.IsAny<System.IO.Compression.CompressionLevel>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<Action<string>?>()))
+                .Returns(new ZipBuildResult([], [new ZipSkippedFile("backupservice.db", "it's in use")]));
+            var endpointFactory = new Mock<IEndpointFileSystemFactory>(MockBehavior.Strict);
+            var dbFactory = new Mock<IDatabaseContextFactory>();
+            dbFactory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
+            var service = new DatabaseBackupService(dbFactory.Object, fs.Object, endpointFactory.Object, _logFactory.Object,
+                TimeProvider.System, NullLogger<DatabaseBackupService>.Instance);
+            try
+            {
+                var ran = await service.RunBackupAsync(manual: true);
+
+                ran.Should().BeFalse();
+                endpointFactory.VerifyNoOtherCalls(); // nothing copied, nothing pruned
+            }
+            finally
+            {
+                try { Directory.Delete(tempRoot, recursive: true); } catch (IOException) { }
+            }
+        }
+
+        [Test]
+        public async Task ListBackups_NamesABackupOnARemoteTargetByItsFileNameAlone()
+        {
+            // SMB/Drive list backslash paths even on Linux, where Path.GetFileName kept the folder, and the restore
+            // then refused the name.
+            var remote = new Mock<IBackupFileSystem>();
+            remote.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns(true);
+            remote.Setup(f => f.GetFiles(It.IsAny<string>())).Returns([@"Backups\database-backup_2026-01-01_020000.zip"]);
+            var endpointFactory = new Mock<IEndpointFileSystemFactory>();
+            endpointFactory.Setup(f => f.ResolveAsync(It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new EndpointFileSystem(remote.Object, "Backups", new NoopSession()));
+            var dbFactory = new Mock<IDatabaseContextFactory>();
+            dbFactory.Setup(f => f.CreateDbContext()).Returns(() => new BackupDbContext(_options));
+            var service = new DatabaseBackupService(dbFactory.Object, Mock.Of<IBackupFileSystem>(), endpointFactory.Object, _logFactory.Object,
+                TimeProvider.System, NullLogger<DatabaseBackupService>.Instance);
+            await service.UpdateSettingsAsync(true, null, "Backups", "0 3 * * *", maxBackups: 5);
+
+            var backups = await service.ListBackupsAsync();
+
+            backups.Should().ContainSingle().Which.FileName.Should().Be("database-backup_2026-01-01_020000.zip");
+        }
+
+        [Test]
         public async Task StageRestore_RejectsAFileNameThatIsNotOneOfOurBackups()
         {
             var act = () => _service.StageRestoreAsync("not-a-backup.zip");
