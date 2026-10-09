@@ -116,6 +116,13 @@ namespace BackupService.UnitTests.DatabaseBackup
         [Test]
         public void ApplyIfPending_SwapFailure_PutsTheLiveDatabasesWalBack()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Forcing the swap to fail relies on an open handle blocking the replace — Windows locking. Unix
+                // locks are advisory, so the replace would just succeed.
+                Assert.Ignore("Needs Windows file locking to make the swap fail.");
+                return;
+            }
             File.WriteAllText(_dbPath, "current");
             File.WriteAllText(_dbPath + "-wal", "wal");
             var pending = PendingRestoreApplier.PendingPathFor(_dataDir);

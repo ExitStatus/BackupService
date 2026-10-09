@@ -464,7 +464,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.AddFile(@"C:\left\x.txt", T1, "base");
             await Run(Item(conflict: ConflictResolution.TargetWins));
             _fs.AddFile(@"C:\left\x.txt", T3, "left-edit");
-            _fs.DeleteShouldFail = p => p.EndsWith(@"right\x.txt", StringComparison.OrdinalIgnoreCase);
+            _fs.DeleteShouldFail = p => FakeFsPath.Comparer.Equals(p, @"C:\right\x.txt"); // separator-agnostic (CI runs on Linux)
 
             var failed = await Run(Item(conflict: ConflictResolution.TargetWins));
             _fs.DeleteShouldFail = null;

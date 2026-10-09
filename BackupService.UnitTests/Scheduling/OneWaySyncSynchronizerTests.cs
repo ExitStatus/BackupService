@@ -207,7 +207,7 @@ namespace BackupService.UnitTests.Scheduling
             // verify against, so the copy is accepted — and later runs must not see the real-sized copy as a size
             // mismatch and re-copy it forever.
             _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
-            _fs.ReportedSizeOverride = p => p.StartsWith(Source, StringComparison.OrdinalIgnoreCase) ? reportedSize : null;
+            _fs.ReportedSizeOverride = p => FakeFsPath.IsUnder(p, Source) ? reportedSize : null;
 
             var first = await Run(Pair());
             var second = await Run(Pair());
@@ -284,7 +284,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             // A failed size query on the target must never throw away a fully written copy.
             _fs.AddFile(@"C:\src\a.txt", T1, "hello");
-            _fs.GetFileSizeShouldFail = p => p.StartsWith(Target, StringComparison.OrdinalIgnoreCase);
+            _fs.GetFileSizeShouldFail = p => FakeFsPath.IsUnder(p, Target);
 
             var result = await Run(Pair());
 
@@ -565,7 +565,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             _fs.AddFile(@"C:\src\temp.txt", T2, "t");
             _fs.AddFile(@"C:\dst\temp.txt", T1, "old");
-            _fs.OnGetFileStat = p => { if (p.StartsWith(Source, StringComparison.OrdinalIgnoreCase)) _fs.Remove(p); };
+            _fs.OnGetFileStat = p => { if (FakeFsPath.IsUnder(p, Source)) _fs.Remove(p); };
 
             var result = await Run(Pair());
 
@@ -592,7 +592,7 @@ namespace BackupService.UnitTests.Scheduling
         {
             _fs.AddFile(@"C:\src\a.txt", T1, "a");
             _fs.AddFile(@"C:\dst\a.txt", T1, "a");
-            _fs.OnGetFileStat = p => { if (p.StartsWith(Target, StringComparison.OrdinalIgnoreCase)) _fs.Remove(p); };
+            _fs.OnGetFileStat = p => { if (FakeFsPath.IsUnder(p, Target)) _fs.Remove(p); };
 
             var result = await Run(Pair());
 

@@ -99,6 +99,7 @@ namespace BackupService.UnitTests.FileSystem
             if (!OperatingSystem.IsWindows())
             {
                 Assert.Ignore("Byte-range locks block other readers only on Windows.");
+                return; // (explicit, so the platform analyzer sees the Lock/Unlock calls below as Windows-guarded)
             }
             var bigFile = Path.Combine(_source, "big.bin");
             File.WriteAllBytes(bigFile, new byte[300_000]);
