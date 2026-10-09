@@ -7,10 +7,17 @@ namespace BackupService.UnitTests.Usb
     public class UsbDeviceMatcherTests
     {
         [Test]
-        public void Matches_WhenBothHaveHardwareSerial_RequiresHardwareEquality()
+        public void Matches_SameHardwareSerial_ButADifferentVolume_IsNotAMatch()
         {
-            // Hardware serials equal → match, even with different volume serials (e.g. after a reformat).
-            UsbDeviceMatcher.Matches("HW1", "VOL-A", "HW1", "VOL-B").Should().BeTrue();
+            // Partition 2 of the same disk, or another card in the same card reader: same hardware serial, different
+            // volume. Matching it would back up to (or mirror over) the wrong volume.
+            UsbDeviceMatcher.Matches("HW1", "VOL-A", "HW1", "VOL-B").Should().BeFalse();
+        }
+
+        [Test]
+        public void Matches_SameHardwareSerialAndVolume_IsAMatch()
+        {
+            UsbDeviceMatcher.Matches("HW1", "VOL-A", "HW1", "VOL-A").Should().BeTrue();
         }
 
         [Test]

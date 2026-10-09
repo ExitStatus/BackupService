@@ -245,7 +245,17 @@ namespace BackupService.Scheduling
                 _watcher.EnableRaisingEvents = true;
             }
 
-            private void OnChanged(object sender, FileSystemEventArgs e) => QueueChange(e.FullPath);
+            private void OnChanged(object sender, FileSystemEventArgs e)
+            {
+                // A folder's own "changed" event just means an entry inside it changed — and those entries raise
+                // their own events. Only a folder that arrives (created or renamed) is queued, because the processor
+                // copies a queued folder's entire contents.
+                if (e.ChangeType == WatcherChangeTypes.Changed && Directory.Exists(e.FullPath))
+                {
+                    return;
+                }
+                QueueChange(e.FullPath);
+            }
 
             private void OnDeleted(object sender, FileSystemEventArgs e) => QueueDelete(e.FullPath);
 

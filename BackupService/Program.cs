@@ -100,7 +100,7 @@ namespace BackupService
                 builder.Services.AddSingleton<Logging.ILogWatcher, Logging.LogWatcher>();
                 // Operation-log detail lines live in per-log files under {data dir}\operation-logs (not the DB).
                 builder.Services.AddSingleton<Logging.IOperationLogFileStore>(_ =>
-                    new Logging.OperationLogFileStore(Path.Combine(Database.BackupDatabaseLocation.GetDataDirectory(), "operation-logs")));
+                    new Logging.OperationLogFileStore(Path.Combine(Database.BackupDatabaseLocation.GetDataDirectory(), Logging.OperationLogFileStore.DirectoryName)));
                 builder.Services.AddSingleton<Logging.ILogRetentionService, Logging.LogRetentionService>();
                 builder.Services.AddSingleton<Logging.IOperationLogFactory, Logging.OperationLogFactory>();
                 builder.Services.AddSingleton<Logging.IOperationLogService, Logging.OperationLogService>();

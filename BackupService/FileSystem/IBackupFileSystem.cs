@@ -26,6 +26,13 @@ namespace BackupService.FileSystem
         /// <summary>Full paths of the sub-directories directly in <paramref name="directory"/> (not recursive).</summary>
         IReadOnlyList<string> GetDirectories(string directory);
 
+        /// <summary>
+        /// True if <paramref name="path"/> is a link to another directory (a junction or directory symlink) rather than
+        /// a real one. Its contents live elsewhere, so a mirror deleting an orphan folder must remove only the link,
+        /// never what it points at. Filesystems without links keep the default.
+        /// </summary>
+        bool IsDirectoryLink(string path) => false;
+
         DateTime GetLastWriteTimeUtc(string path);
 
         /// <summary>The size of <paramref name="path"/> in bytes.</summary>

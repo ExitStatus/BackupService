@@ -159,6 +159,60 @@ namespace BackupService.UnitTests.Scheduling
             localFs.FileExists(KeepName(RunTime)).Should().BeTrue();
         }
 
+        private (ArchiveSyncProcessor Sut, FakeFileSystem Local, FakeFileSystem Remote, ArchiveSyncItem Item) RemoteSourceSetup()
+        {
+            var localFs = new FakeFileSystem();
+            localFs.AddDirectory(Target);
+            var remoteFs = new FakeFileSystem();
+            remoteFs.AddFile(@"Photos\a.jpg", RunTime, "jpeg");
+            remoteFs.AddFile(@"Photos\b.jpg", RunTime, "jpeg");
+            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, remoteConnectionId: 5, remoteFs), new ReversibleProtector());
+            var item = KeepLastN(5);
+            item.SourceFolder = "Photos";
+            return (sut, localFs, remoteFs, item);
+        }
+
+        [Test]
+        public async Task RemoteSource_FileThatFailsToStage_IsLeftOutAsAnError_ArchiveStillCreated()
+        {
+            // One file that can't be fetched (e.g. an MTP transfer that keeps coming back short) used to fail the
+            // whole archive.
+            var (sut, localFs, remoteFs, item) = RemoteSourceSetup();
+            remoteFs.ReadFailure = p => p.EndsWith("b.jpg") ? new IOException("Incomplete transfer from the MTP device") : null;
+
+            var result = await sut.CreateArchiveAsync(item, 5, null, 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(1);
+            _log.Errors.Should().ContainSingle(m => m.Contains("b.jpg") && m.Contains("Incomplete transfer"));
+            _log.DebugMessages.Should().ContainSingle().Which.Should().Contain("a.jpg").And.NotContain("b.jpg");
+            localFs.FileExists(KeepName(RunTime)).Should().BeTrue();
+        }
+
+        [Test]
+        public async Task RemoteSource_StopWhileStaging_IsACancellation_NotAnError()
+        {
+            var (sut, localFs, remoteFs, item) = RemoteSourceSetup();
+            remoteFs.ReadFailure = _ => new OperationCanceledException();
+
+            var act = () => sut.CreateArchiveAsync(item, 5, null, 1, RunTime, _log, CancellationToken.None);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            _log.Errors.Should().BeEmpty();
+            localFs.AllFiles.Should().NotContain(p => p.StartsWith(FakeFsPath.Norm(@"C:\temp")), "the partial staging folder is cleaned up");
+        }
+
+        [Test]
+        public async Task RemoteSource_DeviceGoneWhileStaging_AbortsTheRun()
+        {
+            var (sut, _, remoteFs, item) = RemoteSourceSetup();
+            remoteFs.ReadFailure = _ => new EndpointUnavailableException("device gone");
+
+            var act = () => sut.CreateArchiveAsync(item, 5, null, 1, RunTime, _log, CancellationToken.None);
+
+            await act.Should().ThrowAsync<EndpointUnavailableException>();
+        }
+
         [Test]
         public async Task VerboseLogsFiles_AsSingleRow_CrlfSeparated_IncludingSubFolders()
         {
@@ -552,6 +606,9 @@ namespace BackupService.UnitTests.Scheduling
             // Files that exist but can't be downloaded at all (e.g. a Google Docs file on Drive).
             public HashSet<string> NotDownloadable { get; } = new(FakeFsPath.Comparer);
 
+            // Any other read failure to inject (arg: path; null = read normally).
+            public Func<string, Exception?>? ReadFailure { get; set; }
+
             public Stream OpenRead(string path)
             {
                 if (!_files.TryGetValue(path, out var e))
@@ -565,6 +622,10 @@ namespace BackupService.UnitTests.Scheduling
                 if (NotDownloadable.Contains(path))
                 {
                     throw new FileNotDownloadableException($"'{path}' can't be downloaded.", "it's a Google Docs file");
+                }
+                if (ReadFailure?.Invoke(path) is { } failure)
+                {
+                    throw failure;
                 }
                 return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
             }

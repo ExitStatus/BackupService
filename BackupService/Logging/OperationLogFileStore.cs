@@ -22,6 +22,9 @@ namespace BackupService.Logging
     {
         private const string TimestampFormat = "yyyy-MM-dd HH:mm:ss";
 
+        /// <summary>The name of the log-file folder under the data directory.</summary>
+        public const string DirectoryName = "operation-logs";
+
         private readonly string _directory;
         private readonly ConcurrentDictionary<int, SemaphoreSlim> _locks = new();
 

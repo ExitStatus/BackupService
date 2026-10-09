@@ -93,6 +93,73 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task SameNamedRawsFromDifferentFolders_AreBothKept_UnderFolderTaggedNames()
+        {
+            // Camera counters wrap: two IMG_0001.ARW in the catalog must not overwrite each other in the RAW folder.
+            _fs.AddFile(@"C:\src\IMG_0001.jpg", T1, "jpg");
+            _fs.AddFile(@"C:\lr\2023\IMG_0001.ARW", T1, "raw-2023");
+            _fs.AddFile(@"C:\lr\2024\IMG_0001.ARW", T1, "raw-2024");
+
+            var first = await Run(Item(), Settings(), [@"C:\src\IMG_0001.jpg"]);
+            var second = await Run(Item(), Settings(), [@"C:\src\IMG_0001.jpg"]);
+
+            _fs.ContentOf(@"C:\dst\RAW\IMG_0001 (2023).ARW").Should().Be("raw-2023");
+            _fs.ContentOf(@"C:\dst\RAW\IMG_0001 (2024).ARW").Should().Be("raw-2024");
+            _fs.FileExists(@"C:\dst\RAW\IMG_0001.ARW").Should().BeFalse();
+            first.Copied.Should().Be(3);
+            second.Copied.Should().Be(0); // stable names — nothing re-copied
+            second.Updated.Should().Be(0);
+        }
+
+        [Test]
+        public async Task DeletingOneOfTwoSameNamedPhotos_KeepsTheRawTheOtherStillNeeds()
+        {
+            // IMG_1.jpg remains after IMG_1.tif is deleted (e.g. re-exported in another format).
+            _fs.AddFile(@"C:\src\IMG_1.jpg", T1, "jpg");
+            _fs.AddFile(@"C:\dst\IMG_1.jpg", T1, "jpg");
+            _fs.AddFile(@"C:\dst\IMG_1.tif", T1, "tif");
+            _fs.AddFile(@"C:\dst\RAW\IMG_1.ARW", T1, "raw");
+
+            var result = await Run(Item(allowDeletions: true), Settings(), changes: [], deletes: [@"C:\src\IMG_1.tif"]);
+
+            _fs.FileExists(@"C:\dst\IMG_1.tif").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\RAW\IMG_1.ARW").Should().BeTrue();
+            result.Deleted.Should().Be(1);
+        }
+
+        [Test]
+        public async Task DeletedPhoto_AlsoRemovesItsFolderTaggedRaws()
+        {
+            _fs.AddFile(@"C:\dst\IMG_0001.jpg", T1, "jpg");
+            _fs.AddFile(@"C:\dst\RAW\IMG_0001 (2023).ARW", T1, "a");
+            _fs.AddFile(@"C:\dst\RAW\IMG_0001 (2024).ARW", T1, "b");
+            _fs.AddFile(@"C:\dst\RAW\IMG_00010.ARW", T1, "other"); // a different photo
+
+            await Run(Item(allowDeletions: true), Settings(), changes: [], deletes: [@"C:\src\IMG_0001.jpg"]);
+
+            _fs.FileExists(@"C:\dst\RAW\IMG_0001 (2023).ARW").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\RAW\IMG_0001 (2024).ARW").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\RAW\IMG_00010.ARW").Should().BeTrue();
+        }
+
+        [Test]
+        public async Task RenamedFolder_ArrivesWithItsPhotosAndRaws()
+        {
+            _fs.AddFile(@"C:\src\Shoot\wibble.jpg", T1, "jpg");
+            _fs.AddFile(@"C:\lr\wibble.dng", T1, "raw");
+            _fs.AddFile(@"C:\dst\OldShoot\wibble.jpg", T1, "jpg");
+            var item = Item(allowDeletions: true);
+            item.IncludeSubFolders = true;
+
+            var result = await Run(item, Settings(), [@"C:\src\Shoot"], [@"C:\src\OldShoot"]);
+
+            _fs.ContentOf(@"C:\dst\Shoot\wibble.jpg").Should().Be("jpg");
+            _fs.ContentOf(@"C:\dst\Shoot\RAW\wibble.dng").Should().Be("raw");
+            _fs.DirectoryExists(@"C:\dst\OldShoot").Should().BeFalse();
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
         public async Task MatchingIsCaseInsensitive_OnNameAndExtension()
         {
             _fs.AddFile(@"C:\src\WIBBLE.JPG", T1, "jpg");

@@ -220,6 +220,27 @@ namespace BackupService.Scheduling
                     {
                         throw; // source endpoint gone — abort the run (handled by the handler)
                     }
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                    {
+                        // One side changed between the folder listing and now.
+                        if (!StillExists(ctx.SourceFs, sourcePath))
+                        {
+                            continue; // the source file was deleted mid-run — nothing to back up (the next run mirrors it)
+                        }
+                        if (!StillExists(ctx.TargetFs, destPath)
+                            && await CopyThroughTempAsync(sourcePath, destPath, targetDir, null, ctx, log, result, ct))
+                        {
+                            result.Copied++; // the destination vanished — copy it afresh
+                            await log.AppendAsync($"Copied '{sourcePath}' -> '{destPath}'");
+                            continue;
+                        }
+                        if (StillExists(ctx.TargetFs, destPath))
+                        {
+                            result.Errors++;
+                            await log.ErrorAsync($"Failed to read timestamps for '{destPath}'", ex);
+                        }
+                        continue;
+                    }
                     catch (Exception ex)
                     {
                         result.Errors++;
@@ -235,15 +256,24 @@ namespace BackupService.Scheduling
                         // Same timestamp (within filesystem granularity) — normally no change, nothing logged. But a
                         // destination SHORTER than its source can't be a faithful copy (e.g. an earlier transfer that
                         // ended early yet was stamped with the source's time), so repair it rather than skip forever.
-                        if (IsTruncatedCopy(sourceStat, destStat)
-                            && MayReplaceDestination(pair.OverwriteBehaviour, sourceTime, destTime)
-                            && await CopyThroughTempAsync(sourcePath, destPath, targetDir, sourceStat, ctx, log, result, ct))
+                        if (IsTruncatedCopy(sourceStat, destStat))
                         {
-                            // A warning as well as an update: the copy is now right, but an earlier backup wasn't.
-                            result.Updated++;
-                            result.Warnings++;
-                            await log.AppendAsync(OperationLogLevel.Warning,
-                                $"Repaired '{destPath}' — it was {destStat.Size} bytes but the source is {sourceStat.Size} bytes with the same timestamp, so an earlier copy was incomplete");
+                            if (!MayReplaceDestination(pair.OverwriteBehaviour, sourceTime, destTime))
+                            {
+                                // It reads as marginally newer (FAT rounding, or a genuine edit) and the pair doesn't
+                                // overwrite newer files — say so, rather than leave a possibly-truncated copy silently.
+                                result.Warnings++;
+                                await log.AppendAsync(OperationLogLevel.Warning,
+                                    $"Kept '{destPath}' — it's {destStat.Size} bytes but the source is {sourceStat.Size} bytes with the same timestamp, so it may be an incomplete copy; it wasn't replaced because it reads as slightly newer and this pair doesn't overwrite newer files");
+                            }
+                            else if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, sourceStat, ctx, log, result, ct))
+                            {
+                                // A warning as well as an update: the copy is now right, but an earlier backup wasn't.
+                                result.Updated++;
+                                result.Warnings++;
+                                await log.AppendAsync(OperationLogLevel.Warning,
+                                    $"Repaired '{destPath}' — it was {destStat.Size} bytes but the source is {sourceStat.Size} bytes with the same timestamp, so an earlier copy was incomplete");
+                            }
                         }
                     }
                     else if (sourceTime > destTime)
@@ -341,7 +371,7 @@ namespace BackupService.Scheduling
                             !filter.ExcludesFolder(targetSubName) &&
                             !filter.ExcludesPath([.. ancestors, targetSubName]))
                         {
-                            await DeleteOrphanDirectoryAsync(targetSub, ctx, log, result, ct);
+                            await DeleteOrphanDirectoryAsync(targetSub, [.. ancestors, targetSubName], ctx, log, result, ct);
                         }
                     }
                 }
@@ -478,6 +508,10 @@ namespace BackupService.Scheduling
             catch (Exception ex)
             {
                 TryDeleteTemp(ctx, tempPath);
+                if (ex is FileNotFoundException or DirectoryNotFoundException && !StillExists(ctx.SourceFs, source))
+                {
+                    return false; // the source was deleted after the folder was listed — nothing to back up
+                }
                 if (FileLock.IsSkippableReadError(ex, out var reason))
                 {
                     // The file couldn't be read (locked, or an unavailable cloud file) — skip it this run
@@ -559,6 +593,24 @@ namespace BackupService.Scheduling
         private static bool MayReplaceDestination(OverwriteBehaviour behaviour, DateTime sourceTime, DateTime destTime) =>
             destTime <= sourceTime || behaviour == OverwriteBehaviour.AlwaysOverwrite;
 
+        // Whether a file is (still) there. An unreadable answer counts as "yes", so a real failure gets reported rather
+        // than silently skipped; a gone endpoint still aborts the run.
+        private static bool StillExists(IBackupFileSystem fs, string path)
+        {
+            try
+            {
+                return fs.FileExists(path);
+            }
+            catch (EndpointUnavailableException)
+            {
+                throw;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
         // Re-reads the source's size after a short copy: true only when it can be read and is no longer the size the
         // copy started from. A gone endpoint still aborts the run.
         private static bool SizeChanged(IBackupFileSystem fs, string path, long sizeAtStart)
@@ -599,14 +651,24 @@ namespace BackupService.Scheduling
             }
         }
 
-        // Deletes an orphan target folder and everything in it. Returns whether the folder is now gone.
-        private async Task<bool> DeleteOrphanDirectoryAsync(string directory, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
+        // Deletes an orphan target folder and everything in it that's in scope. Returns whether the folder is now gone.
+        // relative = the folder's path below the target root (ancestors + its name), for the include/exclude rules.
+        private async Task<bool> DeleteOrphanDirectoryAsync(string directory, IReadOnlyList<string> relative, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
 
             IReadOnlyList<string> files, subDirs;
             try
             {
+                // A junction or directory symlink points somewhere else entirely: remove just the link, never walk
+                // into it — deleting "its" files would delete the real ones outside the target.
+                if (ctx.TargetFs.IsDirectoryLink(directory))
+                {
+                    ctx.TargetFs.DeleteDirectory(directory, recursive: false);
+                    await log.AppendAsync($"Deleted folder link '{directory}' (not in source; what it points to was left alone)");
+                    return true;
+                }
+
                 files = ctx.TargetFs.GetFiles(directory);
                 subDirs = ctx.TargetFs.GetDirectories(directory);
             }
@@ -617,13 +679,20 @@ namespace BackupService.Scheduling
                 return false;
             }
 
-            // Whether everything inside was removed. Anything kept (a protected file) or not deletable has already
-            // been logged, and the folder is then left in place — a folder delete would fail on a non-empty folder
-            // locally, and on Google Drive it would silently take whatever was left with it.
+            // Whether everything inside was removed. Anything kept — out of scope per the include/exclude rules
+            // (exactly as it would be if the folder still existed in the source), protected, or not deletable — means
+            // the folder stays: a folder delete would fail on a non-empty folder locally, and on Google Drive it
+            // would silently take whatever was left with it.
             var emptied = true;
             foreach (var file in files)
             {
                 ct.ThrowIfCancellationRequested();
+                if (!ctx.Filter.IsFileInScope(PathHelper.GetLeafName(file), relative))
+                {
+                    emptied = false;
+                    continue;
+                }
+
                 try
                 {
                     ctx.TargetFs.DeleteFile(file);
@@ -645,9 +714,11 @@ namespace BackupService.Scheduling
 
             foreach (var sub in subDirs)
             {
-                if (!await DeleteOrphanDirectoryAsync(sub, ctx, log, result, ct))
+                var name = PathHelper.GetLeafName(sub);
+                if (ctx.Filter.ExcludesFolder(name) || ctx.Filter.ExcludesPath([.. relative, name])
+                    || !await DeleteOrphanDirectoryAsync(sub, [.. relative, name], ctx, log, result, ct))
                 {
-                    emptied = false;
+                    emptied = false; // an excluded sub-folder is out of scope, not an orphan — kept
                 }
             }
 

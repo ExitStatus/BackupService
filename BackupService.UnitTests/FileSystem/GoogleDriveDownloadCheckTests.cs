@@ -90,7 +90,7 @@ namespace BackupService.UnitTests.FileSystem
             GoogleDriveBackupFileSystem.ProtectedReason(null).Should().BeNull();
         }
 
-        [TestCase(0L)]   // no size to check against (e.g. a Google Docs file)
+        [TestCase(0L)]   // no size to check against
         [TestCase(80L)]  // more than reported — not truncation
         public void DownloadWithNothingToCheckOrMoreThanReported_IsAccepted(long expected)
         {

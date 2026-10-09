@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Runtime.ExceptionServices;
 using BackupService.Connections.GoogleDrive;
 using Google.Apis.Download;
 using Google.Apis.Drive.v3;
@@ -142,7 +143,7 @@ namespace BackupService.FileSystem.GoogleDrive
         {
             var dirId = FolderId(directory);
             var results = new List<string>();
-            foreach (var file in ListChildren(dirId, foldersOnly: false))
+            foreach (var file in MappableChildren(directory, ListChildren(dirId, foldersOnly: false)))
             {
                 var full = Combine(directory, file.Name);
                 _files[Normalize(full)] = ToEntry(file);
@@ -155,7 +156,7 @@ namespace BackupService.FileSystem.GoogleDrive
         {
             var dirId = FolderId(directory);
             var results = new List<string>();
-            foreach (var dir in ListChildren(dirId, foldersOnly: true))
+            foreach (var dir in MappableChildren(directory, ListChildren(dirId, foldersOnly: true)))
             {
                 var full = Combine(directory, dir.Name);
                 _folderIds[Normalize(full)] = dir.Id;
@@ -208,12 +209,19 @@ namespace BackupService.FileSystem.GoogleDrive
             var tempPath = LocalTempPath();
             try
             {
-                using (var fileStream = System.IO.File.Create(tempPath))
+                try
                 {
+                    using var fileStream = System.IO.File.Create(tempPath);
                     var progress = _drive.Files.Get(entry.Id).DownloadAsync(fileStream, cancellationToken).GetAwaiter().GetResult();
                     cancellationToken.ThrowIfCancellationRequested();
                     fileStream.Flush();
                     EnsureCompleteDownload(progress, fileStream.Length, entry.Size, () => RefreshFileEntry(path).Size, path);
+                }
+                catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // An HTTP timeout surfaces as a TaskCanceledException. That's a failed download, not the user
+                    // pressing Stop — passed on as-is, the engines would abandon the whole run as "cancelled".
+                    throw new IOException($"Download of Drive file '{path}' timed out.", ex);
                 }
             }
             catch
@@ -275,13 +283,17 @@ namespace BackupService.FileSystem.GoogleDrive
         /// progress rather than throwing, so a download that broke off part-way used to hand back a silently truncated
         /// file. A completed download shorter than the size Drive reported is also refused — but the cached size may just
         /// be stale (the file shrank after it was listed), so it is re-read once (<paramref name="refreshSize"/>) before
-        /// the download is declared incomplete. A size of zero (e.g. a Google Docs file) gives nothing to check against.
+        /// the download is declared incomplete. A size of zero (Drive reports none for some items) gives nothing to check against.
         /// </summary>
         internal static void EnsureCompleteDownload(IDownloadProgress progress, long downloaded, long expectedSize, Func<long> refreshSize, string path)
         {
             if (progress.Status != DownloadStatus.Completed)
             {
-                throw progress.Exception ?? new IOException($"Download of Drive file '{path}' did not complete ({progress.Status}).");
+                if (progress.Exception is { } failure)
+                {
+                    ExceptionDispatchInfo.Capture(failure).Throw(); // keep the original stack trace
+                }
+                throw new IOException($"Download of Drive file '{path}' did not complete ({progress.Status}).");
             }
 
             if (expectedSize > 0 && downloaded < expectedSize)
@@ -317,6 +329,7 @@ namespace BackupService.FileSystem.GoogleDrive
             var destNorm = Normalize(destination);
 
             var sourceEntry = GetFileEntry(source);
+            ThrowIfProtected(sourceEntry.MimeType, source); // don't rename a Google Docs file either (e.g. as a conflict copy)
             var (sourceParent, _) = SplitParent(sourceNorm);
             var (destParent, destName) = SplitParent(destNorm);
             var sourceParentId = FolderId(sourceParent);
@@ -527,8 +540,40 @@ namespace BackupService.FileSystem.GoogleDrive
             list.Fields = $"files({EntryFields})";
             list.PageSize = 10;
             var files = list.Execute().Files;
-            return files is { Count: > 0 } ? files[0] : null;
+            if (files is { Count: > 1 })
+            {
+                // Drive allows same-named siblings; picking one arbitrarily would act on the wrong item.
+                throw DuplicateName(parentId, name);
+            }
+            return files is { Count: 1 } ? files[0] : null;
         }
+
+        // The children a name-path can address. Drive allows same-named siblings (and names like ".."), but the engine
+        // works in paths: two items named alike map to ONE path, so one would be backed up twice and the other never
+        // — and with deletions on, its earlier copies would be deleted as orphans. So a duplicate fails the listing
+        // (the engine logs the folder as an error and skips it, deleting nothing there), and "." / ".." — which would
+        // escape the target folder when joined onto a local path — are left out.
+        internal static List<DriveFile> MappableChildren(string directory, List<DriveFile> children)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // the engines compare names ignoring case
+            var mappable = new List<DriveFile>(children.Count);
+            foreach (var child in children)
+            {
+                if (child.Name is null or "" or "." or "..")
+                {
+                    continue;
+                }
+                if (!seen.Add(child.Name))
+                {
+                    throw DuplicateName(directory, child.Name);
+                }
+                mappable.Add(child);
+            }
+            return mappable;
+        }
+
+        private static IOException DuplicateName(string folder, string name) =>
+            new($"Drive folder '{folder}' holds more than one item named '{name}' (names must be unique, ignoring case, to be backed up) — rename one of them.");
 
         // True if a Google Workspace file sits anywhere in the folder's subtree.
         private bool ContainsWorkspaceFile(string folderId) =>
@@ -574,22 +619,28 @@ namespace BackupService.FileSystem.GoogleDrive
             return new DriveEntry(file.Id, file.Name, isFolder, file.Size ?? 0, ParseWriteTime(file), file.MimeType);
         }
 
-        private static DateTime ParseWriteTime(DriveFile file)
+        internal static DateTime ParseWriteTime(DriveFile file)
         {
-            if (file.AppProperties is not null
+            long? stamped = file.AppProperties is not null
                 && file.AppProperties.TryGetValue(WriteTicksKey, out var ticksText)
-                && long.TryParse(ticksText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks))
+                && long.TryParse(ticksText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks)
+                    ? ticks
+                    : null;
+            DateTime? modified = !string.IsNullOrEmpty(file.ModifiedTimeRaw)
+                && DateTimeOffset.TryParse(file.ModifiedTimeRaw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+                    ? parsed.UtcDateTime
+                    : null;
+
+            // The exact ticks this app stamped are only the file's time while Drive's own (millisecond) modifiedTime
+            // still agrees with them. appProperties survive later revisions, so after someone edits the file in Drive
+            // (or uploads a new version) modifiedTime moves on while the old stamp stays — trusting the stamp then
+            // would hide the edit, and a two-way sync could overwrite it.
+            if (stamped is { } exact && (modified is null || Math.Abs(modified.Value.Ticks - exact) <= TimeSpan.TicksPerMillisecond))
             {
-                return new DateTime(ticks, DateTimeKind.Utc);
+                return new DateTime(exact, DateTimeKind.Utc);
             }
 
-            if (!string.IsNullOrEmpty(file.ModifiedTimeRaw)
-                && DateTimeOffset.TryParse(file.ModifiedTimeRaw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var modified))
-            {
-                return modified.UtcDateTime;
-            }
-
-            return DateTime.MinValue;
+            return modified ?? DateTime.MinValue;
         }
 
         private static string? ParseEocdComment(byte[] tail)

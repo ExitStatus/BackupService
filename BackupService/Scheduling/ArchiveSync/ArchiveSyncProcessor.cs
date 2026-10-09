@@ -65,6 +65,14 @@ namespace BackupService.Scheduling
                         sourceDir = stagingDir;
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw; // Stop pressed while staging — let the run unwind as cancelled, not record an error
+                }
+                catch (EndpointUnavailableException)
+                {
+                    throw; // the source device went away — abort the run, as the other engines do
+                }
                 catch (Exception ex)
                 {
                     result.Errors++;
@@ -257,12 +265,29 @@ namespace BackupService.Scheduling
                 // A unique local temp directory (GetTempFilePath creates one and hands back a path in it).
                 var stagingDir = Path.GetDirectoryName(fileSystem.GetTempFilePath("stage"))!;
                 await log.AppendAsync($"Staging remote source '{item.SourceFolder}' locally before archiving.");
-                var skipped = new List<(string File, string Reason)>();
-                StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, skipped, cancellationToken);
-                foreach (var (file, reason) in skipped)
+                var problems = new List<(string File, string Reason, bool IsError)>();
+                try
                 {
-                    result.Warnings++;
-                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{file}' — {reason}");
+                    StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, problems, cancellationToken);
+                }
+                catch
+                {
+                    TryDeleteDirectory(stagingDir); // the caller only cleans up a staging folder it was handed
+                    throw;
+                }
+
+                foreach (var (file, reason, isError) in problems)
+                {
+                    if (isError)
+                    {
+                        result.Errors++;
+                        await log.ErrorAsync($"Failed to stage '{file}' (left out of the archive): {reason}");
+                    }
+                    else
+                    {
+                        result.Warnings++;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{file}' — {reason}");
+                    }
                 }
                 return stagingDir;
             }
@@ -272,7 +297,10 @@ namespace BackupService.Scheduling
             }
         }
 
-        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, List<(string File, string Reason)> skipped, CancellationToken ct)
+        // Copies a remote tree into the local staging folder. A file that can't be staged is left out of the archive
+        // rather than failing it: a skippable read (locked, a Google Docs file) as a warning, anything else (e.g. an
+        // MTP transfer that keeps coming back short) as an error. Stop and a vanished device still abort the run.
+        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, List<(string File, string Reason, bool IsError)> problems, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             fileSystem.CreateDirectory(localDir);
@@ -287,10 +315,12 @@ namespace BackupService.Scheduling
                     using var output = fileSystem.OpenWrite(localPath);
                     input.CopyTo(output);
                 }
-                catch (Exception ex) when (FileLock.IsSkippableReadError(ex, out var reason))
+                catch (Exception ex) when (ex is not OperationCanceledException and not EndpointUnavailableException)
                 {
                     TryDelete(fileSystem, localPath); // never archive a partial staging copy
-                    skipped.Add((file, reason));
+                    problems.Add(FileLock.IsSkippableReadError(ex, out var reason)
+                        ? (file, reason, false)
+                        : (file, ex.Message, true));
                 }
             }
 
@@ -298,7 +328,7 @@ namespace BackupService.Scheduling
             {
                 foreach (var sub in sourceFs.GetDirectories(sourceDir))
                 {
-                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, skipped, ct);
+                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, problems, ct);
                 }
             }
         }

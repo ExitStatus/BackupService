@@ -326,7 +326,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs.ContentOf(@"C:\right\Report").Should().Be("");
             result.Warnings.Should().Be(1);
             result.Errors.Should().Be(0);
-            _fs.FileExists(@"C:\right\.Report.tmp").Should().BeFalse(); // the crash-safe temp was removed
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp")); // the crash-safe temp was removed
         }
 
         [Test]
@@ -348,6 +348,187 @@ namespace BackupService.UnitTests.Scheduling
             second.Warnings.Should().Be(1);
             second.Deleted.Should().Be(0);
             _log.Messages.Should().Contain(m => m.Contains("Skipped") && m.Contains("Google Docs"));
+        }
+
+        // ---- A missing folder must never read as "everything was deleted" ----
+
+        [Test]
+        public async Task MissingTargetFolder_AfterASync_DeletesNothing_AndCarriesOnOnceItIsBack()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            _fs.AddFile(@"C:\left\sub\b.txt", T1, "b");
+            await Run(Item());
+            _fs.RemoveDirectory(Right); // the target drive is unplugged / the folder renamed away
+
+            var missing = await Run(Item(propagateDeletions: true));
+
+            _fs.FileExists(@"C:\left\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\left\sub\b.txt").Should().BeTrue();
+            missing.Deleted.Should().Be(0);
+            missing.Errors.Should().Be(1);
+            _log.Messages.Should().Contain(m => m.Contains("was not found"));
+
+            // It comes back unchanged: the baseline was kept, so the next run has nothing to do.
+            _fs.AddFile(@"C:\right\a.txt", T1, "a");
+            _fs.AddFile(@"C:\right\sub\b.txt", T1, "b");
+            var back = await Run(Item());
+            back.Copied.Should().Be(0);
+            back.Updated.Should().Be(0);
+            back.Deleted.Should().Be(0);
+        }
+
+        [Test]
+        public async Task MissingSourceFolder_AfterASync_DeletesNothingFromTheTarget()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            await Run(Item());
+            _fs.RemoveDirectory(Left);
+
+            var result = await Run(Item(propagateDeletions: true));
+
+            _fs.FileExists(@"C:\right\a.txt").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+            result.Errors.Should().Be(1);
+        }
+
+        [Test]
+        public async Task FirstRun_IntoATargetFolderThatDoesNotExistYet_CreatesItAndCopies()
+        {
+            // With nothing synced yet there's nothing to mistake for deletions, so a missing target is just created.
+            _fs.RemoveDirectory(Right);
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+
+            var result = await Run(Item());
+
+            _fs.ContentOf(@"C:\right\a.txt").Should().Be("a");
+            result.Errors.Should().Be(0);
+        }
+
+        // ---- The baseline belongs to one folder pair ----
+
+        [Test]
+        public async Task RePointedTarget_ResetsTheSyncState_AndDeletesNothing()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            await Run(Item());
+            _fs.AddDirectory(@"C:\right2"); // a new, empty target folder
+            var item = Item(propagateDeletions: true);
+            item.TargetFolder = @"C:\right2";
+
+            var result = await Run(item);
+
+            _fs.FileExists(@"C:\left\a.txt").Should().BeTrue();   // not "deleted on the target"
+            _fs.ContentOf(@"C:\right2\a.txt").Should().Be("a");  // copied to the new target instead
+            result.Deleted.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("sync state was reset"));
+        }
+
+        [Test]
+        public async Task ChangedConnection_ResetsTheSyncState_AndDeletesNothing()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            await _sut.SyncAsync(Item(), null, null, _log, CancellationToken.None);
+            _fs.DeleteFile(@"C:\right\a.txt"); // the new connection's folder doesn't have it
+
+            var result = await _sut.SyncAsync(Item(propagateDeletions: true), null, 5, _log, CancellationToken.None);
+
+            _fs.FileExists(@"C:\left\a.txt").Should().BeTrue();
+            _fs.FileExists(@"C:\right\a.txt").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("sync state was reset"));
+        }
+
+        [Test]
+        public async Task ManifestFromAnOlderVersion_IsTrustedOnce_AndStampedWhenSaved()
+        {
+            // A baseline written before the endpoint stamp is kept (so a deletion made since the last sync is carried
+            // through rather than undone) and gets this pair's stamp on save.
+            _fs.AddFile(@"C:\left\a.txt", T1, "a");
+            var manifest = Path.Combine(_stateDir, "1.manifest");
+            await File.WriteAllTextAsync(manifest, $"{T1.Ticks}\t1\ta.txt\n"); // a.txt was in sync; since deleted on the target
+
+            var result = await Run(Item(propagateDeletions: true));
+
+            _fs.FileExists(@"C:\left\a.txt").Should().BeFalse(); // the target's deletion is propagated
+            result.Deleted.Should().Be(1);
+            _log.Messages.Should().NotContain(m => m.Contains("sync state was reset"));
+            (await File.ReadAllLinesAsync(manifest))[0].Should().StartWith("#endpoints\t");
+        }
+
+        // ---- An unsettled file keeps its baseline ----
+
+        [Test]
+        public async Task FailedCopy_KeepsTheBaseline_SoTheEditIsNotLaterResolvedAsAConflict()
+        {
+            // With TargetWins, losing the baseline would turn the left-side edit into a conflict that the target wins.
+            _fs.AddFile(@"C:\left\x.txt", T1, "base");
+            await Run(Item(conflict: ConflictResolution.TargetWins));
+            _fs.AddFile(@"C:\left\x.txt", T3, "left-edit");
+            _fs.DeleteShouldFail = p => p.EndsWith(@"right\x.txt", StringComparison.OrdinalIgnoreCase);
+
+            var failed = await Run(Item(conflict: ConflictResolution.TargetWins));
+            _fs.DeleteShouldFail = null;
+            var retried = await Run(Item(conflict: ConflictResolution.TargetWins));
+
+            failed.Errors.Should().Be(1);
+            _fs.ContentOf(@"C:\left\x.txt").Should().Be("left-edit");
+            _fs.ContentOf(@"C:\right\x.txt").Should().Be("left-edit");
+            retried.Updated.Should().Be(1);
+        }
+
+        [Test]
+        public async Task SubFolderListingFailure_KeepsItsBaseline_SoADeletionIsPropagatedNotUndone()
+        {
+            _fs.AddFile(@"C:\left\sub\x.txt", T1, "x");
+            await Run(Item());
+            _fs.RemoveDirectory(@"C:\right\sub");                                        // deleted on the target
+            _fs.GetDirectoriesShouldFail = d => FakeFsPath.Comparer.Equals(d, Left);     // and the source can't list folders
+
+            var failed = await Run(Item(propagateDeletions: true));
+            _fs.GetDirectoriesShouldFail = null;
+            var next = await Run(Item(propagateDeletions: true));
+
+            failed.Errors.Should().Be(1);
+            _fs.FileExists(@"C:\right\sub\x.txt").Should().BeFalse(); // not resurrected as "new on the source"
+            _fs.FileExists(@"C:\left\sub\x.txt").Should().BeFalse();  // the deletion is carried through
+            next.Deleted.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ShortRead_IsNotCommitted()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "full-content");
+            _fs.OpenReadOverride = _ => new MemoryStream(Encoding.UTF8.GetBytes("full"), writable: false);
+
+            var result = await Run(Item());
+
+            _fs.FileExists(@"C:\right\a.txt").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Errors.Should().Be(1);
+        }
+
+        // ---- Temp files ----
+
+        [Test]
+        public async Task UserDotTmpFiles_AreSyncedLikeAnyOtherFile_NotSweptAway()
+        {
+            // Both sides are live folders: another app's ".x.tmp" (or the user's own) isn't ours to delete.
+            _fs.AddFile(@"C:\left\.cache.tmp", T1, "c");
+
+            await Run(Item());
+
+            _fs.FileExists(@"C:\left\.cache.tmp").Should().BeTrue();
+            _fs.ContentOf(@"C:\right\.cache.tmp").Should().Be("c");
+        }
+
+        [Test]
+        public async Task LeftoverTempFromAnInterruptedRun_IsSwept_AndNotSynced()
+        {
+            _fs.AddFile(@"C:\right\.a.txt.backupservice.tmp", T1, "partial");
+
+            await Run(Item());
+
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".backupservice.tmp"));
         }
 
         [Test]
@@ -439,6 +620,26 @@ namespace BackupService.UnitTests.Scheduling
                     .Select(f => Path.GetFileName(FakeFsPath.Norm(f))!)
                     .ToList();
 
+            public IReadOnlyList<string> AllFiles => _files.Keys.Select(FakeFsPath.Norm).ToList();
+
+            // Removes a folder and everything in it (e.g. a drive being unplugged or a folder renamed away).
+            public void RemoveDirectory(string path)
+            {
+                foreach (var f in _files.Keys.Where(f => FakeFsPath.IsUnder(f, path) || FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), path)).ToList())
+                {
+                    _files.Remove(f);
+                }
+                foreach (var d in _dirs.Where(d => FakeFsPath.Comparer.Equals(d, path) || FakeFsPath.IsUnder(d, path)).ToList())
+                {
+                    _dirs.Remove(d);
+                }
+            }
+
+            // Failure injection.
+            public Func<string, bool>? DeleteShouldFail { get; set; }          // arg: path
+            public Func<string, bool>? GetDirectoriesShouldFail { get; set; } // arg: directory
+            public Func<string, Stream>? OpenReadOverride { get; set; }       // arg: path
+
             public bool DirectoryExists(string path) => _dirs.Contains(path);
 
             public void CreateDirectory(string path) => AddDirectory(path);
@@ -459,10 +660,16 @@ namespace BackupService.UnitTests.Scheduling
                     .ToList();
             }
 
-            public IReadOnlyList<string> GetDirectories(string directory) =>
-                _dirs.Where(d => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(d), directory))
+            public IReadOnlyList<string> GetDirectories(string directory)
+            {
+                if (GetDirectoriesShouldFail?.Invoke(directory) == true)
+                {
+                    throw new IOException($"Listing failed: {directory}");
+                }
+                return _dirs.Where(d => FakeFsPath.Comparer.Equals(FakeFsPath.Parent(d), directory))
                     .Select(FakeFsPath.Norm)
                     .ToList();
+            }
 
             public DateTime GetLastWriteTimeUtc(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
@@ -496,6 +703,10 @@ namespace BackupService.UnitTests.Scheduling
                 {
                     throw new FileNotDownloadableException($"'{path}' can't be downloaded.", "it's a Google Docs file");
                 }
+                if (OpenReadOverride is not null)
+                {
+                    return OpenReadOverride(path);
+                }
                 return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
             }
 
@@ -526,6 +737,10 @@ namespace BackupService.UnitTests.Scheduling
                 if (Protected.Contains(path))
                 {
                     throw new ProtectedFileException($"'{path}' is protected.", "it's a Google Docs file");
+                }
+                if (DeleteShouldFail?.Invoke(path) == true)
+                {
+                    throw new IOException($"Delete failed: {path}");
                 }
                 if (!_files.Remove(path))
                 {

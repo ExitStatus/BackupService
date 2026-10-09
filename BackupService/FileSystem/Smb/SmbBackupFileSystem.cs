@@ -24,7 +24,8 @@ namespace BackupService.FileSystem.Smb
         private readonly ISMBFileStore _store;
         private bool _disposed;
 
-        private SmbBackupFileSystem(SMB2Client client, ISMBFileStore store)
+        // Internal (not private) so the status handling can be unit-tested against a mocked file store.
+        internal SmbBackupFileSystem(SMB2Client client, ISMBFileStore store)
         {
             _client = client;
             _store = store;
@@ -260,11 +261,15 @@ namespace BackupService.FileSystem.Smb
                 {
                     var chunk = Math.Min(max, count - written);
                     var readStatus = _store.ReadFile(out var data, handle, offset + written, chunk);
-                    if (readStatus == NTStatus.STATUS_END_OF_FILE || data is null || data.Length == 0)
+                    if (readStatus == NTStatus.STATUS_END_OF_FILE)
                     {
                         break;
                     }
-                    Ensure(readStatus, $"read '{path}'");
+                    Ensure(readStatus, $"read '{path}'"); // before the data check: a failed read also has no data
+                    if (data is null || data.Length == 0)
+                    {
+                        break;
+                    }
                     Array.Copy(data, 0, buffer, written, data.Length);
                     written += data.Length;
                 }
@@ -312,6 +317,10 @@ namespace BackupService.FileSystem.Smb
 
         // ---- helpers ----
 
+        // Opening for attributes only can't conflict with another process's share mode, so a file someone holds open
+        // exclusively (an Outlook .pst, a VM disk) still opens here.
+        private const AccessMask ReadAttributesAccess = (AccessMask)(uint)FileAccessMask.FILE_READ_ATTRIBUTES | AccessMask.SYNCHRONIZE;
+
         private bool Exists(string path, bool directory)
         {
             var normalized = Normalize(path);
@@ -322,19 +331,37 @@ namespace BackupService.FileSystem.Smb
 
             var status = _store.CreateFile(
                 out var handle, out _, normalized,
-                AccessMask.GENERIC_READ, directory ? FileAttributes.Directory : FileAttributes.Normal,
+                ReadAttributesAccess, directory ? FileAttributes.Directory : FileAttributes.Normal,
                 ShareAccess.Read | ShareAccess.Write | ShareAccess.Delete,
                 CreateDisposition.FILE_OPEN,
                 directory ? CreateOptions.FILE_DIRECTORY_FILE : CreateOptions.FILE_NON_DIRECTORY_FILE,
                 null);
 
-            if (status != NTStatus.STATUS_SUCCESS)
+            if (status == NTStatus.STATUS_SUCCESS)
+            {
+                _store.CloseFile(handle);
+                return true;
+            }
+            if (IsAbsent(status, directory))
             {
                 return false;
             }
-            _store.CloseFile(handle);
-            return true;
+
+            // Anything else (access denied, a timeout, a dropped session…) says nothing about whether the entry exists.
+            // Reporting "doesn't exist" would let a two-way sync read a live file — or a whole folder — as deleted and
+            // propagate that, so surface it as an error instead.
+            throw new IOException($"SMB could not check whether '{path}' exists ({status}).");
         }
+
+        // The statuses that genuinely mean "there's no such file/folder here". Opening a folder as a file (or vice
+        // versa) also means "no file/folder of that kind".
+        private static bool IsAbsent(NTStatus status, bool directory) =>
+            status is NTStatus.STATUS_OBJECT_NAME_NOT_FOUND
+                or NTStatus.STATUS_OBJECT_PATH_NOT_FOUND
+                or NTStatus.STATUS_NO_SUCH_FILE
+                or NTStatus.STATUS_OBJECT_NAME_INVALID
+                or NTStatus.STATUS_DELETE_PENDING
+            || (directory ? status == NTStatus.STATUS_NOT_A_DIRECTORY : status == NTStatus.STATUS_FILE_IS_A_DIRECTORY);
 
         private IReadOnlyList<string> List(string directory, bool wantDirectories)
         {
@@ -379,7 +406,7 @@ namespace BackupService.FileSystem.Smb
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(path),
-                AccessMask.GENERIC_READ | AccessMask.SYNCHRONIZE, FileAttributes.Normal,
+                ReadAttributesAccess, FileAttributes.Normal, // attributes are all a stat needs — works on locked files too
                 ShareAccess.Read | ShareAccess.Write | ShareAccess.Delete,
                 CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
             Ensure(status, $"open '{path}'");

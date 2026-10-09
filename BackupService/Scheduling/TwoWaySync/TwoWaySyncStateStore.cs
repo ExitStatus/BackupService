@@ -6,12 +6,16 @@ namespace BackupService.Scheduling.TwoWaySync
 {
     /// <summary>
     /// Default <see cref="ITwoWaySyncStateStore"/>. Stores each item's baseline as a small text file
-    /// (<c>{itemId}.manifest</c>) under <c>{data dir}/two-way-sync</c>, one line per file:
-    /// <c>{writeTimeUtcTicks}\t{size}\t{relativePath}</c>. The two numeric fields never contain a tab, so the
-    /// path (which theoretically could, on Linux) is recovered by splitting into just three parts.
+    /// (<c>{itemId}.manifest</c>) under <c>{data dir}/two-way-sync</c>. The first line is the endpoint stamp,
+    /// <c>#endpoints\t{endpointKey}</c>; then one line per file: <c>{writeTimeUtcTicks}\t{size}\t{relativePath}</c>.
+    /// The two numeric fields never contain a tab, so the path (which theoretically could, on Linux) is recovered by
+    /// splitting into just three parts. A manifest without the stamp (written by an older version) is trusted once
+    /// and stamped on the next save.
     /// </summary>
     public sealed class TwoWaySyncStateStore : ITwoWaySyncStateStore
     {
+        private const string EndpointHeader = "#endpoints\t";
+
         private readonly string _root;
 
         public TwoWaySyncStateStore()
@@ -28,16 +32,26 @@ namespace BackupService.Scheduling.TwoWaySync
 
         private string PathFor(int itemId) => Path.Combine(_root, $"{itemId}.manifest");
 
-        public async Task<Dictionary<string, TwoWaySyncEntry>> LoadAsync(int itemId, CancellationToken cancellationToken = default)
+        public async Task<TwoWaySyncBaseline> LoadAsync(int itemId, string endpointKey, CancellationToken cancellationToken = default)
         {
             var entries = new Dictionary<string, TwoWaySyncEntry>(StringComparer.OrdinalIgnoreCase);
             var path = PathFor(itemId);
             if (!File.Exists(path))
             {
-                return entries;
+                return new TwoWaySyncBaseline(entries, WasReset: false);
             }
 
-            foreach (var line in await File.ReadAllLinesAsync(path, cancellationToken))
+            var lines = await File.ReadAllLinesAsync(path, cancellationToken);
+            var stamped = lines.Length > 0 && lines[0].StartsWith(EndpointHeader, StringComparison.Ordinal);
+            if (stamped && !string.Equals(lines[0][EndpointHeader.Length..], endpointKey, StringComparison.Ordinal))
+            {
+                // Built for another folder pair — its state says nothing about this one.
+                return new TwoWaySyncBaseline(entries, WasReset: true);
+            }
+
+            // An unstamped manifest predates the stamp. It's trusted once (deliberately: discarding it would bring
+            // back every file deleted since the last sync) and gets stamped when this run saves.
+            foreach (var line in stamped ? lines.Skip(1) : lines)
             {
                 if (string.IsNullOrEmpty(line))
                 {
@@ -49,18 +63,19 @@ namespace BackupService.Scheduling.TwoWaySync
                     || !long.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks)
                     || !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var size))
                 {
-                    continue; // skip a malformed/legacy line rather than failing the run
+                    continue; // skip a malformed line rather than failing the run
                 }
 
                 entries[parts[2]] = new TwoWaySyncEntry(ticks, size);
             }
 
-            return entries;
+            return new TwoWaySyncBaseline(entries, WasReset: false);
         }
 
-        public async Task SaveAsync(int itemId, IReadOnlyDictionary<string, TwoWaySyncEntry> entries, CancellationToken cancellationToken = default)
+        public async Task SaveAsync(int itemId, string endpointKey, IReadOnlyDictionary<string, TwoWaySyncEntry> entries, CancellationToken cancellationToken = default)
         {
-            var builder = new StringBuilder(entries.Count * 40);
+            var builder = new StringBuilder((entries.Count + 1) * 40);
+            builder.Append(EndpointHeader).Append(endpointKey).Append('\n');
             foreach (var (relativePath, entry) in entries)
             {
                 builder.Append(entry.WriteTimeUtcTicks.ToString(CultureInfo.InvariantCulture))
@@ -91,7 +106,8 @@ namespace BackupService.Scheduling.TwoWaySync
             }
             catch
             {
-                // Best-effort — an orphaned manifest is harmless (it's keyed by an id that won't be reused).
+                // Best-effort — an orphaned manifest is harmless: it's stamped with its folder pair, so even an
+                // item that later reuses the id (e.g. after a database restore) won't trust it.
             }
         }
     }

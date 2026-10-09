@@ -51,6 +51,52 @@ namespace BackupService.UnitTests.Scheduling
                 CancellationToken.None);
 
         [Test]
+        public async Task RenamedFolder_ArrivesWithItsContents_AndTheOldNameIsRemoved()
+        {
+            // Windows reports a folder rename as a single event — nothing for the files inside. The renamed folder
+            // used to arrive empty while the delete of its old name removed the backed-up files.
+            _fs.AddFile(@"C:\src\B\x.txt", T1, "x");
+            _fs.AddFile(@"C:\src\B\sub\y.txt", T1, "y");
+            _fs.AddFile(@"C:\dst\A\x.txt", T1, "x");
+            _fs.AddFile(@"C:\dst\A\sub\y.txt", T1, "y");
+            var item = Item(allowDeletions: true);
+            item.IncludeSubFolders = true;
+
+            var result = await Run(item, [@"C:\src\B"], [@"C:\src\A"]);
+
+            _fs.ContentOf(@"C:\dst\B\x.txt").Should().Be("x");
+            _fs.ContentOf(@"C:\dst\B\sub\y.txt").Should().Be("y");
+            _fs.DirectoryExists(@"C:\dst\A").Should().BeFalse();
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
+        public async Task FolderMovedIn_IsCopiedWithItsContents()
+        {
+            _fs.AddFile(@"C:\src\M\photo.jpg", T1, "jpg");
+            var item = Item();
+            item.IncludeSubFolders = true;
+
+            await Run(item, [@"C:\src\M"]);
+
+            _fs.ContentOf(@"C:\dst\M\photo.jpg").Should().Be("jpg");
+        }
+
+        [Test]
+        public async Task NonRecursiveItem_LeavesSubFoldersAlone()
+        {
+            // Without sub-folders in scope a folder event neither copies its contents nor deletes a target folder.
+            _fs.AddFile(@"C:\src\B\x.txt", T1, "x");
+            _fs.AddFile(@"C:\dst\A\keep.txt", T1, "k");
+
+            var result = await Run(Item(allowDeletions: true), [@"C:\src\B"], [@"C:\src\A"]);
+
+            _fs.FileExists(@"C:\dst\B\x.txt").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\A\keep.txt").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+        }
+
+        [Test]
         public async Task ChangedFile_IsCopiedThroughTemp_LeavingNoTemp()
         {
             _fs.AddFile(@"C:\src\a.txt", T1, "hello");

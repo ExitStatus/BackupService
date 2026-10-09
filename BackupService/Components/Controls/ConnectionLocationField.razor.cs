@@ -117,7 +117,7 @@ namespace BackupService.Components.Controls
         private bool _browsing;
         private SmbConnectionInfo? _smbInfo;
         private GoogleDriveConnectionInfo? _googleDriveInfo;
-        private string? _usbMountPath;
+        private string? _usbBrowseRoot;
         private string? _usbMtpSerial;
         private string _usbMtpRoot = string.Empty;
         private string? _browseHint;
@@ -162,7 +162,7 @@ namespace BackupService.Components.Controls
         {
             _smbInfo = null;
             _googleDriveInfo = null;
-            _usbMountPath = null;
+            _usbBrowseRoot = null;
             _usbMtpSerial = null;
             _browseHint = null;
 
@@ -189,12 +189,24 @@ namespace BackupService.Components.Controls
                         }
                         else
                         {
-                            _usbMountPath = UsbConnector.FindMountPath(usb);
-                            if (_usbMountPath is null)
+                            var mountPath = UsbConnector.FindMountPath(usb);
+                            if (mountPath is null)
                             {
                                 _browseHint = "Plug the device in to browse it.";
                                 return;
                             }
+
+                            // A profile's folder is relative to the connection's root folder (the engine resolves
+                            // mount + RootFolder + folder), so browse — and store the choice — relative to that root,
+                            // as the SMB/Drive/MTP pickers do. Rooting at the drive instead applied the root twice.
+                            var rootFolder = (usb.RootFolder ?? string.Empty).Trim('\\', '/');
+                            var browseRoot = rootFolder.Length == 0 ? mountPath : System.IO.Path.Combine(mountPath, rootFolder);
+                            if (!System.IO.Directory.Exists(browseRoot))
+                            {
+                                _browseHint = $"The connection's root folder '{usb.RootFolder}' isn't on the device.";
+                                return;
+                            }
+                            _usbBrowseRoot = browseRoot;
                         }
                         break;
                     default:
@@ -214,12 +226,12 @@ namespace BackupService.Components.Controls
             CancelBrowse();
         }
 
-        // The USB picker returns an absolute path on the current drive; store it relative to the device root.
+        // The USB picker returns an absolute path on the current drive; store it relative to the connection's root.
         private async Task OnUsbSelected(string absolutePath)
         {
-            if (_usbMountPath is not null)
+            if (_usbBrowseRoot is not null)
             {
-                var relative = System.IO.Path.GetRelativePath(_usbMountPath, absolutePath);
+                var relative = System.IO.Path.GetRelativePath(_usbBrowseRoot, absolutePath);
                 var stored = relative is "." or "" ? string.Empty : relative;
                 BrowseMemory?.Set(ConnectionId, stored);
                 await PathChanged.InvokeAsync(stored);
@@ -229,17 +241,17 @@ namespace BackupService.Components.Controls
         }
 
         // The USB picker takes an absolute path on the current drive; seed it from this field's folder or,
-        // when blank, the remembered relative path for this connection (both relative to the device root).
-        private string? UsbBrowseInitialPath => _usbMountPath is null
+        // when blank, the remembered relative path for this connection (both relative to the connection's root).
+        private string? UsbBrowseInitialPath => _usbBrowseRoot is null
             ? null
-            : string.IsNullOrEmpty(EffectivePath) ? _usbMountPath : System.IO.Path.Combine(_usbMountPath, EffectivePath);
+            : string.IsNullOrEmpty(EffectivePath) ? _usbBrowseRoot : System.IO.Path.Combine(_usbBrowseRoot, EffectivePath);
 
         private void CancelBrowse()
         {
             _browsing = false;
             _smbInfo = null;
             _googleDriveInfo = null;
-            _usbMountPath = null;
+            _usbBrowseRoot = null;
             _usbMtpSerial = null;
         }
     }

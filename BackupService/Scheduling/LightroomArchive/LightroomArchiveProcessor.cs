@@ -78,10 +78,17 @@ namespace BackupService.Scheduling
 
             try
             {
-                // A created/renamed directory: just mirror the folder. (No raw scan for a directory.)
+                // A folder in the batch is one that arrived — created, moved in, or renamed (the watcher drops a
+                // folder's own "changed" events). Windows reports that as one event for the folder and nothing for
+                // what's inside it, so archive its whole contents; otherwise a renamed folder would reach the target
+                // empty while the delete of its old name removed the archived copy. A non-recursive item leaves
+                // sub-folders alone entirely.
                 if (ctx.SourceFs.DirectoryExists(sourcePath))
                 {
-                    await EnsureDirectoryAsync(ctx, destPath, log, result);
+                    if (ctx.Item.IncludeSubFolders && await EnsureDirectoryAsync(ctx, destPath, log, result))
+                    {
+                        await ArchiveArrivedFolderAsync(ctx, sourcePath, log, result, ct);
+                    }
                     return;
                 }
                 // The path may have been deleted/renamed away before this batch ran — nothing to do.
@@ -108,6 +115,28 @@ namespace BackupService.Scheduling
             await CopyMatchingRawsAsync(ctx, sourcePath, targetDir, log, result, ct);
         }
 
+        private async Task ArchiveArrivedFolderAsync(Ctx ctx, string sourceDir, IOperationLogger log, BackupResult result, CancellationToken ct)
+        {
+            IReadOnlyList<string> files, subDirs;
+            try
+            {
+                files = ctx.SourceFs.GetFiles(sourceDir);
+                subDirs = ctx.SourceFs.GetDirectories(sourceDir);
+            }
+            catch (Exception ex)
+            {
+                result.Errors++;
+                await log.ErrorAsync($"Failed to list '{sourceDir}'", ex);
+                return;
+            }
+
+            foreach (var path in files.Concat(subDirs))
+            {
+                ct.ThrowIfCancellationRequested();
+                await ApplyChangeAsync(ctx, path, log, result, ct); // a sub-folder recurses through the folder branch
+            }
+        }
+
         /// <summary>Copies the matching raw sidecar(s) for <paramref name="sourcePath"/> into the RAW sub-folder of its target directory.</summary>
         private async Task CopyMatchingRawsAsync(Ctx ctx, string sourcePath, string targetDir, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
@@ -116,6 +145,15 @@ namespace BackupService.Scheduling
             {
                 return;
             }
+
+            // Camera counters wrap, so a catalog can hold several raws with the same name in different folders. They
+            // would overwrite each other in the RAW folder (leaving another shoot's raw, re-copied every run), so when
+            // a name isn't unique among the matches each copy is named after its catalog folder instead.
+            var sharedNames = rawPaths
+                .GroupBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             var rawDir = Path.Combine(targetDir, ctx.Settings.RawFolderName);
             var ensured = false;
@@ -134,9 +172,30 @@ namespace BackupService.Scheduling
                     ensured = true;
                 }
 
-                var rawDest = Path.Combine(rawDir, Path.GetFileName(rawPath));
+                var rawName = sharedNames.Contains(Path.GetFileName(rawPath))
+                    ? DisambiguatedRawName(rawPath, ctx.Settings.LightroomFolder)
+                    : Path.GetFileName(rawPath);
+                var rawDest = Path.Combine(rawDir, rawName);
                 await CopyIfChangedAsync(ctx, rawPath, rawDest, rawDir, log, result, ct);
             }
+        }
+
+        // "lr\2024\05\IMG_0001.ARW" -> "IMG_0001 (2024_05).ARW": stable across runs, and unique, since two raws can't
+        // share both a name and a folder.
+        internal static string DisambiguatedRawName(string rawPath, string? lightroomFolder)
+        {
+            var directory = Path.GetDirectoryName(rawPath) ?? string.Empty;
+            var relative = string.IsNullOrEmpty(lightroomFolder) ? directory : Path.GetRelativePath(lightroomFolder, directory);
+            var tag = relative.Replace(Path.DirectorySeparatorChar, '_').Replace(Path.AltDirectorySeparatorChar, '_').Replace(':', '_');
+            return $"{Path.GetFileNameWithoutExtension(rawPath)} ({tag}){Path.GetExtension(rawPath)}";
+        }
+
+        // Whether a file in the RAW folder is a raw for photos with this base name — plain, or folder-tagged.
+        private static bool IsRawFor(string rawFileName, string baseName)
+        {
+            var stem = Path.GetFileNameWithoutExtension(rawFileName);
+            return string.Equals(stem, baseName, StringComparison.OrdinalIgnoreCase)
+                || (stem.StartsWith(baseName + " (", StringComparison.OrdinalIgnoreCase) && stem.EndsWith(')'));
         }
 
         private async Task ApplyDeletionAsync(Ctx ctx, string sourcePath, IOperationLogger log, BackupResult result)
@@ -151,11 +210,16 @@ namespace BackupService.Scheduling
                     result.Deleted++;
                     await log.AppendAsync($"Deleted '{destPath}' (removed from source)");
 
-                    // Mirror the raw sidecar(s) for this file from the RAW folder beside it.
-                    await DeleteMatchingRawsAsync(ctx, sourcePath, Path.GetDirectoryName(destPath)!, log, result);
+                    // Mirror the raw sidecar(s) for this file from the RAW folder beside it — unless another source
+                    // file with the same base name (IMG_1.jpg beside a deleted IMG_1.tif) still needs them.
+                    if (!SiblingSharesBaseName(ctx, sourcePath))
+                    {
+                        await DeleteMatchingRawsAsync(ctx, sourcePath, Path.GetDirectoryName(destPath)!, log, result);
+                    }
                 }
-                else if (ctx.TargetFs.DirectoryExists(destPath))
+                else if (ctx.Item.IncludeSubFolders && ctx.TargetFs.DirectoryExists(destPath))
                 {
+                    // (A non-recursive item doesn't manage target sub-folders, so it never deletes one.)
                     ctx.TargetFs.DeleteDirectory(destPath, recursive: true);
                     result.Deleted++;
                     await log.AppendAsync($"Deleted folder '{destPath}' (removed from source)");
@@ -172,6 +236,22 @@ namespace BackupService.Scheduling
             {
                 result.Errors++;
                 await log.ErrorAsync($"Failed to delete '{destPath}'", ex);
+            }
+        }
+
+        // True when another file in the deleted file's source folder has the same base name — its raws are shared.
+        // Unreadable → assume so: keeping a raw is safe, deleting one another photo needs is not.
+        private static bool SiblingSharesBaseName(Ctx ctx, string deletedSourcePath)
+        {
+            var baseName = Path.GetFileNameWithoutExtension(deletedSourcePath);
+            try
+            {
+                return ctx.SourceFs.GetFiles(Path.GetDirectoryName(deletedSourcePath)!)
+                    .Any(f => string.Equals(Path.GetFileNameWithoutExtension(f), baseName, StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return true;
             }
         }
 
@@ -201,7 +281,7 @@ namespace BackupService.Scheduling
             foreach (var rawFile in rawFiles)
             {
                 if (!ctx.Settings.RawExtensions.Contains(Path.GetExtension(rawFile)) ||
-                    !string.Equals(Path.GetFileNameWithoutExtension(rawFile), baseName, StringComparison.OrdinalIgnoreCase))
+                    !IsRawFor(Path.GetFileName(rawFile), baseName))
                 {
                     continue;
                 }

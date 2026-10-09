@@ -90,6 +90,37 @@ namespace BackupService.UnitTests.FileSystem
             reader.ReadToEnd().Should().Be(Content);
         }
 
+        [TestCase(null)]
+        [TestCase("hunter2")]
+        public void FileFailingPartWayThroughItsRead_IsLeftOut_NotArchivedTruncated(string? password)
+        {
+            // It opens fine, then a byte-range lock past the first read buffer makes a later read fail. Its entry had
+            // already been started, so it used to stay in the archive truncated while the result called it skipped.
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Ignore("Byte-range locks block other readers only on Windows.");
+            }
+            var bigFile = Path.Combine(_source, "big.bin");
+            File.WriteAllBytes(bigFile, new byte[300_000]);
+            var progress = new List<string>();
+
+            ZipBuildResult result;
+            using (var holder = new FileStream(bigFile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            {
+                holder.Lock(200_000, 50_000);
+                result = _fs.CreateZipFromDirectory(_source, _zip, includeSubfolders: false, password: password, onEntryProcessed: progress.Add);
+                holder.Unlock(200_000, 50_000);
+            }
+
+            result.Added.Should().BeEquivalentTo(EntryName);
+            result.Skipped.Should().ContainSingle().Which.EntryName.Should().Be("big.bin");
+            progress.Should().BeEquivalentTo([EntryName, "big.bin"], "each file is reported once, even though the archive was rebuilt");
+
+            using var zf = new SharpZip.ZipFile(_zip) { Password = password };
+            zf.GetEntry("big.bin").Should().BeNull("a truncated entry must not be left in the archive");
+            ReadEntry(zf, zf.GetEntry(EntryName)!).Should().Be(Content);
+        }
+
         private static string ReadEntry(SharpZip.ZipFile zf, SharpZip.ZipEntry entry)
         {
             using var stream = zf.GetInputStream(entry);

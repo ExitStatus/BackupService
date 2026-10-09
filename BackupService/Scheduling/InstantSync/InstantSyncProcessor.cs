@@ -26,7 +26,7 @@ namespace BackupService.Scheduling
             foreach (var sourcePath in changedPaths)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await ApplyChangeAsync(item, sourcePath, log, result);
+                await ApplyChangeAsync(item, sourcePath, log, result, cancellationToken);
             }
 
             if (item.AllowDeletions)
@@ -41,7 +41,7 @@ namespace BackupService.Scheduling
             return result;
         }
 
-        private async Task ApplyChangeAsync(InstantSyncItem item, string sourcePath, IOperationLogger log, BackupResult result)
+        private async Task ApplyChangeAsync(InstantSyncItem item, string sourcePath, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var destPath = RebaseToTarget(item, sourcePath);
 
@@ -50,7 +50,16 @@ namespace BackupService.Scheduling
                 // The path may have been deleted/renamed away before this batch ran — nothing to do.
                 if (fileSystem.DirectoryExists(sourcePath))
                 {
-                    await EnsureDirectoryAsync(destPath, log, result);
+                    // Sub-folders are out of scope for a non-recursive item (the watcher still reports the ones
+                    // directly in the root) — leave them alone entirely.
+                    if (!item.IncludeSubFolders)
+                    {
+                        return;
+                    }
+                    if (await EnsureDirectoryAsync(destPath, log, result))
+                    {
+                        await CopyArrivedFolderAsync(item, sourcePath, log, result, ct);
+                    }
                     return;
                 }
                 if (!fileSystem.FileExists(sourcePath))
@@ -78,6 +87,32 @@ namespace BackupService.Scheduling
             }
         }
 
+        // A folder in the batch is one that arrived — created, moved in, or renamed (the watcher drops a folder's own
+        // "changed" events, which carry no content). Windows reports that as one event for the folder and nothing for
+        // what's inside it, so its whole contents are copied here; otherwise a renamed folder would reach the target
+        // empty while the delete of its old name removed the backed-up copy.
+        private async Task CopyArrivedFolderAsync(InstantSyncItem item, string sourceDir, IOperationLogger log, BackupResult result, CancellationToken ct)
+        {
+            IReadOnlyList<string> files, subDirs;
+            try
+            {
+                files = fileSystem.GetFiles(sourceDir);
+                subDirs = fileSystem.GetDirectories(sourceDir);
+            }
+            catch (Exception ex)
+            {
+                result.Errors++;
+                await log.ErrorAsync($"Failed to list '{sourceDir}'", ex);
+                return;
+            }
+
+            foreach (var path in files.Concat(subDirs))
+            {
+                ct.ThrowIfCancellationRequested();
+                await ApplyChangeAsync(item, path, log, result, ct); // a sub-folder recurses through the folder branch
+            }
+        }
+
         private async Task ApplyDeletionAsync(InstantSyncItem item, string sourcePath, IOperationLogger log, BackupResult result)
         {
             var destPath = RebaseToTarget(item, sourcePath);
@@ -90,8 +125,9 @@ namespace BackupService.Scheduling
                     result.Deleted++;
                     await log.AppendAsync($"Deleted '{destPath}' (removed from source)");
                 }
-                else if (fileSystem.DirectoryExists(destPath))
+                else if (item.IncludeSubFolders && fileSystem.DirectoryExists(destPath))
                 {
+                    // (A non-recursive item doesn't manage target sub-folders, so it never deletes one.)
                     fileSystem.DeleteDirectory(destPath, recursive: true);
                     result.Deleted++;
                     await log.AppendAsync($"Deleted folder '{destPath}' (removed from source)");

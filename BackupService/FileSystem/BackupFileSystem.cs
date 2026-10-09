@@ -24,6 +24,12 @@ namespace BackupService.FileSystem
 
         public IReadOnlyList<string> GetDirectories(string directory) => Directory.GetDirectories(directory);
 
+        public bool IsDirectoryLink(string path)
+        {
+            var info = new DirectoryInfo(path);
+            return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
+        }
+
         public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
 
         public long GetFileSize(string path) => LengthOf(new FileInfo(path));
@@ -88,11 +94,90 @@ namespace BackupService.FileSystem
 
         public ZipBuildResult CreateZipFromDirectory(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry = null, string? comment = null, CompressionLevel compressionLevel = CompressionLevel.Optimal, string? password = null, bool useAesEncryption = true, Action<string>? onEntryProcessed = null)
         {
-            // Encrypted archives need a ZIP writer that supports encryption (the BCL can't), so route them
-            // through SharpZipLib; the common unencrypted path stays on System.IO.Compression unchanged.
-            return string.IsNullOrEmpty(password)
-                ? CreatePlainZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, onEntryProcessed)
-                : CreateEncryptedZip(sourceDirectory, destinationZip, includeSubfolders, includeEntry, comment, compressionLevel, password, useAesEncryption, onEntryProcessed);
+            // A file that fails part-way through being read has already started its entry, and an entry can't be
+            // taken back out of an archive being written — left in, it's a truncated file the log calls "skipped".
+            // So the archive is rebuilt without it. That's rare: almost every unreadable file fails when it's opened,
+            // before its entry is started, and is simply skipped.
+            var leftOut = new HashSet<string>(StringComparer.Ordinal);
+            var skippedMidway = new List<ZipSkippedFile>();
+            var reported = new HashSet<string>(StringComparer.Ordinal);
+            bool Include(string entry) => !leftOut.Contains(entry) && (includeEntry is null || includeEntry(entry));
+            void Processed(string entry)
+            {
+                if (reported.Add(entry))
+                {
+                    onEntryProcessed?.Invoke(entry); // once per file, however many times the archive is built
+                }
+            }
+
+            while (true)
+            {
+                try
+                {
+                    // Encrypted archives need a ZIP writer that supports encryption (the BCL can't), so route them
+                    // through SharpZipLib; the common unencrypted path stays on System.IO.Compression unchanged.
+                    var built = string.IsNullOrEmpty(password)
+                        ? CreatePlainZip(sourceDirectory, destinationZip, includeSubfolders, Include, comment, compressionLevel, Processed)
+                        : CreateEncryptedZip(sourceDirectory, destinationZip, includeSubfolders, Include, comment, compressionLevel, password, useAesEncryption, Processed);
+                    return new ZipBuildResult(built.Added, [.. skippedMidway, .. built.Skipped]);
+                }
+                catch (ReadFailedMidEntryException ex)
+                {
+                    leftOut.Add(ex.EntryName);
+                    skippedMidway.Add(new ZipSkippedFile(ex.EntryName, ex.InnerException?.Message ?? ex.Message));
+                    Processed(ex.EntryName); // it's done with (skipped), as far as progress is concerned
+                    File.Delete(destinationZip); // start again from scratch
+                }
+            }
+        }
+
+        // Thrown when a source file fails while its entry is being written (see CreateZipFromDirectory).
+        private sealed class ReadFailedMidEntryException(string entryName, Exception inner)
+            : IOException($"Reading '{entryName}' failed part-way through.", inner)
+        {
+            public string EntryName { get; } = entryName;
+        }
+
+        // Copies a source file into its (already started) entry. A READ failure is turned into
+        // ReadFailedMidEntryException so the archive is rebuilt without the file; a WRITE failure (e.g. the temp disk
+        // filling up) is left as-is and fails the archive.
+        private static void CopyIntoEntry(Stream source, Stream entry, string entryName)
+        {
+            var buffer = new byte[81920];
+            while (true)
+            {
+                int read;
+                try
+                {
+                    read = source.Read(buffer, 0, buffer.Length);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new ReadFailedMidEntryException(entryName, ex);
+                }
+                if (read == 0)
+                {
+                    return;
+                }
+                entry.Write(buffer, 0, read);
+            }
+        }
+
+        // Opens a source file to archive, or returns null (with the reason) when it can't be — before any entry exists.
+        private static FileStream? TryOpenSource(string file, out string? reason)
+        {
+            try
+            {
+                // Permissive share mode reads files other processes hold open for writing (the FileShare.Read that
+                // CreateEntryFromFile uses would fail on those).
+                reason = null;
+                return new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                reason = ex.Message;
+                return null;
+            }
         }
 
         private static ZipBuildResult CreatePlainZip(string sourceDirectory, string destinationZip, bool includeSubfolders, Func<string, bool>? includeEntry, string? comment, CompressionLevel compressionLevel, Action<string>? onEntryProcessed)
@@ -116,21 +201,20 @@ namespace BackupService.FileSystem
                 {
                     continue; // filtered out by include/exclude rules — omitted, not an error
                 }
-                try
+                using (var src = TryOpenSource(file, out var reason))
                 {
-                    // Permissive share mode reads files other processes hold open for writing (the
-                    // FileShare.Read that CreateEntryFromFile uses would fail on those). The open is the
-                    // dominant failure point; a file readable here is added in full.
-                    using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    var entry = zip.CreateEntry(entryName, compressionLevel);
-                    entry.LastWriteTime = File.GetLastWriteTime(file); // mirror CreateEntryFromFile
-                    using var entryStream = entry.Open();
-                    src.CopyTo(entryStream);
-                    added.Add(entryName);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    skipped.Add(new ZipSkippedFile(entryName, ex.Message));
+                    if (src is null)
+                    {
+                        skipped.Add(new ZipSkippedFile(entryName, reason!));
+                    }
+                    else
+                    {
+                        var entry = zip.CreateEntry(entryName, compressionLevel);
+                        entry.LastWriteTime = File.GetLastWriteTime(file); // mirror CreateEntryFromFile
+                        using var entryStream = entry.Open();
+                        CopyIntoEntry(src, entryStream, entryName);
+                        added.Add(entryName);
+                    }
                 }
                 onEntryProcessed?.Invoke(entryName);
             }
@@ -162,28 +246,30 @@ namespace BackupService.FileSystem
                 {
                     continue;
                 }
-                try
+                // Open first (the dominant failure point) so a locked file is skipped before an entry is written —
+                // matching the plain path.
+                using (var src = TryOpenSource(file, out var reason))
                 {
-                    // Open first (the dominant failure point) so a locked file is skipped before an entry
-                    // is written — matching the plain path.
-                    using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    var entry = new ZipEntry(entryName)
+                    if (src is null)
                     {
-                        DateTime = File.GetLastWriteTime(file),
-                        AESKeySize = useAesEncryption ? 256 : 0, // 0 with a Password set = legacy ZipCrypto
-                    };
-                    if (stored)
-                    {
-                        entry.CompressionMethod = CompressionMethod.Stored;
+                        skipped.Add(new ZipSkippedFile(entryName, reason!));
                     }
-                    zip.PutNextEntry(entry);
-                    src.CopyTo(zip);
-                    zip.CloseEntry();
-                    added.Add(entryName);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    skipped.Add(new ZipSkippedFile(entryName, ex.Message));
+                    else
+                    {
+                        var entry = new ZipEntry(entryName)
+                        {
+                            DateTime = File.GetLastWriteTime(file),
+                            AESKeySize = useAesEncryption ? 256 : 0, // 0 with a Password set = legacy ZipCrypto
+                        };
+                        if (stored)
+                        {
+                            entry.CompressionMethod = CompressionMethod.Stored;
+                        }
+                        zip.PutNextEntry(entry);
+                        CopyIntoEntry(src, zip, entryName);
+                        zip.CloseEntry();
+                        added.Add(entryName);
+                    }
                 }
                 onEntryProcessed?.Invoke(entryName);
             }

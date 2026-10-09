@@ -235,6 +235,9 @@ namespace BackupService.UnitTests.Scheduling
 
             _fs.ContentOf(@"C:\dst\a.txt").Should().Be(repaired ? "source-content" : "edited");
             result.Updated.Should().Be(repaired ? 1 : 0);
+            // Either way it's flagged: repaired, or kept despite looking like an incomplete copy.
+            result.Warnings.Should().Be(1);
+            _log.Warnings.Should().ContainSingle(m => m.Contains(repaired ? "Repaired" : "Kept"));
         }
 
         [Test]
@@ -507,6 +510,95 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(@"C:\dst\gone\stale.txt").Should().BeFalse();
             _fs.DirectoryExists(@"C:\dst\gone").Should().BeFalse();
             _log.Messages.Should().Contain(m => m.Contains("Deleted folder") && m.Contains("gone"));
+        }
+
+        [Test]
+        public async Task OrphanFolder_KeepsFilesTheRulesPutOutOfScope_AndSoTheFolder()
+        {
+            // Out-of-scope target files are left alone when their folder exists in the source — and must be when it
+            // doesn't, too.
+            _fs.AddFile(@"C:\dst\Old\notes.txt", T1, "n");
+            _fs.AddFile(@"C:\dst\Old\art.psd", T1, "p");
+            var pair = Pair(allowDeletions: true, includeSubFolders: true);
+            pair.Filters.Add(new OneWaySyncFilter { Direction = FilterDirection.Exclude, Kind = FilterKind.File, Pattern = "*.psd" });
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\Old\notes.txt").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\Old\art.psd").Should().BeTrue();
+            _fs.DirectoryExists(@"C:\dst\Old").Should().BeTrue();
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
+        public async Task OrphanFolder_KeepsExcludedSubFolders()
+        {
+            _fs.AddFile(@"C:\dst\Old\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\Old\bin\tool.dll", T1, "d");
+            var pair = Pair(allowDeletions: true, includeSubFolders: true);
+            pair.Filters.Add(new OneWaySyncFilter { Direction = FilterDirection.Exclude, Kind = FilterKind.Folder, Pattern = "bin" });
+
+            var result = await Run(pair);
+
+            _fs.FileExists(@"C:\dst\Old\a.txt").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\Old\bin\tool.dll").Should().BeTrue();
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
+        public async Task OrphanFolderLink_RemovesOnlyTheLink_NeverWhatItPointsAt()
+        {
+            // A junction in the target pointing at D:\Important: deleting "its" files would delete the real ones.
+            _fs.AddFile(@"C:\dst\Shared\important.docx", T1, "precious");
+            _fs.Links.Add(@"C:\dst\Shared");
+
+            var result = await Run(Pair(allowDeletions: true, includeSubFolders: true));
+
+            _fs.DeletedFiles.Should().BeEmpty();
+            _fs.RemovedLinks.Should().ContainSingle();
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("Deleted folder link"));
+        }
+
+        [Test]
+        public async Task SourceFileDeletedAfterTheListing_IsSkippedQuietly()
+        {
+            _fs.AddFile(@"C:\src\temp.txt", T2, "t");
+            _fs.AddFile(@"C:\dst\temp.txt", T1, "old");
+            _fs.OnGetFileStat = p => { if (p.StartsWith(Source, StringComparison.OrdinalIgnoreCase)) _fs.Remove(p); };
+
+            var result = await Run(Pair());
+
+            result.Errors.Should().Be(0);
+            result.Updated.Should().Be(0);
+            _log.Errors.Should().BeEmpty();
+        }
+
+        [Test]
+        public async Task NewSourceFileDeletedBeforeItsCopy_IsSkippedQuietly()
+        {
+            _fs.AddFile(@"C:\src\temp.txt", T1, "t");
+            _fs.OnGetFileStat = p => _fs.Remove(p);
+
+            var result = await Run(Pair());
+
+            result.Errors.Should().Be(0);
+            result.Copied.Should().Be(0);
+            _fs.FileExists(@"C:\dst\temp.txt").Should().BeFalse();
+        }
+
+        [Test]
+        public async Task DestinationDeletedAfterTheListing_IsCopiedAfresh()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "a");
+            _fs.AddFile(@"C:\dst\a.txt", T1, "a");
+            _fs.OnGetFileStat = p => { if (p.StartsWith(Target, StringComparison.OrdinalIgnoreCase)) _fs.Remove(p); };
+
+            var result = await Run(Pair());
+
+            result.Errors.Should().Be(0);
+            result.Copied.Should().Be(1);
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("a");
         }
 
         [Test]
@@ -963,13 +1055,34 @@ namespace BackupService.UnitTests.Scheduling
 
             public void CreateDirectory(string path) => AddDirectory(path);
 
+            // Folders that are links (junctions/symlinks) to somewhere else: what's "inside" one lives elsewhere, and
+            // deleting the folder removes only the link (as RemoveDirectory does on Windows).
+            public HashSet<string> Links { get; } = new(FakeFsPath.Comparer);
+            public List<string> RemovedLinks { get; } = [];
+            public List<string> DeletedFiles { get; } = [];
+
+            public bool IsDirectoryLink(string path) => Links.Contains(path);
+
             public void DeleteDirectory(string path, bool recursive)
             {
+                if (Links.Remove(path))
+                {
+                    RemovedLinks.Add(path);
+                    RemoveSubtree(path); // the link's view is gone (the real files it showed weren't touched)
+                    return;
+                }
+
                 var hasChildren = _files.Keys.Any(f => FakeFsPath.IsUnder(f, path)) || _dirs.Any(d => FakeFsPath.IsUnder(d, path));
                 if (hasChildren && !recursive)
                 {
                     throw new IOException($"Directory not empty: {path}");
                 }
+
+                RemoveSubtree(path);
+            }
+
+            private void RemoveSubtree(string path)
+            {
 
                 foreach (var f in _files.Keys.Where(f => FakeFsPath.IsUnder(f, path) || FakeFsPath.Comparer.Equals(FakeFsPath.Parent(f), path)).ToList())
                 {
@@ -1020,11 +1133,17 @@ namespace BackupService.UnitTests.Scheduling
                 return SizeOrThrow(path);
             }
 
+            // Runs just before a stat — e.g. to delete the file, as if it vanished after the folder was listed.
+            public Action<string>? OnGetFileStat { get; set; }
+
             public FileStat GetFileStat(string path)
             {
                 GetFileStatCalls++;
+                OnGetFileStat?.Invoke(path);
                 return new FileStat(TimeOrThrow(path), SizeOrThrow(path));
             }
+
+            public void Remove(string path) => _files.Remove(path);
 
             private DateTime TimeOrThrow(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
@@ -1157,6 +1276,7 @@ namespace BackupService.UnitTests.Scheduling
                 {
                     throw new FileNotFoundException(path);
                 }
+                DeletedFiles.Add(path);
             }
 
             public bool FilesContentEqual(string a, string b) =>

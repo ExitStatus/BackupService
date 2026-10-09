@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Globalization;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -32,8 +34,16 @@ namespace BackupService.Scheduling.TwoWaySync
         {
             var result = new BackupResult();
             var filter = new BackupFilter(item.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
-            var baseline = await stateStore.LoadAsync(item.Id, cancellationToken);
+            var endpointKey = EndpointKey(item, sourceConnectionId, targetConnectionId);
+            var loaded = await stateStore.LoadAsync(item.Id, endpointKey, cancellationToken);
+            var baseline = loaded.Entries;
             var newBaseline = new Dictionary<string, TwoWaySyncEntry>(StringComparer.OrdinalIgnoreCase);
+
+            if (loaded.WasReset)
+            {
+                await log.AppendAsync(
+                    $"Two way sync '{item.Name}': the folders or connections changed since the last sync, so its sync state was reset — this run copies in both directions but deletes nothing.");
+            }
 
             var left = await endpointFactory.ResolveAsync(sourceConnectionId, item.SourceFolder, cancellationToken);
             try
@@ -41,6 +51,17 @@ namespace BackupService.Scheduling.TwoWaySync
                 var right = await endpointFactory.ResolveAsync(targetConnectionId, item.TargetFolder, cancellationToken);
                 try
                 {
+                    // A side whose folder can't be found would otherwise read as empty — and against a baseline that
+                    // lists files, "empty" means "everything was deleted there", which would then be propagated to
+                    // the other side. An unplugged drive, a renamed folder or a share that denies access must never
+                    // do that, so once anything has been synced both folders have to be present to run at all.
+                    if (baseline.Count > 0
+                        && (await MissingRootAsync((left.FileSystem, left.BasePath, item.SourceFolder), log, result)
+                            || await MissingRootAsync((right.FileSystem, right.BasePath, item.TargetFolder), log, result)))
+                    {
+                        return result; // baseline left as it was
+                    }
+
                     var ctx = new SyncContext(left.FileSystem, right.FileSystem, item, filter, baseline, newBaseline, onCurrentFile);
                     await SyncDirectoryAsync(left.BasePath, right.BasePath, [], ctx, log, result, fileProgress, cancellationToken);
                 }
@@ -56,8 +77,30 @@ namespace BackupService.Scheduling.TwoWaySync
 
             // Persist the updated baseline only after a completed pass (cancellation/abort throws before here,
             // leaving the previous baseline so nothing is mis-classified next run).
-            await stateStore.SaveAsync(item.Id, newBaseline, cancellationToken);
+            await stateStore.SaveAsync(item.Id, endpointKey, newBaseline, cancellationToken);
             return result;
+        }
+
+        // Identifies the folder pair a baseline describes: each side's connection (or local) and folder. Folders are
+        // compared case-insensitively and without trailing separators, so a cosmetic edit doesn't reset the state.
+        internal static string EndpointKey(TwoWaySyncItem item, int? sourceConnectionId, int? targetConnectionId) =>
+            $"{Side(sourceConnectionId, item.SourceFolder)}|{Side(targetConnectionId, item.TargetFolder)}";
+
+        private static string Side(int? connectionId, string? folder) =>
+            $"{connectionId?.ToString(CultureInfo.InvariantCulture) ?? "local"}:{(folder ?? string.Empty).Replace('/', '\\').TrimEnd('\\').ToUpperInvariant()}";
+
+        // True (and logged as an error) when a side's root folder isn't there.
+        private static async Task<bool> MissingRootAsync((IBackupFileSystem Fs, string BasePath, string? Configured) side, IOperationLogger log, BackupResult result)
+        {
+            if (side.Fs.DirectoryExists(side.BasePath))
+            {
+                return false;
+            }
+
+            result.Errors++;
+            await log.ErrorAsync(
+                $"Folder '{side.Configured}' was not found, so nothing was synced (a missing folder must not be mistaken for every file in it having been deleted). Reconnect or restore it, or point the item at the right folder.");
+            return true;
         }
 
         public async Task<int> CountFilesAsync(TwoWaySyncItem item, int? sourceConnectionId, int? targetConnectionId, CancellationToken cancellationToken)
@@ -121,7 +164,9 @@ namespace BackupService.Scheduling.TwoWaySync
             var rightFiles = await ListFilesAsync(ctx.RightFs, rightDir, log, result);
             if (leftFiles is null || rightFiles is null)
             {
-                return; // a side couldn't be listed — skip this subtree (already logged)
+                // A side couldn't be listed — skip this subtree (already logged), keeping its baseline for next run.
+                KeepBaselineUnder(ancestors, ctx, includeFilesHere: true);
+                return;
             }
 
             var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -146,9 +191,19 @@ namespace BackupService.Scheduling.TwoWaySync
                 return;
             }
 
+            // A side whose sub-folders can't be listed must not read as having none (its sub-trees would then look
+            // deleted), so a listing failure skips this folder's sub-trees for the run — keeping their baselines.
+            var leftDirs = await ListDirsAsync(ctx.LeftFs, leftDir, log, result);
+            var rightDirs = await ListDirsAsync(ctx.RightFs, rightDir, log, result);
+            if (leftDirs is null || rightDirs is null)
+            {
+                KeepBaselineUnder(ancestors, ctx, includeFilesHere: false);
+                return;
+            }
+
             var subs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var d in ListDirsSafe(ctx.LeftFs, leftDir)) subs.Add(PathHelper.GetLeafName(d));
-            foreach (var d in ListDirsSafe(ctx.RightFs, rightDir)) subs.Add(PathHelper.GetLeafName(d));
+            foreach (var d in leftDirs) subs.Add(PathHelper.GetLeafName(d));
+            foreach (var d in rightDirs) subs.Add(PathHelper.GetLeafName(d));
 
             foreach (var sub in subs)
             {
@@ -157,6 +212,32 @@ namespace BackupService.Scheduling.TwoWaySync
                     continue;
                 }
                 await SyncDirectoryAsync(Path.Combine(leftDir, sub), Path.Combine(rightDir, sub), [.. ancestors, sub], ctx, log, result, fileProgress, ct);
+            }
+        }
+
+        // The previous baseline entry for a file whose fate wasn't settled this run (a failed read, copy or delete)
+        // is carried forward, so next run compares against the same state. Dropping it instead would make a one-sided
+        // edit look like a both-sides conflict, which SourceWins/TargetWins could then resolve against the edit.
+        private static void KeepBaseline(string key, SyncContext ctx)
+        {
+            if (ctx.Baseline.TryGetValue(key, out var previous))
+            {
+                ctx.NewBaseline[key] = previous;
+            }
+        }
+
+        // Carries forward the baseline entries beneath a folder that wasn't (fully) visited this run: those in its
+        // sub-folders, plus — with includeFilesHere — the folder's own files.
+        private static void KeepBaselineUnder(IReadOnlyList<string> ancestors, SyncContext ctx, bool includeFilesHere)
+        {
+            var prefix = ancestors.Count == 0 ? string.Empty : string.Join('/', ancestors) + "/";
+            foreach (var (key, entry) in ctx.Baseline)
+            {
+                if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && (includeFilesHere || key.IndexOf('/', prefix.Length) >= 0))
+                {
+                    ctx.NewBaseline[key] = entry;
+                }
             }
         }
 
@@ -178,6 +259,7 @@ namespace BackupService.Scheduling.TwoWaySync
             {
                 result.Errors++;
                 await log.ErrorAsync($"Failed to read state of '{key}'", ex);
+                KeepBaseline(key, ctx); // still undecided — judge it against the same baseline next run
                 return;
             }
 
@@ -234,8 +316,12 @@ namespace BackupService.Scheduling.TwoWaySync
                         result.Deleted++;
                         await log.AppendAsync($"Deleted '{key}' ({direction}, deletion propagated)");
                     }
+                    else
+                    {
+                        KeepBaseline(key, ctx); // retry the deletion next run rather than resurrect the file
+                    }
                 }
-                // Not added to the new baseline — the file is gone from both sides.
+                // Otherwise not added to the new baseline — the file is gone from both sides.
             }
             else if (follower.Exists)
             {
@@ -338,6 +424,10 @@ namespace BackupService.Scheduling.TwoWaySync
                     result.Deleted++;
                     await log.AppendAsync($"Conflict on '{key}' — {winnerLabel} wins, deleted on {loserLabel}");
                 }
+                else
+                {
+                    KeepBaseline(key, ctx);
+                }
             }
         }
 
@@ -366,10 +456,19 @@ namespace BackupService.Scheduling.TwoWaySync
                 // Set the target's copy aside so the source copy can take the canonical name.
                 ctx.RightFs.MoveFile(rightPath, rightConflictPath, overwrite: false);
             }
+            catch (ProtectedFileException ex)
+            {
+                // The target won't rename it (a Google Docs file on Drive) — leave both sides as they are.
+                result.Warnings++;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{key}' — {ex.Reason}");
+                KeepBaseline(key, ctx);
+                return;
+            }
             catch (Exception ex)
             {
                 result.Errors++;
                 await log.ErrorAsync($"Conflict on '{key}' — failed to set aside the target copy", ex);
+                KeepBaseline(key, ctx);
                 return;
             }
 
@@ -383,12 +482,13 @@ namespace BackupService.Scheduling.TwoWaySync
         }
 
         // Crash-safe copy from one filesystem to another + baseline update on success. destExisted picks
-        // Copied vs Updated. Returns whether the copy succeeded (a skipped/failed copy leaves no baseline entry
-        // so it retries next run).
+        // Copied vs Updated. Returns whether the copy succeeded (a skipped/failed copy keeps the previous baseline
+        // entry, if any, so it's retried next run against the same state).
         private async Task<bool> CopyAndBaselineAsync(bool destExisted, string key, IBackupFileSystem fromFs, string fromPath, FileState from, IBackupFileSystem toFs, string toDir, string toName, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
-            if (!await CopyThroughTempAsync(fromFs, fromPath, toFs, toDir, toName, from.Mtime, ctx.OnCurrentFile, log, result, ct))
+            if (!await CopyThroughTempAsync(fromFs, fromPath, from, toFs, toDir, toName, ctx.OnCurrentFile, log, result, ct))
             {
+                KeepBaseline(key, ctx);
                 return false;
             }
 
@@ -404,7 +504,7 @@ namespace BackupService.Scheduling.TwoWaySync
             return true;
         }
 
-        private async Task<bool> CopyThroughTempAsync(IBackupFileSystem fromFs, string fromPath, IBackupFileSystem toFs, string toDir, string toName, DateTime fromMtime, Action<string?>? onCurrentFile, IOperationLogger log, BackupResult result, CancellationToken ct)
+        private async Task<bool> CopyThroughTempAsync(IBackupFileSystem fromFs, string fromPath, FileState from, IBackupFileSystem toFs, string toDir, string toName, Action<string?>? onCurrentFile, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             try
             {
@@ -425,20 +525,37 @@ namespace BackupService.Scheduling.TwoWaySync
             onCurrentFile?.Invoke(toName);
             try
             {
+                long written;
                 using (var input = fromFs.OpenRead(fromPath, ct))
                 using (var output = toFs.OpenWrite(tempPath))
                 {
-                    await input.CopyToAsync(output, ct);
+                    written = await CopyCountingAsync(input, output, ct);
                 }
 
-                TryStampWriteTime(toFs, tempPath, fromMtime);
+                // Never commit a short copy. In a two-way sync a truncated copy stamped with the source's time would
+                // later look like the side that changed, and be copied back over the intact original.
+                if (from.Size > 0 && written < from.Size)
+                {
+                    if (SizeChanged(fromFs, fromPath, from.Size))
+                    {
+                        // The file shrank while it was being read (a save mid-copy) — retry next run, like a locked file.
+                        TryDeleteTemp(toFs, tempPath);
+                        result.Warnings++;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{fromPath}' — it changed while it was being copied (it will be retried on the next run)");
+                        return false;
+                    }
+
+                    throw new IOException($"Incomplete copy: only {written} of {from.Size} bytes were transferred.");
+                }
+
+                TryStampWriteTime(toFs, tempPath, from.Mtime);
 
                 if (toFs.FileExists(destPath))
                 {
                     toFs.DeleteFile(destPath);
                 }
                 toFs.MoveFile(tempPath, destPath, overwrite: false);
-                result.BytesCopied += TrySize(fromFs, fromPath);
+                result.BytesCopied += written;
                 return true;
             }
             catch (OperationCanceledException)
@@ -518,10 +635,33 @@ namespace BackupService.Scheduling.TwoWaySync
 
         private static TwoWaySyncEntry BaselineOf(FileState state) => new(state.Mtime.Ticks, state.Size);
 
-        private static FileState ReadState(IBackupFileSystem fs, string path) =>
-            fs.FileExists(path)
-                ? new FileState(true, fs.GetLastWriteTimeUtc(path), fs.GetFileSize(path))
-                : FileState.Absent;
+        private static FileState ReadState(IBackupFileSystem fs, string path)
+        {
+            if (!fs.FileExists(path))
+            {
+                return FileState.Absent;
+            }
+            var stat = fs.GetFileStat(path); // time + size in one lookup
+            return new FileState(true, stat.LastWriteTimeUtc, stat.Size);
+        }
+
+        private async Task<IReadOnlyList<string>?> ListDirsAsync(IBackupFileSystem fs, string dir, IOperationLogger log, BackupResult result)
+        {
+            try
+            {
+                return fs.DirectoryExists(dir) ? fs.GetDirectories(dir) : [];
+            }
+            catch (EndpointUnavailableException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                result.Errors++;
+                await log.ErrorAsync($"Failed to list the sub-folders of '{dir}'", ex);
+                return null;
+            }
+        }
 
         private async Task<IReadOnlyList<string>?> ListFilesAsync(IBackupFileSystem fs, string dir, IOperationLogger log, BackupResult result)
         {
@@ -614,22 +754,58 @@ namespace BackupService.Scheduling.TwoWaySync
             }
         }
 
-        private static long TrySize(IBackupFileSystem fs, string path)
+        private const int CopyBufferSize = 81920; // Stream.CopyToAsync's default
+
+        // Streams input to output, returning the number of bytes copied.
+        private static async Task<long> CopyCountingAsync(Stream input, Stream output, CancellationToken ct)
         {
+            var buffer = ArrayPool<byte>.Shared.Rent(CopyBufferSize);
             try
             {
-                return fs.GetFileSize(path);
+                long total = 0;
+                int read;
+                while ((read = await input.ReadAsync(buffer.AsMemory(0, CopyBufferSize), ct)) > 0)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0, read), ct);
+                    total += read;
+                }
+                return total;
             }
-            catch
+            finally
             {
-                return 0;
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
-        private static string CrashSafeTempName(string fileName) => $".{fileName}.tmp";
+        // Re-reads the size after a short copy: true only when it can be read and is no longer the size the copy
+        // started from. A gone endpoint still aborts the run.
+        private static bool SizeChanged(IBackupFileSystem fs, string path, long sizeAtStart)
+        {
+            try
+            {
+                return fs.GetFileSize(path) != sizeAtStart;
+            }
+            catch (EndpointUnavailableException)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Both sides of a two-way sync are live user folders, so the crash-safe temp needs a name no user or other
+        // app would pick: a plain ".{name}.tmp" is also what other tools use for their own in-flight saves, and the
+        // leftover-temp sweep would delete those. Only files with this exact suffix are ever swept.
+        private const string CrashSafeTempSuffix = ".backupservice.tmp";
+
+        private static string CrashSafeTempName(string fileName) => $".{fileName}{CrashSafeTempSuffix}";
 
         private static bool IsCrashSafeTempName(string fileName) =>
-            fileName.Length > 5 && fileName[0] == '.' && fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
+            fileName.Length > CrashSafeTempSuffix.Length + 1
+            && fileName[0] == '.'
+            && fileName.EndsWith(CrashSafeTempSuffix, StringComparison.OrdinalIgnoreCase);
 
         private static void TryDeleteTemp(IBackupFileSystem fs, string tempPath)
         {

@@ -76,9 +76,9 @@ else
                                         OnSelect="OnSelected"
                                         OnCancel="CancelBrowse" />
     }
-    else if (_usbMountPath is not null)
+    else if (_usbBrowseRoot is not null)
     {
-        <FolderBrowserDialog RootPath="_usbMountPath"
+        <FolderBrowserDialog RootPath="_usbBrowseRoot"
                              InitialPath="@UsbBrowseInitialPath"
                              AllowCreateFolder="AllowCreateFolder"
                              OnSelect="OnUsbSelected"
