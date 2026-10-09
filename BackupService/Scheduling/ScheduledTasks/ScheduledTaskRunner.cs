@@ -23,7 +23,8 @@ namespace BackupService.Scheduling.ScheduledTasks
         IProcessRunner processRunner,
         IBackupRunRecorder runRecorder,
         ILogger<ScheduledTaskRunner> logger,
-        IDesktopNotifier? notifier = null) : IScheduledTaskRunner
+        IDesktopNotifier? notifier = null,
+        IHostApplicationLifetime? lifetime = null) : IScheduledTaskRunner
     {
         // The cancellation source for each in-progress run, keyed by task id, so the UI's Stop button
         // (RequestStop) can cancel a run that's already under way.
@@ -61,9 +62,11 @@ namespace BackupService.Scheduling.ScheduledTasks
 
             var finalStatus = ProfileStatus.Idle;
 
-            // A linked source so a run can be stopped either by the host shutting down (the passed token)
-            // or by the user's Stop button (RequestStop cancels this source).
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // A linked source so a run can be stopped by the caller's token, by the app shutting down (a Run now
+            // passes no token — without this its step's process would be left running when the app exits), or by
+            // the user's Stop button (RequestStop cancels this source).
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, lifetime?.ApplicationStopping ?? CancellationToken.None);
             _running[taskId] = cts;
             try
             {
@@ -84,7 +87,7 @@ namespace BackupService.Scheduling.ScheduledTasks
             }
             finally
             {
-                _running.TryRemove(taskId, out _);
+                _running.TryRemove(new KeyValuePair<int, CancellationTokenSource>(taskId, cts)); // only this run's entry
             }
 
             // Persist DateLastRun BEFORE flipping the status (the grid reloads on the status change, so the

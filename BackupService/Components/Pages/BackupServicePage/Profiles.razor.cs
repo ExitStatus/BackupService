@@ -422,7 +422,8 @@ namespace BackupService.Components.Pages.BackupServicePage
         private string SortIndicator(ProfileSortColumn column) =>
             _sortColumn != column ? string.Empty : _descending ? " ▼" : " ▲";
 
-        private bool IsRunning(int id) => StatusService.Get(id) == ProfileStatus.Running;
+        // The run guard, not the displayed status: a failing run shows Error before it has actually finished.
+        private bool IsRunning(int id) => StatusService.IsRunning(id);
 
         private string RunTitle(int id) => IsRunning(id) ? "A backup is already running" : "Run now";
 

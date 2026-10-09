@@ -62,33 +62,43 @@ namespace BackupService.Profiles
             ProgressChanged?.Invoke(profileId);
         }
 
-        public bool IsRunning(int profileId) => Get(profileId) == ProfileStatus.Running;
+        // The single-run guard. Deliberately separate from the displayed status: a handler shows Error as soon as a
+        // run fails, while the runner is still finishing it (summary, run record, last-run stamp) — that must not let
+        // a second run start on the same folders, nor that run's end clear the second one's state.
+        private readonly ConcurrentDictionary<int, byte> _activeRuns = new();
+
+        public bool IsRunning(int profileId) => _activeRuns.ContainsKey(profileId);
 
         public bool TryBeginRun(int profileId)
         {
-            bool began;
             lock (_runLock)
             {
                 // Check-and-set must be atomic so two callers can't both begin the same profile.
-                began = Get(profileId) != ProfileStatus.Running;
-                if (began)
+                if (!_activeRuns.TryAdd(profileId, 0))
                 {
-                    _statuses[profileId] = ProfileStatus.Running;
+                    return false;
                 }
+                _statuses[profileId] = ProfileStatus.Running;
             }
 
-            if (began)
+            Changed?.Invoke(profileId);
+            return true;
+        }
+
+        public void EndRun(int profileId, ProfileStatus finalStatus)
+        {
+            lock (_runLock)
             {
-                Changed?.Invoke(profileId);
+                _activeRuns.TryRemove(profileId, out _);
             }
-
-            return began;
+            Set(profileId, finalStatus);
         }
 
         public void Remove(int profileId)
         {
             _statuses.TryRemove(profileId, out _);
             _locked.TryRemove(profileId, out _);
+            _activeRuns.TryRemove(profileId, out _);
         }
 
         public void Lock(int profileId) => _locked[profileId] = 0;

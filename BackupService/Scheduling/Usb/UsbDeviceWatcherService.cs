@@ -24,25 +24,26 @@ namespace BackupService.Scheduling.Usb
         IUsbDeviceInspector inspector,
         IMtpDeviceInspector mtpInspector,
         IUsbConnector usbConnector,
-        IUsbEjector usbEjector,
-        IUsbRunGate usbRunGate,
-        IBackupRunner backupRunner,
+        UsbTriggeredRunner triggeredRunner,
         IOperationLogFactory operationLogFactory,
         IDesktopNotifier notifier,
         ILogger<UsbDeviceWatcherService> logger) : IHostedService
     {
         private readonly object _gate = new();
+        private readonly CancellationTokenSource _stopping = new();
         // Drive letter -> the connections it matched on arrival, so a later removal can be logged (the device is
         // gone by then and can't be re-read).
         private readonly Dictionary<string, List<MatchedConnection>> _matched = new(StringComparer.OrdinalIgnoreCase);
         // Debounce duplicate arrival broadcasts for the same drive.
         private readonly Dictionary<string, DateTime> _lastArrival = new(StringComparer.OrdinalIgnoreCase);
 
-        // MTP devices raise no volume event; instead we re-scan portable devices on a device-tree change and diff
-        // against this snapshot to spot arrivals/removals. Seeded at start so already-attached devices aren't "new".
-        private readonly HashSet<string> _knownMtpSerials = new(StringComparer.OrdinalIgnoreCase);
+        // MTP devices raise no volume event; instead we re-scan portable devices on a device-tree change and compare
+        // with what was there before to spot arrivals/removals. Seeded at start so already-attached devices aren't
+        // "new"; scans wait for the seed.
+        private readonly MtpPresenceTracker _mtpPresence = new();
         private readonly Dictionary<string, List<MatchedConnection>> _matchedMtp = new(StringComparer.OrdinalIgnoreCase);
-        private int _mtpScanInFlight; // 0/1 — coalesces a burst of device-tree changes into one re-scan sequence
+        private Task _mtpSeeded = Task.CompletedTask;
+        private RescanCoalescer? _mtpRescan; // folds a burst of device-tree changes into one scan sequence
 
         private Thread? _thread;
         private IntPtr _hwnd;
@@ -57,26 +58,8 @@ namespace BackupService.Scheduling.Usb
 
             // Seed the MTP snapshot with already-connected devices so they don't count as arrivals at startup.
             // (A device already attached when the service starts is therefore not auto-run — replug it to trigger.)
-            _ = Task.Run(() =>
-            {
-                try
-                {
-                    var devices = mtpInspector.EnumerateMtpDevices();
-                    lock (_gate)
-                    {
-                        foreach (var device in devices)
-                        {
-                            _knownMtpSerials.Add(device.Serial);
-                        }
-                    }
-                    logger.LogInformation("USB watcher: seeded {Count} already-connected portable (MTP) device(s): {Devices}",
-                        devices.Count, DescribeDevices(devices));
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to seed the MTP device snapshot.");
-                }
-            });
+            _mtpRescan = new RescanCoalescer(ScanMtpSequenceAsync);
+            _mtpSeeded = Task.Run(SeedMtpAsync);
 
             _thread = new Thread(MessageLoop)
             {
@@ -90,6 +73,7 @@ namespace BackupService.Scheduling.Usb
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
+            _stopping.Cancel();
             if (_hwnd != IntPtr.Zero)
             {
                 PostMessage(_hwnd, WM_APP_QUIT, IntPtr.Zero, IntPtr.Zero);
@@ -338,37 +322,16 @@ namespace BackupService.Scheduling.Usb
                 return;
             }
 
-            var usbSnapshot = usbById;
-            _ = Task.Run(async () =>
-            {
-                // Run the whole batch (they serialise per device via IUsbRunGate) and only eject once ALL of them
-                // have finished, so a profile that asked to eject can't pull the drive out from under another
-                // profile still queued for it.
-                await Task.WhenAll(runnable.Select(id => backupRunner.RunAsync(id, manual: false)));
-                await EjectDevicesAsync(ejectPlan, usbSnapshot);
-            });
-        }
+            var ejects = ejectPlan
+                .Select(e => (Usb: usbById[e.Key], ConnectionId: e.Key, Notify: e.Value))
+                .Select(e => new UsbEjectRequest(e.ConnectionId,
+                    new UsbConnectionInfo(e.Usb.Kind, e.Usb.HardwareSerial, e.Usb.VolumeSerial, e.Usb.MtpSerial, e.Usb.RootFolder),
+                    e.Usb.DeviceLabel, e.Notify))
+                .ToList();
 
-        // Safely removes each mass-storage USB device the batch asked to eject, notifying (when opted in) so the user
-        // knows it's safe to unplug. Takes the device's run-gate first, so any run still using the shared device
-        // (e.g. one queued from an overlapping trigger) finishes before the eject.
-        private async Task EjectDevicesAsync(Dictionary<int, bool> ejectPlan, Dictionary<int, UsbConnectionSettings> usbById)
-        {
-            foreach (var (connectionId, notify) in ejectPlan)
-            {
-                if (!usbById.TryGetValue(connectionId, out var usb))
-                {
-                    continue;
-                }
-
-                await using var gate = await usbRunGate.AcquireAsync([connectionId], CancellationToken.None);
-
-                var info = new UsbConnectionInfo(usb.Kind, usb.HardwareSerial, usb.VolumeSerial, usb.MtpSerial, usb.RootFolder);
-                if (usbConnector.FindMountPath(info) is { } mountPath && usbEjector.TryEject(mountPath) && notify)
-                {
-                    notifier.NotifyDeviceEjected(string.IsNullOrEmpty(usb.DeviceLabel) ? mountPath : usb.DeviceLabel);
-                }
-            }
+            // Runs the batch (they serialise per device via IUsbRunGate), then ejects once every run using the device
+            // has finished — see UsbTriggeredRunner.
+            _ = Task.Run(() => triggeredRunner.RunThenEjectAsync(runnable, ejects, _stopping.Token));
         }
 
         // Whether the device a USB connection is bound to is currently connected (mass-storage: a current mount path;
@@ -386,39 +349,73 @@ namespace BackupService.Scheduling.Usb
 
         // ---- MTP (portable-device) detection ----
 
-        private void OnDeviceNodesChanged()
-        {
-            // A device-tree change usually comes as a burst; coalesce into a single re-scan sequence. The sequence
-            // itself re-scans several times, so we ignore further changes until it finishes.
-            if (Interlocked.CompareExchange(ref _mtpScanInFlight, 1, 0) != 0)
-            {
-                return;
-            }
+        // A device-tree change usually comes as a burst; the coalescer folds it into one scan sequence, plus one more
+        // if a change arrives while a sequence is already running.
+        private void OnDeviceNodesChanged() => _mtpRescan?.Request();
 
-            _ = Task.Run(ScanMtpSequenceAsync);
+        private async Task SeedMtpAsync()
+        {
+            // A device that can't be read now would otherwise look like an arrival on the first scan and run its
+            // profiles, so give an incomplete list a couple more tries.
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    var complete = mtpInspector.TryEnumerateMtpDevices(out var devices);
+                    if (complete || attempt == 3)
+                    {
+                        lock (_gate)
+                        {
+                            _mtpPresence.Seed(devices);
+                        }
+                        logger.LogInformation("USB watcher: seeded {Count} already-connected portable (MTP) device(s): {Devices}",
+                            devices.Count, DescribeDevices(devices));
+                        return;
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(2), _stopping.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to seed the MTP device snapshot.");
+                    return;
+                }
+            }
         }
 
         // A portable device (especially a camera that prompts on-screen for a USB mode) can take several seconds
         // to register with WPD after the device-tree change fires. Scan a few times over ~8s so a late arrival is
-        // still caught — the diff against _knownMtpSerials keeps the repeats idempotent (each device fires once).
+        // still caught — MtpPresenceTracker keeps the repeats idempotent (each device fires once). A device that has
+        // just gone missing is only confirmed removed by a later scan, so keep scanning briefly until that's settled.
         private async Task ScanMtpSequenceAsync()
         {
-            try
+            await _mtpSeeded;
+            logger.LogDebug("USB watcher: device-tree changed — scanning for portable (MTP) devices.");
+            int[] delaysMs = [0, 1500, 3000, 5000, 8000];
+            foreach (var delay in delaysMs)
             {
-                logger.LogDebug("USB watcher: device-tree changed — scanning for portable (MTP) devices.");
-                int[] delaysMs = [0, 1500, 3000, 5000, 8000];
-                foreach (var delay in delaysMs)
+                if (delay > 0)
                 {
-                    if (delay > 0)
-                    {
-                        await Task.Delay(delay);
-                    }
-                    await ScanMtpAsync();
+                    await Task.Delay(delay, _stopping.Token);
                 }
+                await ScanMtpAsync();
             }
-            finally
+
+            for (var extra = 0; extra < 3 && HasUnconfirmedMtpRemovals(); extra++)
             {
-                Interlocked.Exchange(ref _mtpScanInFlight, 0);
+                await Task.Delay(1500, _stopping.Token);
+                await ScanMtpAsync();
+            }
+        }
+
+        private bool HasUnconfirmedMtpRemovals()
+        {
+            lock (_gate)
+            {
+                return _mtpPresence.HasUnconfirmedRemovals;
             }
         }
 
@@ -426,22 +423,20 @@ namespace BackupService.Scheduling.Usb
         {
             try
             {
-                var present = mtpInspector.EnumerateMtpDevices();
+                if (!mtpInspector.TryEnumerateMtpDevices(out var present))
+                {
+                    // An incomplete list would make the missing devices look unplugged — wait for the next scan.
+                    logger.LogDebug("USB watcher: the portable-device list couldn't be read in full; ignoring this scan.");
+                    return;
+                }
                 logger.LogDebug("USB watcher: MTP scan found {Count} portable device(s): {Devices}",
                     present.Count, DescribeDevices(present));
 
-                List<MtpDevice> arrived;
-                List<string> removed;
+                IReadOnlyList<MtpDevice> arrived;
+                IReadOnlyList<string> removed;
                 lock (_gate)
                 {
-                    var presentSerials = present.Select(d => d.Serial).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    arrived = present.Where(d => !_knownMtpSerials.Contains(d.Serial)).ToList();
-                    removed = _knownMtpSerials.Where(s => !presentSerials.Contains(s)).ToList();
-                    _knownMtpSerials.Clear();
-                    foreach (var serial in presentSerials)
-                    {
-                        _knownMtpSerials.Add(serial);
-                    }
+                    (arrived, removed) = _mtpPresence.Update(present);
                 }
 
                 foreach (var device in arrived)

@@ -16,15 +16,22 @@ namespace BackupService.Profiles
         /// <summary>Sets a profile's status and raises <see cref="Changed"/>.</summary>
         void Set(int profileId, ProfileStatus status);
 
-        /// <summary>Whether a run is currently in progress for the profile (status is Running).</summary>
+        /// <summary>
+        /// Whether a run is currently in progress for the profile — begun by <see cref="TryBeginRun"/> and not yet
+        /// ended by <see cref="EndRun"/>. Not the same as the displayed status: a failing run shows Error before the
+        /// runner has finished with it.
+        /// </summary>
         bool IsRunning(int profileId);
 
         /// <summary>
         /// Atomically begins a run: sets the status to Running and returns true, unless a run is
-        /// already in progress (already Running), in which case it makes no change and returns false.
+        /// already in progress, in which case it makes no change and returns false.
         /// Enforces the "only one run per profile at a time" rule.
         /// </summary>
         bool TryBeginRun(int profileId);
+
+        /// <summary>Ends the run begun by <see cref="TryBeginRun"/>, setting its final status.</summary>
+        void EndRun(int profileId, ProfileStatus finalStatus);
 
         /// <summary>Drops a profile's tracked status and any lock (call when the profile is deleted).</summary>
         void Remove(int profileId);

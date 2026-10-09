@@ -173,6 +173,84 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task StopDuringTheZipBuild_IsACancellation_AndLeavesNoTempFiles()
+        {
+            // Stop used to be swallowed (recorded as a failed copy) and the build couldn't be interrupted.
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            var act = () => _sut.CreateArchiveAsync(KeepLastN(5), null, null, 1, RunTime, _log, cts.Token);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            _log.Errors.Should().BeEmpty();
+            _fs.AllFiles.Should().NotContain(p => p.StartsWith(FakeFsPath.Norm(@"C:\temp")));
+            _fs.FileExists(KeepName(RunTime)).Should().BeFalse();
+        }
+
+        [Test]
+        public async Task ExistingArchiveWithTheSameName_IsNeverReplaced()
+        {
+            // Same-second names happen in the hour repeated when the clocks go back, or with two items sharing a
+            // file name and target folder.
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            _fs.AddFile(KeepName(RunTime), RunTime, "the earlier archive");
+
+            var result = await _sut.CreateArchiveAsync(KeepLastN(5), null, null, 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(0);
+            result.Errors.Should().Be(1);
+            _fs.ContentOf(KeepName(RunTime)).Should().Be("the earlier archive");
+            _log.Errors.Should().ContainSingle(m => m.Contains("already exists"));
+        }
+
+        [Test]
+        public async Task TempBuildFolders_AreRemovedAfterTheRun()
+        {
+            _fs.AddFile(@"C:\src\file.txt", RunTime, "data");
+            var item = KeepLastN(5);
+            item.OnlyCopyOnChange = true; // also builds a fingerprint manifest in a temp folder
+
+            await _sut.CreateArchiveAsync(item, null, null, 1, RunTime, _log, CancellationToken.None);
+
+            _fs.AllFiles.Should().NotContain(p => p.StartsWith(FakeFsPath.Norm(@"C:\temp")));
+            _fs.DirectoryExists(@"C:\temp\0").Should().BeFalse();
+            _fs.DirectoryExists(@"C:\temp\1").Should().BeFalse();
+        }
+
+        [Test]
+        public async Task RemoteSource_ExcludedFolders_AreNotEvenFetched()
+        {
+            var (sut, localFs, remoteFs, item) = RemoteSourceSetup();
+            remoteFs.AddFile(@"Photos\Videos\clip.mp4", RunTime, "huge");
+            remoteFs.ReadFailure = p => p.EndsWith("clip.mp4") ? new IOException("should not have been read") : null;
+            item.IncludeSubFolders = true;
+            item.Filters.Add(new ArchiveSyncFilter { Direction = FilterDirection.Exclude, Kind = FilterKind.Folder, Pattern = "Videos" });
+
+            var result = await sut.CreateArchiveAsync(item, 5, null, 1, RunTime, _log, CancellationToken.None);
+
+            result.Errors.Should().Be(0);
+            result.Copied.Should().Be(1);
+        }
+
+        [Test]
+        public async Task SourceOnAConnectionResolvingToTheLocalFileSystem_IsZippedInPlace_NotStaged()
+        {
+            // A mass-storage USB drive resolves to a plain local path — copying the whole card to the temp folder
+            // first only wasted time and disk.
+            _fs.AddFile(@"E:\DCIM\a.jpg", RunTime, "jpeg");
+            var sut = new ArchiveSyncProcessor(_fs, new TwoFsArchiveFactory(_fs, remoteConnectionId: 9, _fs), new ReversibleProtector());
+            var item = KeepLastN(5);
+            item.SourceFolder = @"E:\DCIM";
+
+            var result = await sut.CreateArchiveAsync(item, 9, null, 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            _log.Messages.Should().NotContain(m => m.Contains("Staging"));
+            _log.DebugMessages.Should().ContainSingle().Which.Should().Contain("a.jpg");
+        }
+
+        [Test]
         public async Task RemoteSource_FileThatFailsToStage_IsLeftOutAsAnError_ArchiveStillCreated()
         {
             // One file that can't be fetched (e.g. an MTP transfer that keeps coming back short) used to fail the
@@ -544,6 +622,8 @@ namespace BackupService.UnitTests.Scheduling
             private int _tempCounter;
 
             public IReadOnlyList<string> AllFiles => _files.Keys.Select(FakeFsPath.Norm).ToList();
+
+            public string ContentOf(string path) => _files[path].Content;
 
             public void AddDirectory(string path)
             {

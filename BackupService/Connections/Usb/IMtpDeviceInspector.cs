@@ -11,6 +11,12 @@ namespace BackupService.Connections.Usb
         /// <summary>Every connected MTP/PTP device, with its serial + friendly name.</summary>
         IReadOnlyList<MtpDevice> EnumerateMtpDevices();
 
+        /// <summary>
+        /// Like <see cref="EnumerateMtpDevices"/>, but says whether the list is complete: false when the device list
+        /// (or a device in it) couldn't be read, so <paramref name="devices"/> may be missing some that are connected.
+        /// </summary>
+        bool TryEnumerateMtpDevices(out IReadOnlyList<MtpDevice> devices);
+
         /// <summary>Whether a device with <paramref name="serial"/> is currently connected.</summary>
         bool IsConnected(string serial);
 

@@ -8,6 +8,7 @@ using BackupService.Scheduling.Usb;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -143,10 +144,75 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task RunAsync_WhileAFailingRunShowsError_ASecondRunIsStillRefused()
+        {
+            // A handler marks the profile Error as soon as it fails, before the runner has finished with the run.
+            // That used to release the single-run guard, letting a second run start on the same folders.
+            var id = SeedProfile();
+            BackupRunner runner = null!;
+            var handler = new CapturingHandler
+            {
+                OnHandle = async _ =>
+                {
+                    _statusService.Set(id, ProfileStatus.Error);
+                    await runner.RunAsync(id); // e.g. the scheduler or a Run now arriving at this moment
+                    throw new InvalidOperationException("catastrophic failure");
+                },
+            };
+            runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
+
+            await runner.RunAsync(id);
+
+            handler.Calls.Should().Be(1);
+            _statusService.IsRunning(id).Should().BeFalse();
+            _statusService.Get(id).Should().Be(ProfileStatus.Error);
+        }
+
+        [Test]
+        public async Task RunAsync_IsCancelledWhenTheAppStops_EvenWithoutACallerToken()
+        {
+            // A Run now (or a device-triggered run) passes no token; shutdown must still stop it cleanly.
+            var id = SeedProfile();
+            using var stopping = new CancellationTokenSource();
+            var observedCancellation = false;
+            var handler = new CapturingHandler
+            {
+                OnHandleWithToken = async (_, ct) =>
+                {
+                    stopping.Cancel();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        observedCancellation = true;
+                        throw;
+                    }
+                },
+            };
+            var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance, new StoppingLifetime(stopping.Token));
+
+            await runner.RunAsync(id, manual: true);
+
+            observedCancellation.Should().BeTrue();
+            _statusService.Get(id).Should().Be(ProfileStatus.Idle); // cancelled, not failed
+            _statusService.IsRunning(id).Should().BeFalse();
+        }
+
+        private sealed class StoppingLifetime(CancellationToken stopping) : IHostApplicationLifetime
+        {
+            public CancellationToken ApplicationStarted => CancellationToken.None;
+            public CancellationToken ApplicationStopping => stopping;
+            public CancellationToken ApplicationStopped => CancellationToken.None;
+            public void StopApplication() { }
+        }
+
+        [Test]
         public async Task RunAsync_WhenAlreadyRunning_SkipsWithoutCallingHandler()
         {
             var id = SeedProfile();
-            _statusService.Set(id, ProfileStatus.Running); // a run is already in progress
+            _statusService.TryBeginRun(id); // a run is already in progress
             var handler = new CapturingHandler();
             var runner = new BackupRunner(_dbFactory, _logFactory, _statusService, new UsbRunGate(), new GroupRunGate(), new[] { (IProfileTypeHandler)handler }, NullLogger<BackupRunner>.Instance);
 

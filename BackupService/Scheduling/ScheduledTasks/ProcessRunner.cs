@@ -40,9 +40,17 @@ namespace BackupService.Scheduling.ScheduledTasks
             }
         }
 
+        // A step is finished when its program AND everything it started have exited — so a launcher that hands its
+        // work to a helper doesn't let the next step start early. On Windows everything the step starts is held in a
+        // Job Object (see WindowsJobObject): Stop kills the lot, as does the app exiting, even for a background
+        // program whose launching process has already exited (Process.Kill can't reach those). A step that starts a
+        // long-running server therefore keeps the task Running until it's stopped. Elsewhere the step is finished when
+        // its output closes (a background program inherits it), and Stop reaches the process tree only while the
+        // step's own program is still running.
         private static async Task<ProcessRunResult> RunProcessAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken)
         {
             using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            using var job = OperatingSystem.IsWindows() ? WindowsJobObject.TryCreate() : null;
 
             // Collected on the event threads — use thread-safe queues.
             var stdout = new ConcurrentQueue<string>();
@@ -64,15 +72,26 @@ namespace BackupService.Scheduling.ScheduledTasks
             };
 
             process.Start();
+            // Straight after starting, before it has had a chance to launch anything: what it starts joins the job.
+            var inJob = OperatingSystem.IsWindows() && job is not null && job.TryAssign(process);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
             try
             {
+                // Its own exit, plus its output closing — which also waits for anything that inherited the output.
                 await process.WaitForExitAsync(cancellationToken);
+                if (inJob && OperatingSystem.IsWindows())
+                {
+                    await job!.WaitUntilEmptyAsync(cancellationToken); // and anything else it started
+                }
             }
             catch (OperationCanceledException)
             {
+                if (inJob && OperatingSystem.IsWindows())
+                {
+                    job!.Terminate(); // the step's program and everything it started
+                }
                 TryKill(process);
                 throw;
             }
@@ -92,8 +111,12 @@ namespace BackupService.Scheduling.ScheduledTasks
             {
                 if (OperatingSystem.IsWindows())
                 {
+                    // "/s /c "…"": cmd strips exactly the outer pair of quotes and runs the rest verbatim. Plain
+                    // "/c …" applies cmd's other rule — with more than two quotes it removes the first and last
+                    // quote characters — which breaks any command that starts with a quoted program path and has
+                    // another quoted argument ("C:\Program Files\…\7z.exe" a "D:\x y.7z").
                     startInfo.FileName = "cmd.exe";
-                    startInfo.Arguments = $"/c {step.Command}";
+                    startInfo.Arguments = $"/s /c \"{step.Command}\"";
                 }
                 else
                 {

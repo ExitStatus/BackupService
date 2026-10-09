@@ -331,7 +331,7 @@ namespace BackupService.Scheduling
             try
             {
                 exists = ctx.TargetFs.FileExists(dest);
-                if (exists && ctx.SourceFs.GetLastWriteTimeUtc(source) == ctx.TargetFs.GetLastWriteTimeUtc(dest))
+                if (exists && IsUnchanged(ctx.SourceFs.GetFileStat(source), ctx.TargetFs.GetFileStat(dest)))
                 {
                     return; // unchanged — nothing to do
                 }
@@ -357,6 +357,14 @@ namespace BackupService.Scheduling
                 }
             }
         }
+
+        // FAT/exFAT targets (common for photo drives) store write times to 2-second granularity, rounding up, so a
+        // copy reads back up to 2 s newer. An exact compare saw every archived file as changed and re-copied it on
+        // every pass; within the tolerance and the same size, it's unchanged (as in the One Way Sync engine).
+        private static readonly TimeSpan WriteTimeTolerance = TimeSpan.FromSeconds(2);
+
+        private static bool IsUnchanged(FileStat source, FileStat dest) =>
+            source.Size == dest.Size && (source.LastWriteTimeUtc - dest.LastWriteTimeUtc).Duration() <= WriteTimeTolerance;
 
         /// <summary>
         /// Crash-safe copy across (possibly different) filesystems: streams the local source into a

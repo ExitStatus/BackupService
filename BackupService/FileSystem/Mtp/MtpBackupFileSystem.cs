@@ -186,8 +186,9 @@ namespace BackupService.FileSystem.Mtp
         // Runs a device operation, transparently reconnecting (re-acquiring the device by serial) and retrying when
         // the WPD session has dropped — the common MTP failure where the device stays plugged in but reports
         // "Not connected" after some activity. When the device is genuinely gone (switched off / unplugged), or it
-        // can't be re-established within MaxAttempts, this throws EndpointUnavailableException so the run aborts
-        // fast and clean rather than churning the same dead device for every remaining file.
+        // stops answering altogether, this throws EndpointUnavailableException so the run aborts fast and clean rather
+        // than churning the same dead device for every remaining file. A device that still answers after the retries
+        // are used up is refusing just this object, so only this file fails (see MtpRetryOutcome).
         private T WithRetry<T>(Func<T> op, CancellationToken cancellationToken = default)
         {
             for (var attempt = 1; ; attempt++)
@@ -206,12 +207,28 @@ namespace BackupService.FileSystem.Mtp
                 {
                     if (attempt >= MaxAttempts)
                     {
-                        throw new EndpointUnavailableException($"The MTP device '{_serial}' is not responding.", ex);
+                        throw MtpRetryOutcome.ForExhaustedRetries(ex, DeviceStillAnswers(), _serial);
                     }
 
                     InvalidateDevice(); // drop the stale handle; the next EnsureConnected re-acquires or declares it gone
                     Pause(cancellationToken);
                 }
+            }
+        }
+
+        // Whether the device answers a simple request (listing its storage) on a fresh session.
+        private bool DeviceStillAnswers()
+        {
+            try
+            {
+                InvalidateDevice();
+                EnsureConnected();
+                _ = _device!.GetDirectories(@"\").ToList();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

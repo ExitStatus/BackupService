@@ -23,6 +23,7 @@ namespace BackupService.Scheduling
         private readonly IGroupRunGate _groupRunGate;
         private readonly ILogger<BackupRunner> _logger;
         private readonly IReadOnlyDictionary<ProfileType, IProfileTypeHandler> _handlers;
+        private readonly CancellationToken _appStopping;
 
         // The cancellation source for each in-progress run, keyed by profile id, so the UI's Stop
         // button (RequestStop) can cancel a run that's already under way.
@@ -35,7 +36,8 @@ namespace BackupService.Scheduling
             IUsbRunGate usbRunGate,
             IGroupRunGate groupRunGate,
             IEnumerable<IProfileTypeHandler> handlers,
-            ILogger<BackupRunner> logger)
+            ILogger<BackupRunner> logger,
+            IHostApplicationLifetime? lifetime = null)
         {
             _contextFactory = contextFactory;
             _operationLogFactory = operationLogFactory;
@@ -44,6 +46,10 @@ namespace BackupService.Scheduling
             _groupRunGate = groupRunGate;
             _logger = logger;
             _handlers = handlers.ToDictionary(h => h.Type);
+            // Every run is also stopped when the app shuts down — not only scheduled ones (which pass the host's
+            // token): a Run now or a device-triggered run would otherwise be cut off mid-way by the process exiting,
+            // without finishing its log or run record (or killing a child process).
+            _appStopping = lifetime?.ApplicationStopping ?? CancellationToken.None;
         }
 
         public async Task RunAsync(int profileId, bool manual = false, CancellationToken cancellationToken = default)
@@ -119,9 +125,9 @@ namespace BackupService.Scheduling
             // tracks status and the last-run timestamp.
             var finalStatus = ProfileStatus.Idle;
 
-            // A linked source so a run can be stopped either by the host shutting down (the passed
-            // token) or by the user's Stop button (RequestStop cancels this source).
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // A linked source so a run can be stopped by the caller's token, by the app shutting down, or by the
+            // user's Stop button (RequestStop cancels this source).
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _appStopping);
             _running[profile.Id] = cts;
             try
             {
@@ -150,7 +156,8 @@ namespace BackupService.Scheduling
             }
             finally
             {
-                _running.TryRemove(profile.Id, out _);
+                // Remove only this run's entry (by key AND value): never another run's.
+                _running.TryRemove(new KeyValuePair<int, CancellationTokenSource>(profile.Id, cts));
             }
 
             // Persist DateLastRun BEFORE flipping the status (the grid reloads on the status change,
@@ -165,7 +172,7 @@ namespace BackupService.Scheduling
                 _logger.LogError(ex, "Failed to record last-run time for profile {ProfileId}.", profile.Id);
             }
 
-            _statusService.Set(profile.Id, finalStatus);
+            _statusService.EndRun(profile.Id, finalStatus);
         }
 
         public bool RequestStop(int profileId)

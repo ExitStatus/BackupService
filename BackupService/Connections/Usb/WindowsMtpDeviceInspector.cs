@@ -14,14 +14,27 @@ namespace BackupService.Connections.Usb
     {
         public IReadOnlyList<MtpDevice> EnumerateMtpDevices()
         {
-            var devices = new List<MtpDevice>();
+            TryEnumerateMtpDevices(out var devices);
+            return devices;
+        }
+
+        public bool TryEnumerateMtpDevices(out IReadOnlyList<MtpDevice> devices)
+        {
+            var found = new List<MtpDevice>();
+            var complete = true;
             try
             {
                 foreach (var device in MediaDevice.GetDevices())
                 {
                     try
                     {
-                        devices.Add(new MtpDevice(device.DeviceId, DisplayName(device)));
+                        found.Add(new MtpDevice(device.DeviceId, DisplayName(device)));
+                    }
+                    catch (Exception ex)
+                    {
+                        // One unreadable device mustn't hide the others.
+                        complete = false;
+                        logger.LogDebug(ex, "Could not read a portable device's identity.");
                     }
                     finally
                     {
@@ -31,10 +44,12 @@ namespace BackupService.Connections.Usb
             }
             catch (Exception ex)
             {
+                complete = false;
                 logger.LogDebug(ex, "Could not enumerate MTP devices.");
             }
 
-            return devices;
+            devices = found;
+            return complete;
         }
 
         public bool IsConnected(string serial) =>
@@ -122,17 +137,25 @@ namespace BackupService.Connections.Usb
             return match;
         }
 
+        // Only for display, so a device too busy to report a name is still listed (by its id).
         private static string DisplayName(MediaDevice device)
         {
-            if (!string.IsNullOrWhiteSpace(device.FriendlyName))
+            try
             {
-                return device.FriendlyName;
+                if (!string.IsNullOrWhiteSpace(device.FriendlyName))
+                {
+                    return device.FriendlyName;
+                }
+                if (!string.IsNullOrWhiteSpace(device.Description))
+                {
+                    return device.Description;
+                }
+                return string.IsNullOrWhiteSpace(device.Manufacturer) ? "Portable device" : device.Manufacturer;
             }
-            if (!string.IsNullOrWhiteSpace(device.Description))
+            catch (Exception)
             {
-                return device.Description;
+                return "Portable device";
             }
-            return string.IsNullOrWhiteSpace(device.Manufacturer) ? "Portable device" : device.Manufacturer;
         }
     }
 }

@@ -364,6 +364,7 @@ namespace BackupService
                 services.AddSingleton<Connections.Usb.IUsbDeviceInspector, Connections.Usb.WindowsUsbDeviceInspector>();
                 services.AddSingleton<Connections.Usb.IMtpDeviceInspector, Connections.Usb.WindowsMtpDeviceInspector>();
                 services.AddSingleton<Connections.Usb.IUsbEjector, Connections.Usb.WindowsUsbEjector>();
+                services.AddSingleton<Scheduling.Usb.UsbTriggeredRunner>();
                 services.AddSingleton<Scheduling.Usb.UsbDeviceWatcherService>();
                 services.AddHostedService(sp => sp.GetRequiredService<Scheduling.Usb.UsbDeviceWatcherService>());
 #pragma warning restore CA1416

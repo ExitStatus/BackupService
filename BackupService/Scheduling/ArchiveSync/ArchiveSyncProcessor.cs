@@ -37,8 +37,9 @@ namespace BackupService.Scheduling
             {
                 var target = new Target(targetEndpoint.FileSystem, targetEndpoint.BasePath);
 
-                // 1. Resolve the source to a local directory to zip — directly when local, or by staging a
-                //    remote source to a local temp folder first (CreateZipFromDirectory reads local only).
+                // 1. Resolve the source to a local directory to zip — directly when it's local (a local folder, or a
+                //    connection that resolves to the local filesystem, like a mass-storage USB drive), or by staging
+                //    a remote source to a local temp folder first (CreateZipFromDirectory reads local only).
                 string sourceDir;
                 string? stagingDir = null;
                 try
@@ -55,14 +56,32 @@ namespace BackupService.Scheduling
                     }
                     else
                     {
-                        stagingDir = await StageRemoteSourceAsync(item, sourceConnectionId, log, result, cancellationToken);
-                        if (stagingDir is null)
+                        var endpoint = await endpointFactory.ResolveAsync(sourceConnectionId, item.SourceFolder, cancellationToken);
+                        try
                         {
-                            result.Errors++;
-                            await log.ErrorAsync($"Remote source folder '{item.SourceFolder}' could not be staged.");
-                            return result;
+                            if (!endpoint.FileSystem.DirectoryExists(endpoint.BasePath))
+                            {
+                                result.Errors++;
+                                await log.ErrorAsync($"Remote source folder '{item.SourceFolder}' could not be staged.");
+                                return result;
+                            }
+
+                            if (ReferenceEquals(endpoint.FileSystem, fileSystem))
+                            {
+                                // Already a plain local path (e.g. a USB drive's mount point): zip it where it is
+                                // rather than copying the whole card to the temp folder first.
+                                sourceDir = endpoint.BasePath;
+                            }
+                            else
+                            {
+                                stagingDir = await StageRemoteSourceAsync(item, endpoint, log, result, cancellationToken);
+                                sourceDir = stagingDir;
+                            }
                         }
-                        sourceDir = stagingDir;
+                        finally
+                        {
+                            endpoint.Session.Dispose();
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -120,7 +139,7 @@ namespace BackupService.Scheduling
             string? fingerprint = null;
             if (item.OnlyCopyOnChange)
             {
-                fingerprint = ComputeSourceFingerprint(sourceDir, item.IncludeSubFolders, filter);
+                fingerprint = ComputeSourceFingerprint(sourceDir, item.IncludeSubFolders, filter, cancellationToken);
                 var newest = ListArchives(item, target, gfs)
                     .OrderByDescending(a => a.Timestamp)
                     .FirstOrDefault();
@@ -158,62 +177,89 @@ namespace BackupService.Scheduling
             var totalFiles = CountInScopeFiles(sourceDir, item.IncludeSubFolders, filter);
             var zipped = 0;
 
-            string tempZip;
-            ZipBuildResult build;
+            // The archive is built in a local temp folder, which is removed afterwards whatever happens — a build
+            // that fails part-way (e.g. the temp disk filling) must not leave a multi-GB partial zip behind.
+            string? tempZip = null;
+            string destPath;
+            bool copied;
             try
             {
-                tempZip = fileSystem.GetTempFilePath(finalName);
-                build = fileSystem.CreateZipFromDirectory(
-                    sourceDir, tempZip, item.IncludeSubFolders,
-                    filter.IsEmpty ? null : filter.IsRelativePathInScope,
-                    fingerprint,
-                    item.CompressionLevel.ToCompressionLevel(),
-                    password,
-                    useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256,
-                    onEntryProcessed: entry =>
-                    {
-                        zipped++;
-                        // First 75% of the item's progress = files added to the zip.
-                        progress?.Report(totalFiles > 0 ? ZipPhaseShare * zipped / totalFiles : ZipPhaseShare);
-                        onCurrentFile?.Invoke(entry); // the file just added to the archive
-                    });
-            }
-            catch (Exception ex)
-            {
-                result.Errors++;
-                await log.ErrorAsync($"Failed to create archive of '{item.SourceFolder}'", ex);
-                return;
-            }
+                ZipBuildResult build;
+                try
+                {
+                    tempZip = fileSystem.GetTempFilePath(finalName);
+                    build = fileSystem.CreateZipFromDirectory(
+                        sourceDir, tempZip, item.IncludeSubFolders,
+                        filter.IsEmpty ? null : filter.IsRelativePathInScope,
+                        fingerprint,
+                        item.CompressionLevel.ToCompressionLevel(),
+                        password,
+                        useAesEncryption: item.EncryptionMethod == ArchiveEncryptionMethod.Aes256,
+                        onEntryProcessed: entry =>
+                        {
+                            // Building a big archive takes a while: honour Stop between files.
+                            cancellationToken.ThrowIfCancellationRequested();
+                            zipped++;
+                            // First 75% of the item's progress = files added to the zip.
+                            progress?.Report(totalFiles > 0 ? ZipPhaseShare * zipped / totalFiles : ZipPhaseShare);
+                            onCurrentFile?.Invoke(entry); // the file just added to the archive
+                        });
+                }
+                catch (OperationCanceledException)
+                {
+                    throw; // Stop — the run unwinds as cancelled, not as a failed archive
+                }
+                catch (Exception ex)
+                {
+                    result.Errors++;
+                    await log.ErrorAsync($"Failed to create archive of '{item.SourceFolder}'", ex);
+                    return;
+                }
 
-            if (build.Added.Count > 0)
-            {
-                // Verbose, but as a SINGLE Debug detail row (the file list won't change mid-zip), with one
-                // file per CRLF-separated line — rather than thousands of rows. Counts as Info for the header.
-                var lines = new List<string>(build.Added.Count + 1) { $"Archived {build.Added.Count} file(s):" };
-                lines.AddRange(build.Added);
-                await log.AppendAsync(OperationLogLevel.Debug, string.Join("\r\n", lines));
-            }
+                if (build.Added.Count > 0)
+                {
+                    // Verbose, but as a SINGLE Debug detail row (the file list won't change mid-zip), with one
+                    // file per CRLF-separated line — rather than thousands of rows. Counts as Info for the header.
+                    var lines = new List<string>(build.Added.Count + 1) { $"Archived {build.Added.Count} file(s):" };
+                    lines.AddRange(build.Added);
+                    await log.AppendAsync(OperationLogLevel.Debug, string.Join("\r\n", lines));
+                }
 
-            // Files that couldn't be read (locked/in use) are skipped, not fatal — log each as a Warning
-            // and count it as a warning so the run summary reports "completed with N warning(s)" while
-            // still archiving the rest.
-            foreach (var skip in build.Skipped)
-            {
-                result.Warnings++;
-                await log.AppendAsync(OperationLogLevel.Warning,
-                    $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
-            }
+                // Files that couldn't be read (locked/in use) are skipped, not fatal — log each as a Warning
+                // and count it as a warning so the run summary reports "completed with N warning(s)" while
+                // still archiving the rest.
+                foreach (var skip in build.Skipped)
+                {
+                    result.Warnings++;
+                    await log.AppendAsync(OperationLogLevel.Warning,
+                        $"Skipped file '{skip.EntryName}' (in use or unreadable): {skip.Reason}");
+                }
 
-            // 3. Crash-safe copy into the target folder (local, or over the connection).
-            if (!await EnsureDirectoryAsync(target.Fs, target.Base, log, result))
-            {
-                TryDelete(fileSystem, tempZip);
-                return;
-            }
+                // 3. Crash-safe copy into the target folder (local, or over the connection).
+                if (!await EnsureDirectoryAsync(target.Fs, target.Base, log, result))
+                {
+                    return;
+                }
 
-            var destPath = Path.Combine(target.Base, finalName);
-            var copied = await CopyThroughTempAsync(tempZip, destPath, target, log, result, progress, cancellationToken);
-            TryDelete(fileSystem, tempZip); // best-effort cleanup of the local temp build, copied or not
+                destPath = Path.Combine(target.Base, finalName);
+                if (target.Fs.FileExists(destPath))
+                {
+                    // Never replace an archive: two runs can produce the same second-precision name — in the hour
+                    // repeated when the clocks go back, or two items sharing a file name and target folder.
+                    result.Errors++;
+                    await log.ErrorAsync($"An archive named '{finalName}' already exists in '{item.TargetFolder}', so this one wasn't saved (it would have replaced it).");
+                    return;
+                }
+
+                copied = await CopyThroughTempAsync(tempZip, destPath, target, log, result, progress, cancellationToken);
+            }
+            finally
+            {
+                if (tempZip is not null)
+                {
+                    DeleteLocalTemp(tempZip);
+                }
+            }
 
             if (!copied)
             {
@@ -223,21 +269,19 @@ namespace BackupService.Scheduling
             result.Copied++;
             await log.AppendAsync($"Created archive '{destPath}'");
 
-            // 4. Apply retention. A failure here is logged but doesn't undo the archive just made.
+            // 4. Apply retention. A failure here is logged but doesn't undo the archive just made. It isn't
+            // cancellable: once the archive exists, a Stop must not leave it uncounted (and the GFS run counter not
+            // advanced, skewing its promotion cadence) — and pruning a folder listing is quick.
             try
             {
                 if (gfs)
                 {
-                    await ApplyGfsRetentionAsync(item, target, runIndex, log, result, cancellationToken);
+                    await ApplyGfsRetentionAsync(item, target, runIndex, log, result, CancellationToken.None);
                 }
                 else
                 {
-                    await ApplyKeepLastNAsync(item, target, log, result, cancellationToken);
+                    await ApplyKeepLastNAsync(item, target, log, result, CancellationToken.None);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
             }
             catch (Exception ex)
             {
@@ -248,59 +292,48 @@ namespace BackupService.Scheduling
 
         /// <summary>
         /// Recursively copies a remote source tree into a fresh local temp folder so it can be zipped.
-        /// Returns the staging folder, or null if the remote source doesn't exist. A file that can't be read
-        /// (locked, or a Google Docs file Drive can't download) is left out and counted as a warning, rather
-        /// than failing the whole archive.
+        /// Returns the staging folder. Only what the include/exclude rules put in the archive is copied (an excluded
+        /// sub-folder isn't even listed). A file that can't be read (locked, or a Google Docs file Drive can't
+        /// download) is left out and counted as a warning, rather than failing the whole archive.
         /// </summary>
-        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, int? sourceConnectionId, IOperationLogger log, BackupResult result, CancellationToken cancellationToken)
+        private async Task<string> StageRemoteSourceAsync(ArchiveSyncItem item, EndpointFileSystem endpoint, IOperationLogger log, BackupResult result, CancellationToken cancellationToken)
         {
-            var endpoint = await endpointFactory.ResolveAsync(sourceConnectionId, item.SourceFolder, cancellationToken);
+            var filter = new BackupFilter(item.Filters.Select(f => new FilterRule(f.Direction, f.Kind, f.Pattern)));
+
+            // A unique local temp directory (GetTempFilePath creates one and hands back a path in it).
+            var stagingDir = Path.GetDirectoryName(fileSystem.GetTempFilePath("stage"))!;
+            await log.AppendAsync($"Staging remote source '{item.SourceFolder}' locally before archiving.");
+            var problems = new List<(string File, string Reason, bool IsError)>();
             try
             {
-                if (!endpoint.FileSystem.DirectoryExists(endpoint.BasePath))
-                {
-                    return null;
-                }
-
-                // A unique local temp directory (GetTempFilePath creates one and hands back a path in it).
-                var stagingDir = Path.GetDirectoryName(fileSystem.GetTempFilePath("stage"))!;
-                await log.AppendAsync($"Staging remote source '{item.SourceFolder}' locally before archiving.");
-                var problems = new List<(string File, string Reason, bool IsError)>();
-                try
-                {
-                    StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, problems, cancellationToken);
-                }
-                catch
-                {
-                    TryDeleteDirectory(stagingDir); // the caller only cleans up a staging folder it was handed
-                    throw;
-                }
-
-                foreach (var (file, reason, isError) in problems)
-                {
-                    if (isError)
-                    {
-                        result.Errors++;
-                        await log.ErrorAsync($"Failed to stage '{file}' (left out of the archive): {reason}");
-                    }
-                    else
-                    {
-                        result.Warnings++;
-                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{file}' — {reason}");
-                    }
-                }
-                return stagingDir;
+                StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, [], item.IncludeSubFolders, filter, problems, cancellationToken);
             }
-            finally
+            catch
             {
-                endpoint.Session.Dispose();
+                TryDeleteDirectory(stagingDir); // the caller only cleans up a staging folder it was handed
+                throw;
             }
+
+            foreach (var (file, reason, isError) in problems)
+            {
+                if (isError)
+                {
+                    result.Errors++;
+                    await log.ErrorAsync($"Failed to stage '{file}' (left out of the archive): {reason}");
+                }
+                else
+                {
+                    result.Warnings++;
+                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{file}' — {reason}");
+                }
+            }
+            return stagingDir;
         }
 
         // Copies a remote tree into the local staging folder. A file that can't be staged is left out of the archive
         // rather than failing it: a skippable read (locked, a Google Docs file) as a warning, anything else (e.g. an
         // MTP transfer that keeps coming back short) as an error. Stop and a vanished device still abort the run.
-        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, List<(string File, string Reason, bool IsError)> problems, CancellationToken ct)
+        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, IReadOnlyList<string> ancestors, bool includeSubFolders, BackupFilter filter, List<(string File, string Reason, bool IsError)> problems, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             fileSystem.CreateDirectory(localDir);
@@ -308,7 +341,12 @@ namespace BackupService.Scheduling
             foreach (var file in sourceFs.GetFiles(sourceDir))
             {
                 ct.ThrowIfCancellationRequested();
-                var localPath = Path.Combine(localDir, Path.GetFileName(file)!);
+                var name = PathHelper.GetLeafName(file);
+                if (!filter.IsFileInScope(name, ancestors))
+                {
+                    continue; // the archive leaves it out anyway — don't fetch it
+                }
+                var localPath = Path.Combine(localDir, name);
                 try
                 {
                     using var input = sourceFs.OpenRead(file, ct);
@@ -328,7 +366,12 @@ namespace BackupService.Scheduling
             {
                 foreach (var sub in sourceFs.GetDirectories(sourceDir))
                 {
-                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, problems, ct);
+                    var name = PathHelper.GetLeafName(sub);
+                    if (filter.ExcludesFolder(name) || filter.ExcludesPath([.. ancestors, name]))
+                    {
+                        continue; // an excluded sub-tree is never archived — don't download it
+                    }
+                    StageTree(sourceFs, sub, Path.Combine(localDir, name), [.. ancestors, name], includeSubFolders, filter, problems, ct);
                 }
             }
         }
@@ -342,7 +385,7 @@ namespace BackupService.Scheduling
         /// (same recursion and include/exclude filtering). Runs against the local <paramref name="sourceDir"/>
         /// (a remote source is already staged locally by this point).
         /// </summary>
-        private string ComputeSourceFingerprint(string sourceDir, bool includeSubFolders, BackupFilter filter)
+        private string ComputeSourceFingerprint(string sourceDir, bool includeSubFolders, BackupFilter filter, CancellationToken ct)
         {
             var entries = new List<(string Entry, string Path)>();
             GatherFiles(sourceDir, sourceDir, includeSubFolders, entries);
@@ -356,6 +399,7 @@ namespace BackupService.Scheduling
                         .Where(e => filter.IsEmpty || filter.IsRelativePathInScope(e.Entry))
                         .OrderBy(e => e.Entry, StringComparer.Ordinal))
                     {
+                        ct.ThrowIfCancellationRequested(); // hashing a big source takes a while — Stop between files
                         // A file that can't be read here (e.g. a OneDrive cloud-only placeholder that can't
                         // hydrate from a session-0 service) is omitted from the manifest rather than aborting
                         // the whole archive — the zip build skips the same file and logs it as a warning, so
@@ -375,7 +419,7 @@ namespace BackupService.Scheduling
             }
             finally
             {
-                TryDelete(fileSystem, manifestPath);
+                DeleteLocalTemp(manifestPath);
             }
         }
 
@@ -651,12 +695,28 @@ namespace BackupService.Scheduling
                 }
                 return true;
             }
+            catch (OperationCanceledException)
+            {
+                TryDelete(target.Fs, tempPath);
+                throw; // Stop — not a failed copy
+            }
             catch (Exception ex)
             {
                 TryDelete(target.Fs, tempPath);
                 result.Errors++;
                 await log.ErrorAsync($"Failed to copy '{localZip}' -> '{dest}'", ex);
                 return false;
+            }
+        }
+
+        // Removes a file made with GetTempFilePath AND the unique folder it was created in (one per call), so a
+        // run doesn't leave empty folders behind in the temp directory.
+        private void DeleteLocalTemp(string tempFile)
+        {
+            TryDelete(fileSystem, tempFile);
+            if (Path.GetDirectoryName(tempFile) is { Length: > 0 } folder)
+            {
+                TryDeleteDirectory(folder);
             }
         }
 

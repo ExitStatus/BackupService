@@ -7,6 +7,12 @@ namespace BackupService.Connections.Usb
     {
         public IReadOnlyList<MtpDevice> EnumerateMtpDevices() => [];
 
+        public bool TryEnumerateMtpDevices(out IReadOnlyList<MtpDevice> devices)
+        {
+            devices = [];
+            return true;
+        }
+
         public bool IsConnected(string serial) => false;
 
         public IReadOnlyList<string> ListDirectories(string serial, string path) => [];

@@ -86,8 +86,27 @@ namespace BackupService.UnitTests.Profiles
             var service = new ProfileStatusService();
             service.TryBeginRun(5).Should().BeTrue();
 
-            service.Set(5, ProfileStatus.Idle);
+            service.EndRun(5, ProfileStatus.Idle);
 
+            service.TryBeginRun(5).Should().BeTrue();
+        }
+
+        [Test]
+        public void ShowingErrorMidRun_DoesNotEndTheRun()
+        {
+            // The displayed status and the single-run guard are separate: a failing run shows Error before the
+            // runner has finished with it, and must still block a second run until it ends.
+            var service = new ProfileStatusService();
+            service.TryBeginRun(5);
+
+            service.Set(5, ProfileStatus.Error);
+
+            service.IsRunning(5).Should().BeTrue();
+            service.TryBeginRun(5).Should().BeFalse();
+            service.Get(5).Should().Be(ProfileStatus.Error);
+
+            service.EndRun(5, ProfileStatus.Error);
+            service.IsRunning(5).Should().BeFalse();
             service.TryBeginRun(5).Should().BeTrue();
         }
 
