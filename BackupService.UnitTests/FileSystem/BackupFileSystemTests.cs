@@ -79,6 +79,45 @@ namespace BackupService.UnitTests.FileSystem
         }
 
         [Test]
+        public void GetFileStat_ReturnsWriteTimeAndSizeTogether()
+        {
+            var path = Path2("file.txt");
+            File.WriteAllText(path, "12345");
+            var stamp = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, stamp);
+
+            var stat = _fs.GetFileStat(path);
+
+            stat.LastWriteTimeUtc.Should().Be(stamp);
+            stat.Size.Should().Be(5);
+        }
+
+        [Test]
+        public void FileSymlink_ReportsTheLinkTargetsSize_MatchingWhatOpenReadReturns()
+        {
+            // FileInfo.Length on a file symlink is the link's own size (0), but OpenRead follows the link. The size
+            // must match what a copy reads, or the sync engine would see every copy of a symlink as mismatched.
+            var target = Path2("target.bin");
+            File.WriteAllBytes(target, new byte[1000]);
+            var link = Path2("link.bin");
+            try
+            {
+                File.CreateSymbolicLink(link, target);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                Assert.Ignore($"Creating a symbolic link isn't permitted here (needs Developer Mode or elevation): {ex.Message}");
+            }
+
+            using (var stream = _fs.OpenRead(link))
+            {
+                stream.Length.Should().Be(1000);
+            }
+            _fs.GetFileSize(link).Should().Be(1000);
+            _fs.GetFileStat(link).Size.Should().Be(1000);
+        }
+
+        [Test]
         public void GetFiles_And_GetDirectories_ReturnTopLevelEntries()
         {
             File.WriteAllText(Path2("one.txt"), "1");

@@ -26,6 +26,26 @@ namespace BackupService.UnitTests.FileSystem
                 .Should().BeTrue();
 
         [Test]
+        public void FileNotDownloadable_IsSkippable_WithItsOwnReason()
+        {
+            var skippable = FileLock.IsSkippableReadError(
+                new FileNotDownloadableException("not downloadable", "it's a Google Docs file"), out var reason);
+
+            skippable.Should().BeTrue();
+            reason.Should().Be("it's a Google Docs file");
+        }
+
+        [Test]
+        public void FileNotDownloadable_WrappedInInnerException_IsSkippable()
+        {
+            var skippable = FileLock.IsSkippableReadError(
+                new Exception("wrapper", new FileNotDownloadableException("not downloadable", "it's a Google Sheets file")), out var reason);
+
+            skippable.Should().BeTrue();
+            reason.Should().Be("it's a Google Sheets file");
+        }
+
+        [Test]
         public void OtherIOException_IsNotLockViolation() =>
             FileLock.IsLockViolation(new IOException("disk full")).Should().BeFalse();
 

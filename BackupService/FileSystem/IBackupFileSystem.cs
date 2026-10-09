@@ -31,6 +31,12 @@ namespace BackupService.FileSystem
         /// <summary>The size of <paramref name="path"/> in bytes.</summary>
         long GetFileSize(string path);
 
+        /// <summary>
+        /// The last-write-time and size of <paramref name="path"/> in one lookup. Remote filesystems override this so
+        /// the sync engine's per-file compare is a single round trip; the default makes the two separate calls.
+        /// </summary>
+        FileStat GetFileStat(string path) => new(GetLastWriteTimeUtc(path), GetFileSize(path));
+
         void SetLastWriteTimeUtc(string path, DateTime value);
 
         /// <summary>
@@ -38,6 +44,13 @@ namespace BackupService.FileSystem
         /// filesystem, write to another) — see the synchroniser. The caller disposes the stream.
         /// </summary>
         Stream OpenRead(string path);
+
+        /// <summary>
+        /// Cancellable <see cref="OpenRead(string)"/>. Filesystems whose open does the whole transfer up front (MTP and
+        /// Google Drive download the file to a local temp) override this so a Stop interrupts that transfer; the
+        /// default ignores the token (the caller's copy loop observes it instead).
+        /// </summary>
+        Stream OpenRead(string path, CancellationToken cancellationToken) => OpenRead(path);
 
         /// <summary>
         /// Creates (or truncates) <paramref name="path"/> and opens it for writing. The caller disposes

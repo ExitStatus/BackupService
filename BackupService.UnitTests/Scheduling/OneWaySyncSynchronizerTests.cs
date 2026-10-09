@@ -109,9 +109,68 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
-        public async Task EqualTimestampButDifferentSize_IsRepaired()
+        public async Task SourceShrinksDuringCopy_IsSkippedAsWarning_NotCommittedOrAnError()
         {
-            // A previously truncated copy carries the source's timestamp; the size mismatch must trigger a re-copy.
+            // The source is truncated while it is being read (e.g. an app saving a smaller version). The short read
+            // must not be committed, but it isn't a failed transfer either — skip it as a warning, like a locked file.
+            _fs.AddFile(@"C:\src\log.txt", T1, "full-content");
+            _fs.OpenReadOverride = path =>
+            {
+                _fs.SetContent(path, "full");
+                return new MemoryStream(Encoding.UTF8.GetBytes("full"), writable: false);
+            };
+
+            var result = await Run(Pair());
+
+            _fs.FileExists(@"C:\dst\log.txt").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Copied.Should().Be(0);
+            result.Errors.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("log.txt") && m.Contains("changed while it was being copied"));
+        }
+
+        [Test]
+        public async Task SourceFileThatCantBeDownloaded_IsSkippedAsWarning_AndOthersStillCopy()
+        {
+            // A Google Docs file in a Drive source has no downloadable content: skip it with a warning naming the
+            // reason, not an error — and never leave an empty copy that looks backed up.
+            _fs.AddFile(@"C:\src\Report", T1, "");
+            _fs.AddFile(@"C:\src\photo.jpg", T1, "jpeg");
+            _fs.OpenReadOverride = p => p.EndsWith("Report")
+                ? throw new FileNotDownloadableException("not downloadable", "it's a Google Docs file")
+                : new MemoryStream(Encoding.UTF8.GetBytes("jpeg"), writable: false);
+
+            var result = await Run(Pair());
+
+            _fs.FileExists(@"C:\dst\Report").Should().BeFalse();
+            _fs.ContentOf(@"C:\dst\photo.jpg").Should().Be("jpeg");
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Copied.Should().Be(1);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("Report") && m.Contains("Google Docs"));
+        }
+
+        [Test]
+        public async Task DestinationNewer_UpdateOnlyIfContentMatches_SourceCantBeRead_IsAWarningNotAnError()
+        {
+            _fs.AddFile(@"C:\src\Report", T1, "");
+            _fs.AddFile(@"C:\dst\Report", T2, "");
+            _fs.OpenReadOverride = _ => throw new FileNotDownloadableException("not downloadable", "it's a Google Docs file");
+
+            var result = await Run(Pair(overwrite: OverwriteBehaviour.UpdateOnlyIfContentMatches));
+
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _fs.TimeOf(@"C:\dst\Report").Should().Be(T2); // untouched
+        }
+
+        [Test]
+        public async Task EqualTimestamp_DestinationShorter_IsRepaired_AndCountedAsAWarning()
+        {
+            // A previously truncated copy carries the source's timestamp; the shorter destination must be re-copied,
+            // and the warning it logs must be counted so the run summary/outcome agree with the log's level.
             _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
             _fs.AddFile(@"C:\dst\photo.arw", T1, "full");
 
@@ -119,7 +178,129 @@ namespace BackupService.UnitTests.Scheduling
 
             _fs.ContentOf(@"C:\dst\photo.arw").Should().Be("full-content");
             result.Updated.Should().Be(1);
-            _log.Messages.Should().Contain(m => m.Contains("Repaired"));
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("Repaired") && m.Contains("4 bytes") && m.Contains("12 bytes"));
+        }
+
+        [Test]
+        public async Task EqualTimestamp_DestinationLarger_IsNotRepaired()
+        {
+            // A destination LARGER than its source isn't a truncated copy (e.g. a tool rewrote the source smaller but
+            // kept its timestamp), so it's left alone rather than "repaired" with a misleading warning.
+            _fs.AddFile(@"C:\src\a.txt", T1, "short");
+            _fs.AddFile(@"C:\dst\a.txt", T1, "much longer content");
+
+            var result = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("much longer content");
+            result.Updated.Should().Be(0);
+            result.Warnings.Should().Be(0);
+            _log.Messages.Should().NotContain(m => m.Contains("a.txt"));
+        }
+
+        [TestCase(0L)]
+        [TestCase(-1L)] // an MTP size of ulong.MaxValue, cast to long
+        public async Task SourceReportingNoUsableSize_IsCopiedOnce_ThenLeftAlone(long reportedSize)
+        {
+            // An MTP device can report 0 (or an overflowing sentinel) for a real, non-empty file. There's nothing to
+            // verify against, so the copy is accepted — and later runs must not see the real-sized copy as a size
+            // mismatch and re-copy it forever.
+            _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
+            _fs.ReportedSizeOverride = p => p.StartsWith(Source, StringComparison.OrdinalIgnoreCase) ? reportedSize : null;
+
+            var first = await Run(Pair());
+            var second = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\photo.arw").Should().Be("full-content");
+            first.Copied.Should().Be(1);
+            first.Errors.Should().Be(0);
+            second.Copied.Should().Be(0);
+            second.Updated.Should().Be(0);
+            second.Warnings.Should().Be(0);
+            _log.Messages.Should().NotContain(m => m.Contains("Repaired"));
+        }
+
+        [TestCase(OverwriteBehaviour.DoNotOverwriteNewer, false)]
+        [TestCase(OverwriteBehaviour.UpdateOnlyIfContentMatches, false)]
+        [TestCase(OverwriteBehaviour.AlwaysOverwrite, true)]
+        public async Task EqualTimestamp_DestinationShorterButMarginallyNewer_RespectsOverwriteBehaviour(OverwriteBehaviour behaviour, bool repaired)
+        {
+            // Within the 2s tolerance the destination can still be NEWER — possibly a genuine edit. Replacing a newer
+            // destination is the overwrite behaviour's call, so only AlwaysOverwrite may repair it.
+            _fs.AddFile(@"C:\src\a.txt", T1, "source-content");
+            _fs.AddFile(@"C:\dst\a.txt", T1.AddSeconds(1.5), "edited");
+
+            var result = await Run(Pair(overwrite: behaviour));
+
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be(repaired ? "source-content" : "edited");
+            result.Updated.Should().Be(repaired ? 1 : 0);
+        }
+
+        [Test]
+        public async Task EqualTimestamp_DestinationShorterButOlderWithinTolerance_IsRepairedEvenWhenNotOverwritingNewer()
+        {
+            // The destination isn't newer, so there's nothing for DoNotOverwriteNewer to protect.
+            _fs.AddFile(@"C:\src\a.txt", T1, "source-content");
+            _fs.AddFile(@"C:\dst\a.txt", T1.AddSeconds(-1), "short");
+
+            var result = await Run(Pair(overwrite: OverwriteBehaviour.DoNotOverwriteNewer));
+
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("source-content");
+            result.Updated.Should().Be(1);
+        }
+
+        [Test]
+        public async Task UnchangedFile_ReadsEachSideMetadataInOneLookup()
+        {
+            // The size check must not add round trips: one combined stat per side, no separate time/size reads.
+            _fs.AddFile(@"C:\src\a.txt", T1, "same");
+            _fs.AddFile(@"C:\dst\a.txt", T1, "same");
+
+            await Run(Pair());
+
+            _fs.GetFileStatCalls.Should().Be(2);
+            _fs.GetLastWriteTimeCalls.Should().Be(0);
+            _fs.GetFileSizePaths.Should().BeEmpty();
+        }
+
+        [Test]
+        public async Task CopiedFile_ReadsSourceMetadataOnce_AndNeverStatsTheTemp()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+
+            await Run(Pair());
+
+            _fs.GetFileStatCalls.Should().Be(1);
+            _fs.GetLastWriteTimeCalls.Should().Be(0);
+            _fs.GetFileSizePaths.Should().BeEmpty();
+        }
+
+        [Test]
+        public async Task TargetSizeUnreadable_DoesNotDiscardACompletedCopy()
+        {
+            // A failed size query on the target must never throw away a fully written copy.
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            _fs.GetFileSizeShouldFail = p => p.StartsWith(Target, StringComparison.OrdinalIgnoreCase);
+
+            var result = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("hello");
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+            result.BytesCopied.Should().Be(5);
+        }
+
+        [Test]
+        public async Task Copy_PassesTheRunTokenToOpenRead()
+        {
+            // MTP/Drive download the whole file inside OpenRead, so the token must reach it for Stop to interrupt.
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            using var cts = new CancellationTokenSource();
+
+            await _sut.SyncAsync(Pair(), null, null, _log, cts.Token);
+
+            _fs.LastOpenReadToken.Should().Be(cts.Token);
         }
 
         [Test]
@@ -326,6 +507,73 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(@"C:\dst\gone\stale.txt").Should().BeFalse();
             _fs.DirectoryExists(@"C:\dst\gone").Should().BeFalse();
             _log.Messages.Should().Contain(m => m.Contains("Deleted folder") && m.Contains("gone"));
+        }
+
+        [Test]
+        public async Task AllowDeletions_ProtectedOrphan_IsKeptAsWarning_NotAnError()
+        {
+            // A Google Docs file in a Drive target was never written by a backup — it's the user's own, so the
+            // target refuses to delete it and the mirror keeps it, as a warning.
+            _fs.AddFile(@"C:\dst\Notes", T1, "");
+            _fs.Protected.Add(@"C:\dst\Notes");
+
+            var result = await Run(Pair(allowDeletions: true));
+
+            _fs.FileExists(@"C:\dst\Notes").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("Kept") && m.Contains("Notes") && m.Contains("Google Docs"));
+        }
+
+        [Test]
+        public async Task AllowDeletions_OrphanFolderHoldingAProtectedFile_KeepsTheFileAndTheFolder()
+        {
+            // On Drive a folder delete takes everything inside with it, so a folder that still holds something the
+            // engine kept must be left in place — without an extra "failed to delete folder" error.
+            _fs.AddFile(@"C:\dst\gone\stale.txt", T1, "s");
+            _fs.AddFile(@"C:\dst\gone\Notes", T1, "");
+            _fs.Protected.Add(@"C:\dst\gone\Notes");
+
+            var result = await Run(Pair(allowDeletions: true, includeSubFolders: true));
+
+            _fs.FileExists(@"C:\dst\gone\stale.txt").Should().BeFalse();
+            _fs.FileExists(@"C:\dst\gone\Notes").Should().BeTrue();
+            _fs.DirectoryExists(@"C:\dst\gone").Should().BeTrue();
+            result.Deleted.Should().Be(1);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
+        public async Task OrphanFolderWithAFileThatCantBeDeleted_IsLeftInPlace_WithASingleError()
+        {
+            // The file's failure is the one error; the folder isn't then also reported as "not empty".
+            _fs.AddFile(@"C:\dst\gone\stuck.txt", T1, "s");
+            _fs.DeleteShouldFail = p => p.EndsWith("stuck.txt");
+
+            var result = await Run(Pair(allowDeletions: true, includeSubFolders: true));
+
+            _fs.DirectoryExists(@"C:\dst\gone").Should().BeTrue();
+            result.Errors.Should().Be(1);
+            _log.Errors.Should().ContainSingle(m => m.Contains("stuck.txt"));
+        }
+
+        [Test]
+        public async Task SourceNewer_ProtectedDestination_IsKeptAsWarning_AndTheTempRemoved()
+        {
+            _fs.AddFile(@"C:\src\Notes", T2, "binary");
+            _fs.AddFile(@"C:\dst\Notes", T1, "");
+            _fs.Protected.Add(@"C:\dst\Notes");
+
+            var result = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\Notes").Should().Be(""); // not replaced
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+            result.Updated.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("Kept") && m.Contains("Notes"));
         }
 
         [Test]
@@ -634,6 +882,9 @@ namespace BackupService.UnitTests.Scheduling
             public IReadOnlyList<string> Errors =>
                 _entries.Where(e => e.Level == OperationLogLevel.Error).Select(e => e.Message).ToList();
 
+            public IReadOnlyList<string> Warnings =>
+                _entries.Where(e => e.Level == OperationLogLevel.Warning).Select(e => e.Message).ToList();
+
             public Task AppendAsync(params string[] messages)
             {
                 foreach (var m in messages)
@@ -673,7 +924,15 @@ namespace BackupService.UnitTests.Scheduling
             public Func<string, bool>? CopyLockedFail { get; set; }   // arg: destination — throws a sharing violation
             public Func<string, bool>? MoveShouldFail { get; set; }   // arg: destination
             public Func<string, bool>? GetFilesShouldFail { get; set; } // arg: directory
+            public Func<string, bool>? GetFileSizeShouldFail { get; set; } // arg: path
             public Func<string, Stream>? OpenReadOverride { get; set; } // arg: path — supply a custom read stream
+            public Func<string, long?>? ReportedSizeOverride { get; set; } // arg: path — the size the fs reports (null = real)
+
+            // Call accounting, for asserting how many metadata lookups the engine makes.
+            public int GetFileStatCalls { get; private set; }
+            public int GetLastWriteTimeCalls { get; private set; }
+            public List<string> GetFileSizePaths { get; } = [];
+            public CancellationToken? LastOpenReadToken { get; private set; }
 
             public IReadOnlyList<string> AllFiles => _files.Keys.Select(FakeFsPath.Norm).ToList();
 
@@ -692,6 +951,9 @@ namespace BackupService.UnitTests.Scheduling
                 AddDirectory(FakeFsPath.Parent(path));
                 _files[path] = new Entry(time, content);
             }
+
+            // Replaces a file's content, keeping its timestamp (e.g. a source truncated in place mid-copy).
+            public void SetContent(string path, string content) => _files[path] = _files[path] with { Content = content };
 
             public string ContentOf(string path) => _files[path].Content;
 
@@ -742,11 +1004,35 @@ namespace BackupService.UnitTests.Scheduling
                     .Select(FakeFsPath.Norm)
                     .ToList();
 
-            public DateTime GetLastWriteTimeUtc(string path) =>
+            public DateTime GetLastWriteTimeUtc(string path)
+            {
+                GetLastWriteTimeCalls++;
+                return TimeOrThrow(path);
+            }
+
+            public long GetFileSize(string path)
+            {
+                GetFileSizePaths.Add(path);
+                if (GetFileSizeShouldFail?.Invoke(path) == true)
+                {
+                    throw new IOException($"Size unreadable: {path}");
+                }
+                return SizeOrThrow(path);
+            }
+
+            public FileStat GetFileStat(string path)
+            {
+                GetFileStatCalls++;
+                return new FileStat(TimeOrThrow(path), SizeOrThrow(path));
+            }
+
+            private DateTime TimeOrThrow(string path) =>
                 _files.TryGetValue(path, out var e) ? e.Time : throw new FileNotFoundException(path);
 
-            public long GetFileSize(string path) =>
-                _files.TryGetValue(path, out var e) ? e.Content.Length : throw new FileNotFoundException(path);
+            private long SizeOrThrow(string path) =>
+                _files.TryGetValue(path, out var e)
+                    ? ReportedSizeOverride?.Invoke(path) ?? e.Content.Length
+                    : throw new FileNotFoundException(path);
 
             public void SetLastWriteTimeUtc(string path, DateTime value)
             {
@@ -760,6 +1046,12 @@ namespace BackupService.UnitTests.Scheduling
                     throw new ArgumentOutOfRangeException(nameof(value), "Not a valid Win32 FileTime.");
                 }
                 _files[path] = e with { Time = value };
+            }
+
+            public Stream OpenRead(string path, CancellationToken cancellationToken)
+            {
+                LastOpenReadToken = cancellationToken;
+                return OpenRead(path);
             }
 
             public Stream OpenRead(string path)
@@ -846,8 +1138,21 @@ namespace BackupService.UnitTests.Scheduling
                 _files.Remove(source);
             }
 
+            // Files the filesystem refuses to delete or overwrite (e.g. a Google Docs file on Drive).
+            public HashSet<string> Protected { get; } = new(FakeFsPath.Comparer);
+
+            public Func<string, bool>? DeleteShouldFail { get; set; } // arg: path
+
             public void DeleteFile(string path)
             {
+                if (Protected.Contains(path))
+                {
+                    throw new ProtectedFileException($"'{path}' is protected.", "it's a Google Docs file");
+                }
+                if (DeleteShouldFail?.Invoke(path) == true)
+                {
+                    throw new IOException($"Delete failed: {path}");
+                }
                 if (!_files.Remove(path))
                 {
                     throw new FileNotFoundException(path);

@@ -3,9 +3,10 @@ namespace BackupService.FileSystem
     /// <summary>
     /// Classifies whether an exception means a source file simply <em>couldn't be read</em> for a reason
     /// that isn't the backup's fault — a file locked / in use by another process (a Win32 sharing or lock
-    /// violation), or an unavailable cloud file (e.g. a OneDrive files-on-demand placeholder that can't
-    /// hydrate from a session-0 service). The sync engines treat these as a non-fatal **warning** and skip
-    /// the file this run, rather than failing it as an error.
+    /// violation), an unavailable cloud file (e.g. a OneDrive files-on-demand placeholder that can't
+    /// hydrate from a session-0 service), or a file that can't be downloaded at all (a Google Docs file on
+    /// Drive). The sync engines treat these as a non-fatal **warning** and skip the file this run, rather
+    /// than failing it as an error.
     /// </summary>
     public static class FileLock
     {
@@ -71,12 +72,21 @@ namespace BackupService.FileSystem
         }
 
         /// <summary>
-        /// If the failure means the file couldn't be read for a non-fatal reason (locked, or an unavailable
-        /// cloud file), returns true and a human-readable <paramref name="reason"/> for the warning line;
-        /// otherwise false (the caller should treat it as an error).
+        /// If the failure means the file couldn't be read for a non-fatal reason (locked, an unavailable
+        /// cloud file, or a file its filesystem can't download at all — see <see cref="FileNotDownloadableException"/>),
+        /// returns true and a human-readable <paramref name="reason"/> for the warning line; otherwise false (the
+        /// caller should treat it as an error).
         /// </summary>
         public static bool IsSkippableReadError(Exception? exception, out string reason)
         {
+            for (var ex = exception; ex is not null; ex = ex.InnerException)
+            {
+                if (ex is FileNotDownloadableException notDownloadable)
+                {
+                    reason = notDownloadable.Reason;
+                    return true;
+                }
+            }
             if (IsLockViolation(exception))
             {
                 reason = "in use by another process (locked)";

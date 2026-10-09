@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Headers;
 using BackupService.Connections.GoogleDrive;
+using Google.Apis.Download;
 using Google.Apis.Drive.v3;
 using Google.Apis.Upload;
 using DriveFile = Google.Apis.Drive.v3.Data.File;
@@ -22,6 +23,12 @@ namespace BackupService.FileSystem.GoogleDrive
     /// compare re-copy every run. To avoid that, <see cref="SetLastWriteTimeUtc"/> also stores the source's
     /// exact tick count in a private app property, and <see cref="GetLastWriteTimeUtc"/> reads it back, so a
     /// round-tripped timestamp is exact.
+    /// </para>
+    /// <para>
+    /// Google Workspace files (Docs, Sheets, Slides, shortcuts) are never produced by a backup, so one on Drive is
+    /// always the user's own work: reading one throws <see cref="FileNotDownloadableException"/> (it has no content
+    /// to download), and deleting or overwriting one — or deleting a folder that holds one — throws
+    /// <see cref="ProtectedFileException"/>. The engines log both as warnings and leave the file alone.
     /// </para>
     /// </summary>
     public sealed class GoogleDriveBackupFileSystem : IBackupFileSystem, IDisposable
@@ -93,7 +100,16 @@ namespace BackupService.FileSystem.GoogleDrive
                 return; // already gone
             }
 
-            // Deleting a Drive folder removes its whole subtree; the engine empties it first either way.
+            // Deleting a Drive folder removes its whole subtree in one go, so never take a Google Workspace file down
+            // with it. (The engines empty a folder before a non-recursive delete and leave it alone when something
+            // inside was kept; this is the safety net, and it holds for a recursive delete too.)
+            if (ContainsWorkspaceFile(id))
+            {
+                throw new ProtectedFileException(
+                    $"Drive folder '{path}' contains Google Docs, Sheets or Slides files.",
+                    "it contains Google Docs, Sheets or Slides files, which backups never delete on Google Drive");
+            }
+
             _drive.Files.Delete(id).Execute();
             InvalidateUnder(Normalize(path));
         }
@@ -152,6 +168,12 @@ namespace BackupService.FileSystem.GoogleDrive
 
         public long GetFileSize(string path) => GetFileEntry(path).Size;
 
+        public FileStat GetFileStat(string path)
+        {
+            var entry = GetFileEntry(path);
+            return new FileStat(entry.WriteTimeUtc, entry.Size);
+        }
+
         public void SetLastWriteTimeUtc(string path, DateTime value)
         {
             var entry = GetFileEntry(path);
@@ -169,16 +191,107 @@ namespace BackupService.FileSystem.GoogleDrive
             _files[Normalize(path)] = ToEntry(result);
         }
 
-        public Stream OpenRead(string path)
+        public Stream OpenRead(string path) => OpenRead(path, CancellationToken.None);
+
+        public Stream OpenRead(string path, CancellationToken cancellationToken)
         {
             var entry = GetFileEntry(path);
-            var tempPath = LocalTempPath();
-            using (var fileStream = System.IO.File.Create(tempPath))
+            // Google's own formats have no file content to download (Drive can only export them), so skip them up
+            // front — the engines log this as a warning — rather than make a request that's bound to fail.
+            if (NonDownloadableKind(entry.MimeType) is { } kind)
             {
-                _drive.Files.Get(entry.Id).Download(fileStream);
+                throw new FileNotDownloadableException(
+                    $"Drive file '{path}' is a {kind} file, which Google Drive can export but not download.",
+                    $"it's a {kind} file, which Google Drive can export but not download, so it isn't backed up");
+            }
+
+            var tempPath = LocalTempPath();
+            try
+            {
+                using (var fileStream = System.IO.File.Create(tempPath))
+                {
+                    var progress = _drive.Files.Get(entry.Id).DownloadAsync(fileStream, cancellationToken).GetAwaiter().GetResult();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    fileStream.Flush();
+                    EnsureCompleteDownload(progress, fileStream.Length, entry.Size, () => RefreshFileEntry(path).Size, path);
+                }
+            }
+            catch
+            {
+                // Never leave a partial download behind.
+                try { System.IO.File.Delete(tempPath); } catch { /* best-effort */ }
+                throw;
             }
             // The OS removes the temp when the returned stream is disposed.
             return new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.DeleteOnClose);
+        }
+
+        /// <summary>
+        /// For a Google Workspace type (<c>application/vnd.google-apps.*</c> — Docs, Sheets, Slides, a shortcut, …),
+        /// which Drive stores without downloadable content, the name to show for it; null for an ordinary file.
+        /// </summary>
+        internal static string? NonDownloadableKind(string? mimeType)
+        {
+            const string WorkspacePrefix = "application/vnd.google-apps.";
+            if (mimeType is null || !mimeType.StartsWith(WorkspacePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return mimeType[WorkspacePrefix.Length..].ToLowerInvariant() switch
+            {
+                "document" => "Google Docs",
+                "spreadsheet" => "Google Sheets",
+                "presentation" => "Google Slides",
+                "drawing" => "Google Drawings",
+                "form" => "Google Forms",
+                "site" => "Google Sites",
+                "script" => "Apps Script",
+                "shortcut" => "Drive shortcut",
+                _ => "Google Workspace",
+            };
+        }
+
+        /// <summary>
+        /// The warning reason for refusing to delete or overwrite a file of <paramref name="mimeType"/> — a Google
+        /// Workspace file, which this app never creates, so one on Drive is always the user's own — or null when the
+        /// file is ordinary and may be replaced.
+        /// </summary>
+        internal static string? ProtectedReason(string? mimeType) =>
+            NonDownloadableKind(mimeType) is { } kind
+                ? $"it's a {kind} file, which backups never delete or overwrite on Google Drive"
+                : null;
+
+        private static void ThrowIfProtected(string? mimeType, string path)
+        {
+            if (ProtectedReason(mimeType) is { } reason)
+            {
+                throw new ProtectedFileException($"Drive file '{path}' is protected: {reason}.", reason);
+            }
+        }
+
+        /// <summary>
+        /// Throws unless a download completed in full. Drive's media downloader reports a failure through the returned
+        /// progress rather than throwing, so a download that broke off part-way used to hand back a silently truncated
+        /// file. A completed download shorter than the size Drive reported is also refused — but the cached size may just
+        /// be stale (the file shrank after it was listed), so it is re-read once (<paramref name="refreshSize"/>) before
+        /// the download is declared incomplete. A size of zero (e.g. a Google Docs file) gives nothing to check against.
+        /// </summary>
+        internal static void EnsureCompleteDownload(IDownloadProgress progress, long downloaded, long expectedSize, Func<long> refreshSize, string path)
+        {
+            if (progress.Status != DownloadStatus.Completed)
+            {
+                throw progress.Exception ?? new IOException($"Download of Drive file '{path}' did not complete ({progress.Status}).");
+            }
+
+            if (expectedSize > 0 && downloaded < expectedSize)
+            {
+                var currentSize = refreshSize();
+                if (downloaded < currentSize)
+                {
+                    throw new IOException($"Incomplete download of Drive file '{path}': received {downloaded} of {currentSize} bytes.");
+                }
+            }
         }
 
         public Stream OpenWrite(string path)
@@ -186,8 +299,9 @@ namespace BackupService.FileSystem.GoogleDrive
             var normalized = Normalize(path);
             var (parentPath, name) = SplitParent(normalized);
             var parentId = FolderId(parentPath);
-            var existingId = FindChild(parentId, name, isFolder: false)?.Id;
-            return new UploadStream(this, normalized, parentId, name, existingId);
+            var existing = FindChild(parentId, name, isFolder: false);
+            ThrowIfProtected(existing?.MimeType, path); // never replace a Google Docs file's content
+            return new UploadStream(this, normalized, parentId, name, existing?.Id);
         }
 
         public void CopyFile(string source, string destination, bool overwrite)
@@ -213,6 +327,7 @@ namespace BackupService.FileSystem.GoogleDrive
                 var existing = FindChild(destParentId, destName, isFolder: false);
                 if (existing is not null)
                 {
+                    ThrowIfProtected(existing.MimeType, destination);
                     _drive.Files.Delete(existing.Id).Execute();
                     _files.Remove(destNorm);
                 }
@@ -244,12 +359,7 @@ namespace BackupService.FileSystem.GoogleDrive
         public void DeleteFile(string path)
         {
             var normalized = Normalize(path);
-            string id;
-            if (_files.TryGetValue(normalized, out var entry))
-            {
-                id = entry.Id;
-            }
-            else
+            if (!_files.TryGetValue(normalized, out var entry))
             {
                 var (parentPath, name) = SplitParent(normalized);
                 if (!TryGetFolderId(parentPath, out var parentId))
@@ -261,10 +371,11 @@ namespace BackupService.FileSystem.GoogleDrive
                 {
                     return;
                 }
-                id = file.Id;
+                entry = ToEntry(file);
             }
 
-            _drive.Files.Delete(id).Execute();
+            ThrowIfProtected(entry.MimeType, path);
+            _drive.Files.Delete(entry.Id).Execute();
             _files.Remove(normalized);
         }
 
@@ -365,6 +476,13 @@ namespace BackupService.FileSystem.GoogleDrive
             return entry;
         }
 
+        // Drops the cached entry and re-reads it from Drive, so later size/time reads in this session see the update.
+        private DriveEntry RefreshFileEntry(string path)
+        {
+            _files.Remove(Normalize(path));
+            return GetFileEntry(path);
+        }
+
         private string FolderId(string path) =>
             TryGetFolderId(path, out var id) ? id : throw new DirectoryNotFoundException($"Drive folder '{path}' was not found.");
 
@@ -412,6 +530,11 @@ namespace BackupService.FileSystem.GoogleDrive
             return files is { Count: > 0 } ? files[0] : null;
         }
 
+        // True if a Google Workspace file sits anywhere in the folder's subtree.
+        private bool ContainsWorkspaceFile(string folderId) =>
+            ListChildren(folderId, foldersOnly: false).Any(f => NonDownloadableKind(f.MimeType) is not null)
+            || ListChildren(folderId, foldersOnly: true).Any(f => ContainsWorkspaceFile(f.Id));
+
         private List<DriveFile> ListChildren(string parentId, bool foldersOnly)
         {
             var typeClause = foldersOnly ? $"mimeType = '{FolderMimeType}'" : $"mimeType != '{FolderMimeType}'";
@@ -448,7 +571,7 @@ namespace BackupService.FileSystem.GoogleDrive
         private static DriveEntry ToEntry(DriveFile file)
         {
             var isFolder = string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal);
-            return new DriveEntry(file.Id, file.Name, isFolder, file.Size ?? 0, ParseWriteTime(file));
+            return new DriveEntry(file.Id, file.Name, isFolder, file.Size ?? 0, ParseWriteTime(file), file.MimeType);
         }
 
         private static DateTime ParseWriteTime(DriveFile file)
@@ -525,7 +648,7 @@ namespace BackupService.FileSystem.GoogleDrive
         private static string Normalize(string? path) =>
             string.IsNullOrWhiteSpace(path) ? string.Empty : path.Replace('/', '\\').Trim('\\');
 
-        private sealed record DriveEntry(string Id, string Name, bool IsFolder, long Size, DateTime WriteTimeUtc);
+        private sealed record DriveEntry(string Id, string Name, bool IsFolder, long Size, DateTime WriteTimeUtc, string? MimeType);
 
         // A write stream that buffers to a local temp file and uploads it to Drive on close.
         private sealed class UploadStream : Stream

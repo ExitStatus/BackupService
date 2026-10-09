@@ -229,7 +229,7 @@ namespace BackupService.DatabaseBackup
                 using (endpoint.Session)
                 {
                     var sourcePath = Path.Combine(endpoint.BasePath, fileName);
-                    using var input = endpoint.FileSystem.OpenRead(sourcePath);
+                    using var input = endpoint.FileSystem.OpenRead(sourcePath, cancellationToken);
                     using var output = fileSystem.OpenWrite(localZip);
                     await input.CopyToAsync(output, cancellationToken);
                 }

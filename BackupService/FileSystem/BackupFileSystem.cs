@@ -26,7 +26,29 @@ namespace BackupService.FileSystem
 
         public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
 
-        public long GetFileSize(string path) => new FileInfo(path).Length;
+        public long GetFileSize(string path) => LengthOf(new FileInfo(path));
+
+        public FileStat GetFileStat(string path)
+        {
+            // One stat: FileInfo caches the attributes it reads for LastWriteTimeUtc, so Length costs nothing extra.
+            var info = new FileInfo(path);
+            return new FileStat(info.LastWriteTimeUtc, LengthOf(info));
+        }
+
+        // A file symlink reports its own length (0), but OpenRead follows the link and reads the target — so report
+        // the final target's length, or a copy of it would never match its source's size. The reparse-point
+        // attribute comes from the cached stat, so ordinary files pay nothing for the check.
+        private static long LengthOf(FileInfo info)
+        {
+            if (info.Exists
+                && (info.Attributes & FileAttributes.ReparsePoint) != 0
+                && info.LinkTarget is not null
+                && info.ResolveLinkTarget(returnFinalTarget: true) is FileInfo target)
+            {
+                return target.Length;
+            }
+            return info.Length;
+        }
 
         public void SetLastWriteTimeUtc(string path, DateTime value) => File.SetLastWriteTimeUtc(path, value);
 

@@ -78,10 +78,21 @@ namespace BackupService.FileSystem.Mtp
         public IReadOnlyList<string> GetDirectories(string directory) =>
             WithRetry(() => _device!.GetDirectories(NormalizeOrRoot(directory)).ToList());
 
-        public DateTime GetLastWriteTimeUtc(string path)
-        {
-            var info = WithRetry(() => _device!.GetFileInfo(Normalize(path)));
+        public DateTime GetLastWriteTimeUtc(string path) =>
+            ResolveWriteTimeUtc(WithRetry(() => _device!.GetFileInfo(Normalize(path))), path);
 
+        public long GetFileSize(string path) =>
+            WithRetry(() => MtpDownloadCheck.ToReportedSize(_device!.GetFileInfo(Normalize(path)).Length));
+
+        public FileStat GetFileStat(string path)
+        {
+            // One path lookup for both (each lookup lists every sibling in every folder on the way down).
+            var info = WithRetry(() => _device!.GetFileInfo(Normalize(path)));
+            return new FileStat(ResolveWriteTimeUtc(info, path), MtpDownloadCheck.ToReportedSize(info.Length));
+        }
+
+        private DateTime ResolveWriteTimeUtc(MediaFileInfo info, string path)
+        {
             // 1) WPD modified date, 2) WPD date-authored (what Explorer shows as "Date Picture Taken"), 3) WPD
             // created date. Many cameras (e.g. Sony bodies) expose none of these via MediaDevices for RAW files.
             var wpd = info.LastWriteTime ?? info.DateAuthored ?? info.CreationTime;
@@ -119,12 +130,11 @@ namespace BackupService.FileSystem.Mtp
             return ParseExifDateTakenUtc(full) ?? DateTime.MinValue;
         }
 
-        public long GetFileSize(string path) =>
-            WithRetry(() => (long)_device!.GetFileInfo(Normalize(path)).Length);
+        public Stream OpenRead(string path) => OpenRead(path, CancellationToken.None);
 
-        public Stream OpenRead(string path)
+        public Stream OpenRead(string path, CancellationToken cancellationToken)
         {
-            var tempPath = DownloadToTemp(path);
+            var tempPath = DownloadToTemp(path, cancellationToken);
             // The OS removes the temp when the returned stream is disposed.
             return new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.DeleteOnClose);
         }
@@ -178,10 +188,11 @@ namespace BackupService.FileSystem.Mtp
         // "Not connected" after some activity. When the device is genuinely gone (switched off / unplugged), or it
         // can't be re-established within MaxAttempts, this throws EndpointUnavailableException so the run aborts
         // fast and clean rather than churning the same dead device for every remaining file.
-        private T WithRetry<T>(Func<T> op)
+        private T WithRetry<T>(Func<T> op, CancellationToken cancellationToken = default)
         {
             for (var attempt = 1; ; attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     EnsureConnected();
@@ -199,9 +210,16 @@ namespace BackupService.FileSystem.Mtp
                     }
 
                     InvalidateDevice(); // drop the stale handle; the next EnsureConnected re-acquires or declares it gone
-                    Thread.Sleep(ReconnectDelayMs);
+                    Pause(cancellationToken);
                 }
             }
+        }
+
+        // Waits out the reconnect delay, returning early (and throwing) if the run is stopped meanwhile.
+        private static void Pause(CancellationToken cancellationToken)
+        {
+            cancellationToken.WaitHandle.WaitOne(ReconnectDelayMs);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         // Ensures a live session, re-acquiring a fresh device handle for the same physical device when needed. A
@@ -227,6 +245,23 @@ namespace BackupService.FileSystem.Mtp
             try { _device?.Disconnect(); } catch { /* best effort */ }
             try { _device?.Dispose(); } catch { /* best effort */ }
             _device = null;
+        }
+
+        // Starts a fresh WPD session on the same device handle. Unlike InvalidateDevice this doesn't re-enumerate
+        // devices, so one that is briefly missing from the device list mid-reset isn't mistaken for one that was
+        // unplugged (which would abort the whole run). If the handle won't reconnect, drop it so the next call
+        // re-acquires the device by serial as usual.
+        private void ResetSession()
+        {
+            try
+            {
+                _device?.Disconnect();
+                _device?.Connect();
+            }
+            catch
+            {
+                InvalidateDevice();
+            }
         }
 
         private static NotSupportedException ReadOnly() =>
@@ -274,28 +309,44 @@ namespace BackupService.FileSystem.Mtp
 
         // Downloads the device file to a fresh local temp (with reconnect/retry). Caller owns the returned path.
         // A WPD transfer can end early WITHOUT throwing (the device's stream just reports end-of-data when the session
-        // hiccups), which silently produced truncated/corrupt copies. So the downloaded length is verified against
-        // the size the device reports for the object; a short download is discarded and re-fetched on a fresh
-        // session, and if it never completes the read fails (a per-file error) rather than returning partial data.
-        private string DownloadToTemp(string path)
+        // hiccups), which silently produced truncated/corrupt copies. So the download is verified against the size the
+        // device reports for the object (see MtpDownloadCheck): a SHORT download is discarded and re-fetched on a fresh
+        // session, and if it never completes the read fails (a per-file error) rather than returning partial data. A
+        // download at least as large as reported, or one with no usable reported size, is accepted.
+        // The token is checked between every chunk written, so a Stop interrupts even a multi-GB transfer.
+        private string DownloadToTemp(string path, CancellationToken cancellationToken)
         {
             var tempPath = LocalTempPath();
             try
             {
+                long? previousActual = null;
                 for (var attempt = 1; ; attempt++)
                 {
-                    var expected = WithRetry(() => (long)_device!.GetFileInfo(Normalize(path)).Length);
+                    // Resolve the object once per attempt: its reported size is what the download is checked against,
+                    // and its persistent id lets the transfer skip a second path walk.
+                    var (persistentId, expected) = WithRetry(() =>
+                    {
+                        var info = _device!.GetFileInfo(Normalize(path));
+                        return (info.PersistentUniqueId, MtpDownloadCheck.ToReportedSize(info.Length));
+                    }, cancellationToken);
+
                     var actual = WithRetry(() =>
                     {
                         // Re-truncate the temp on a retry so a partially-downloaded file from a dropped session is discarded.
-                        using var fileStream = System.IO.File.Create(tempPath);
-                        _device!.DownloadFile(Normalize(path), fileStream);
-                        fileStream.Flush();
-                        return fileStream.Length;
-                    });
+                        using var output = new CancellableCountingStream(System.IO.File.Create(tempPath), cancellationToken);
+                        if (string.IsNullOrEmpty(persistentId))
+                        {
+                            _device!.DownloadFile(Normalize(path), output);
+                        }
+                        else
+                        {
+                            _device!.DownloadFileFromPersistentUniqueId(persistentId, output);
+                        }
+                        output.Flush();
+                        return output.BytesWritten;
+                    }, cancellationToken);
 
-                    // A device reporting 0 for a non-empty object gives us nothing to verify against — accept it.
-                    if (expected <= 0 || actual == expected)
+                    if (MtpDownloadCheck.IsComplete(expected, actual))
                     {
                         break;
                     }
@@ -304,15 +355,17 @@ namespace BackupService.FileSystem.Mtp
                         "MTP: incomplete download of '{File}' ({Actual} of {Expected} bytes, attempt {Attempt}/{MaxAttempts}).",
                         DisplayName(path), actual, expected, attempt, MaxAttempts);
 
-                    if (attempt >= MaxAttempts)
+                    if (!MtpDownloadCheck.ShouldRetry(actual, previousActual, attempt, MaxAttempts))
                     {
-                        throw new IOException(
-                            $"Incomplete transfer from the MTP device: received {actual} of {expected} bytes after {MaxAttempts} attempts.");
+                        throw new IOException(actual == previousActual
+                            ? $"Incomplete transfer from the MTP device: it reports {expected} bytes but delivered only {actual} on consecutive attempts."
+                            : $"Incomplete transfer from the MTP device: received {actual} of {expected} bytes after {attempt} attempts.");
                     }
 
                     // Start the next attempt on a fresh session — a truncated transfer usually means the session is unwell.
-                    InvalidateDevice();
-                    Thread.Sleep(ReconnectDelayMs);
+                    previousActual = actual;
+                    ResetSession();
+                    Pause(cancellationToken);
                 }
             }
             catch
@@ -384,6 +437,43 @@ namespace BackupService.FileSystem.Mtp
             var directory = Path.Combine(Path.GetTempPath(), "BackupService", "mtp");
             Directory.CreateDirectory(directory);
             return Path.Combine(directory, Guid.NewGuid().ToString("N") + ".tmp");
+        }
+
+        // The download's destination: forwards writes to the temp file, counts the bytes, and throws once the run is
+        // stopped. MediaDevices copies the whole object in one blocking call, so checking the token on each chunk it
+        // writes is the only way to interrupt a large transfer part-way.
+        private sealed class CancellableCountingStream(Stream inner, CancellationToken cancellationToken) : Stream
+        {
+            public long BytesWritten { get; private set; }
+
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => inner.Length;
+            public override long Position { get => inner.Position; set => throw new NotSupportedException(); }
+
+            public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+
+            public override void Write(ReadOnlySpan<byte> buffer)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                inner.Write(buffer);
+                BytesWritten += buffer.Length;
+            }
+
+            public override void Flush() => inner.Flush();
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    inner.Dispose();
+                }
+                base.Dispose(disposing);
+            }
         }
     }
 }

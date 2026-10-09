@@ -55,7 +55,7 @@ namespace BackupService.Scheduling
                     }
                     else
                     {
-                        stagingDir = await StageRemoteSourceAsync(item, sourceConnectionId, log, cancellationToken);
+                        stagingDir = await StageRemoteSourceAsync(item, sourceConnectionId, log, result, cancellationToken);
                         if (stagingDir is null)
                         {
                             result.Errors++;
@@ -240,9 +240,11 @@ namespace BackupService.Scheduling
 
         /// <summary>
         /// Recursively copies a remote source tree into a fresh local temp folder so it can be zipped.
-        /// Returns the staging folder, or null if the remote source doesn't exist.
+        /// Returns the staging folder, or null if the remote source doesn't exist. A file that can't be read
+        /// (locked, or a Google Docs file Drive can't download) is left out and counted as a warning, rather
+        /// than failing the whole archive.
         /// </summary>
-        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, int? sourceConnectionId, IOperationLogger log, CancellationToken cancellationToken)
+        private async Task<string?> StageRemoteSourceAsync(ArchiveSyncItem item, int? sourceConnectionId, IOperationLogger log, BackupResult result, CancellationToken cancellationToken)
         {
             var endpoint = await endpointFactory.ResolveAsync(sourceConnectionId, item.SourceFolder, cancellationToken);
             try
@@ -255,7 +257,13 @@ namespace BackupService.Scheduling
                 // A unique local temp directory (GetTempFilePath creates one and hands back a path in it).
                 var stagingDir = Path.GetDirectoryName(fileSystem.GetTempFilePath("stage"))!;
                 await log.AppendAsync($"Staging remote source '{item.SourceFolder}' locally before archiving.");
-                StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, cancellationToken);
+                var skipped = new List<(string File, string Reason)>();
+                StageTree(endpoint.FileSystem, endpoint.BasePath, stagingDir, item.IncludeSubFolders, skipped, cancellationToken);
+                foreach (var (file, reason) in skipped)
+                {
+                    result.Warnings++;
+                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{file}' — {reason}");
+                }
                 return stagingDir;
             }
             finally
@@ -264,7 +272,7 @@ namespace BackupService.Scheduling
             }
         }
 
-        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, CancellationToken ct)
+        private void StageTree(IBackupFileSystem sourceFs, string sourceDir, string localDir, bool includeSubFolders, List<(string File, string Reason)> skipped, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             fileSystem.CreateDirectory(localDir);
@@ -273,16 +281,24 @@ namespace BackupService.Scheduling
             {
                 ct.ThrowIfCancellationRequested();
                 var localPath = Path.Combine(localDir, Path.GetFileName(file)!);
-                using var input = sourceFs.OpenRead(file);
-                using var output = fileSystem.OpenWrite(localPath);
-                input.CopyTo(output);
+                try
+                {
+                    using var input = sourceFs.OpenRead(file, ct);
+                    using var output = fileSystem.OpenWrite(localPath);
+                    input.CopyTo(output);
+                }
+                catch (Exception ex) when (FileLock.IsSkippableReadError(ex, out var reason))
+                {
+                    TryDelete(fileSystem, localPath); // never archive a partial staging copy
+                    skipped.Add((file, reason));
+                }
             }
 
             if (includeSubFolders)
             {
                 foreach (var sub in sourceFs.GetDirectories(sourceDir))
                 {
-                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, ct);
+                    StageTree(sourceFs, sub, Path.Combine(localDir, Path.GetFileName(sub)!), includeSubFolders, skipped, ct);
                 }
             }
         }

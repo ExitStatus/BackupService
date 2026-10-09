@@ -425,7 +425,7 @@ namespace BackupService.Scheduling.TwoWaySync
             onCurrentFile?.Invoke(toName);
             try
             {
-                using (var input = fromFs.OpenRead(fromPath))
+                using (var input = fromFs.OpenRead(fromPath, ct))
                 using (var output = toFs.OpenWrite(tempPath))
                 {
                     await input.CopyToAsync(output, ct);
@@ -451,6 +451,15 @@ namespace BackupService.Scheduling.TwoWaySync
                 TryDeleteTemp(toFs, tempPath);
                 throw;
             }
+            catch (ProtectedFileException ex)
+            {
+                // The destination side refused to replace its file (a Google Docs file on Drive) — keep it. Not
+                // baselined, so it's re-evaluated next run rather than treated as in sync.
+                TryDeleteTemp(toFs, tempPath);
+                result.Warnings++;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{destPath}' — {ex.Reason}");
+                return false;
+            }
             catch (Exception ex)
             {
                 TryDeleteTemp(toFs, tempPath);
@@ -474,6 +483,13 @@ namespace BackupService.Scheduling.TwoWaySync
             {
                 fs.DeleteFile(path);
                 return true;
+            }
+            catch (ProtectedFileException ex)
+            {
+                // A deletion propagated to a file that side protects (a Google Docs file on Drive) — keep it.
+                result.Warnings++;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{key}' — {ex.Reason}");
+                return false;
             }
             catch (Exception ex)
             {

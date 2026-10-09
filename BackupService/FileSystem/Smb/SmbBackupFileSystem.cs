@@ -123,6 +123,15 @@ namespace BackupService.FileSystem.Smb
             return standard.EndOfFile;
         }
 
+        public FileStat GetFileStat(string path)
+        {
+            // FileNetworkOpenInformation carries both the write time and the size, so this is one open/query/close
+            // — the same cost as GetLastWriteTimeUtc alone, rather than two of them.
+            var info = (FileNetworkOpenInformation)GetInfo(path, FileInformationClass.FileNetworkOpenInformation);
+            var lastWrite = info.LastWriteTime ?? DateTime.MinValue;
+            return new FileStat(DateTime.SpecifyKind(lastWrite, DateTimeKind.Utc), info.EndOfFile);
+        }
+
         public void SetLastWriteTimeUtc(string path, DateTime value)
         {
             var status = _store.CreateFile(

@@ -162,6 +162,12 @@ namespace BackupService.Scheduling
                 }
                 // Nothing at the target — nothing to mirror, nothing logged.
             }
+            catch (ProtectedFileException ex)
+            {
+                // The target protects it (a Google Docs file on Drive, or a folder holding one) — keep it.
+                result.Warnings++;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{destPath}' — {ex.Reason}");
+            }
             catch (Exception ex)
             {
                 result.Errors++;
@@ -308,6 +314,14 @@ namespace BackupService.Scheduling
                 // Stopped mid-copy — drop the partial temp and let cancellation unwind.
                 TryDeleteTemp(ctx, tempPath);
                 throw;
+            }
+            catch (ProtectedFileException ex)
+            {
+                // The target refused to replace the destination (a Google Docs file on Drive) — keep it.
+                TryDeleteTemp(ctx, tempPath);
+                result.Warnings++;
+                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{dest}' — {ex.Reason}");
+                return false;
             }
             catch (Exception ex)
             {

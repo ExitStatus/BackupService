@@ -1,3 +1,4 @@
+using System.Buffers;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
@@ -199,7 +200,7 @@ namespace BackupService.Scheduling
 
                     if (!targetNames.Contains(name))
                     {
-                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, null, ctx, log, result, ct))
                         {
                             result.Copied++;
                             await log.AppendAsync($"Copied '{sourcePath}' -> '{destPath}'");
@@ -207,11 +208,13 @@ namespace BackupService.Scheduling
                         continue;
                     }
 
-                    DateTime sourceTime, destTime;
+                    // One metadata lookup per side gives both the write time (the copy/skip decision) and the size
+                    // (the truncated-copy check below), so an unchanged file costs no more than a timestamp compare.
+                    FileStat sourceStat, destStat;
                     try
                     {
-                        sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(sourcePath);
-                        destTime = ctx.TargetFs.GetLastWriteTimeUtc(destPath);
+                        sourceStat = ctx.SourceFs.GetFileStat(sourcePath);
+                        destStat = ctx.TargetFs.GetFileStat(destPath);
                     }
                     catch (EndpointUnavailableException)
                     {
@@ -224,21 +227,28 @@ namespace BackupService.Scheduling
                         continue;
                     }
 
+                    var sourceTime = sourceStat.LastWriteTimeUtc;
+                    var destTime = destStat.LastWriteTimeUtc;
+
                     if (WriteTimesEqual(sourceTime, destTime))
                     {
                         // Same timestamp (within filesystem granularity) — normally no change, nothing logged. But a
-                        // size mismatch means the destination is not a faithful copy (e.g. an earlier transfer that
-                        // was truncated yet stamped with the source's time), so repair it rather than skip forever.
-                        if (SizesDiffer(ctx, sourcePath, destPath)
-                            && await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
+                        // destination SHORTER than its source can't be a faithful copy (e.g. an earlier transfer that
+                        // ended early yet was stamped with the source's time), so repair it rather than skip forever.
+                        if (IsTruncatedCopy(sourceStat, destStat)
+                            && MayReplaceDestination(pair.OverwriteBehaviour, sourceTime, destTime)
+                            && await CopyThroughTempAsync(sourcePath, destPath, targetDir, sourceStat, ctx, log, result, ct))
                         {
+                            // A warning as well as an update: the copy is now right, but an earlier backup wasn't.
                             result.Updated++;
-                            await log.AppendAsync(OperationLogLevel.Warning, $"Repaired '{destPath}' (size differed from source — previous copy was incomplete)");
+                            result.Warnings++;
+                            await log.AppendAsync(OperationLogLevel.Warning,
+                                $"Repaired '{destPath}' — it was {destStat.Size} bytes but the source is {sourceStat.Size} bytes with the same timestamp, so an earlier copy was incomplete");
                         }
                     }
                     else if (sourceTime > destTime)
                     {
-                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, ctx, log, result, ct))
+                        if (await CopyThroughTempAsync(sourcePath, destPath, targetDir, sourceStat, ctx, log, result, ct))
                         {
                             result.Updated++;
                             await log.AppendAsync($"Updated '{destPath}' (source is newer)");
@@ -247,7 +257,7 @@ namespace BackupService.Scheduling
                     else
                     {
                         // Destination is meaningfully newer — the overwrite behaviour decides.
-                        await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceTime, targetDir, ctx, log, result, ct);
+                        await ApplyOverwriteBehaviourAsync(pair.OverwriteBehaviour, sourcePath, destPath, sourceStat, targetDir, ctx, log, result, ct);
                     }
                 }
                 finally
@@ -275,6 +285,10 @@ namespace BackupService.Scheduling
                         ctx.TargetFs.DeleteFile(targetPath);
                         result.Deleted++;
                         await log.AppendAsync($"Deleted '{targetPath}' (not in source)");
+                    }
+                    catch (ProtectedFileException ex)
+                    {
+                        await LogKeptAsync(targetPath, ex, log, result);
                     }
                     catch (Exception ex)
                     {
@@ -335,12 +349,12 @@ namespace BackupService.Scheduling
         }
 
         private async Task ApplyOverwriteBehaviourAsync(
-            OverwriteBehaviour behaviour, string source, string dest, DateTime sourceTime, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
+            OverwriteBehaviour behaviour, string source, string dest, FileStat sourceStat, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             switch (behaviour)
             {
                 case OverwriteBehaviour.AlwaysOverwrite:
-                    if (await CopyThroughTempAsync(source, dest, targetDir, ctx, log, result, ct))
+                    if (await CopyThroughTempAsync(source, dest, targetDir, sourceStat, ctx, log, result, ct))
                     {
                         result.Updated++;
                         await log.AppendAsync($"Overwrote '{dest}' (destination was newer, always-overwrite)");
@@ -352,7 +366,7 @@ namespace BackupService.Scheduling
                     {
                         if (ContentEqual(ctx, source, dest))
                         {
-                            TryStampWriteTime(ctx.TargetFs, dest, sourceTime);
+                            TryStampWriteTime(ctx.TargetFs, dest, sourceStat.LastWriteTimeUtc);
                             result.Updated++;
                             await log.AppendAsync($"Synced timestamp of '{dest}' (content matched)");
                         }
@@ -361,6 +375,13 @@ namespace BackupService.Scheduling
                     catch (EndpointUnavailableException)
                     {
                         throw; // source endpoint gone — abort the run
+                    }
+                    catch (Exception ex) when (FileLock.IsSkippableReadError(ex, out var reason))
+                    {
+                        // Couldn't read a side to compare (locked, an unavailable cloud file, or a Google Docs
+                        // file that can't be downloaded) — the same non-fatal warning as a skipped copy.
+                        result.Warnings++;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — {reason}");
                     }
                     catch (Exception ex)
                     {
@@ -381,44 +402,56 @@ namespace BackupService.Scheduling
         /// temp on the target filesystem, stamps it with the source's last-write-time, then (on success)
         /// removes any existing destination and renames the temp onto it. On any failure the temp is removed
         /// so a partial/temp file is never left behind; the error is logged. Returns success.
+        /// <paramref name="knownSourceStat"/> is the source's metadata when the caller has already read it
+        /// (otherwise it's read here).
         /// </summary>
-        private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
+        private async Task<bool> CopyThroughTempAsync(string source, string dest, string targetDir, FileStat? knownSourceStat, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             var tempPath = Path.Combine(targetDir, CrashSafeTempName(Path.GetFileName(dest)!));
             // Surface the file about to be copied to the View Progress dialog (best-effort, UI only).
             ctx.OnCurrentFile?.Invoke(Path.GetFileName(dest));
             try
             {
-                var sourceTime = ctx.SourceFs.GetLastWriteTimeUtc(source);
-                var expectedSize = TryGetSize(ctx.SourceFs, source);
+                var sourceStat = knownSourceStat ?? ctx.SourceFs.GetFileStat(source);
 
-                using (var input = ctx.SourceFs.OpenRead(source))
+                long written;
+                using (var input = ctx.SourceFs.OpenRead(source, ct))
                 using (var output = ctx.TargetFs.OpenWrite(tempPath))
                 {
-                    // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch
-                    // below removes the partial temp, so nothing is left behind).
-                    await input.CopyToAsync(output, ct);
+                    // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch below
+                    // removes the partial temp, so nothing is left behind). Counting the bytes as they stream
+                    // saves a metadata round trip on the target to find out how much was written.
+                    written = await CopyCountingAsync(input, output, ct);
                 }
 
-                // Never commit a short copy: a source stream that ended early (e.g. a flaky MTP transfer) would
+                // Never commit a short copy: a source stream that ended early (e.g. a flaky transfer) would
                 // otherwise be renamed into place and stamped with the source's time, so later runs would see it
-                // as unchanged. A file that grew mid-copy (a live log) is larger, not smaller, so only short fails.
-                var writtenSize = ctx.TargetFs.GetFileSize(tempPath);
-                if (expectedSize is { } expected && writtenSize < expected)
+                // as unchanged. A file that grew mid-copy (a live log) is larger, not smaller, so only short counts.
+                if (sourceStat.Size > 0 && written < sourceStat.Size)
                 {
-                    throw new IOException($"Incomplete copy: only {writtenSize} of {expected} bytes were transferred.");
+                    if (SizeChanged(ctx.SourceFs, source, sourceStat.Size))
+                    {
+                        // The source itself shrank while it was being read (a save or truncation mid-copy), so what
+                        // was read may mix old and new content. Skip it as a warning, like a locked file.
+                        TryDeleteTemp(ctx, tempPath);
+                        result.Warnings++;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — it changed while it was being copied (it will be retried on the next run)");
+                        return false;
+                    }
+
+                    throw new IOException($"Incomplete copy: only {written} of {sourceStat.Size} bytes were transferred.");
                 }
 
                 // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
                 // timestamp across (a fresh-write "now" timestamp would look newer on the next run).
-                TryStampWriteTime(ctx.TargetFs, tempPath, sourceTime);
+                TryStampWriteTime(ctx.TargetFs, tempPath, sourceStat.LastWriteTimeUtc);
 
                 if (ctx.TargetFs.FileExists(dest))
                 {
                     ctx.TargetFs.DeleteFile(dest);
                 }
                 ctx.TargetFs.MoveFile(tempPath, dest, overwrite: false);
-                result.BytesCopied += writtenSize;
+                result.BytesCopied += written;
                 return true;
             }
             catch (OperationCanceledException)
@@ -434,6 +467,13 @@ namespace BackupService.Scheduling
                 // propagate so the whole run aborts fast rather than failing every remaining file.
                 TryDeleteTemp(ctx, tempPath);
                 throw;
+            }
+            catch (ProtectedFileException ex)
+            {
+                // The target refused to replace the destination (a Google Docs file on Drive) — keep it.
+                TryDeleteTemp(ctx, tempPath);
+                await LogKeptAsync(dest, ex, log, result);
+                return false;
             }
             catch (Exception ex)
             {
@@ -483,12 +523,49 @@ namespace BackupService.Scheduling
             return StreamCompare.Equal(a, b);
         }
 
-        // Best-effort file size (null when it can't be read); a gone endpoint still aborts the run.
-        private static long? TryGetSize(IBackupFileSystem fs, string path)
+        private const int CopyBufferSize = 81920; // Stream.CopyToAsync's default
+
+        // Streams input to output, returning the number of bytes copied.
+        private static async Task<long> CopyCountingAsync(Stream input, Stream output, CancellationToken ct)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(CopyBufferSize);
+            try
+            {
+                long total = 0;
+                int read;
+                while ((read = await input.ReadAsync(buffer.AsMemory(0, CopyBufferSize), ct)) > 0)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0, read), ct);
+                    total += read;
+                }
+                return total;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        // A destination is only treated as a truncated copy when it's SHORTER than a source of known size. Never
+        // when it's larger (that isn't truncation — e.g. a source rewritten smaller with its time preserved), and
+        // never against a source with no usable size (≤ 0 — an MTP device reporting 0, or a sentinel that overflows
+        // to -1, for a real file): either would re-copy the same file on every run.
+        private static bool IsTruncatedCopy(FileStat source, FileStat dest) => source.Size > 0 && dest.Size < source.Size;
+
+        // Within the write-time tolerance the destination can still read as marginally NEWER than the source — FAT
+        // rounding, or a genuine edit made moments after the source. Replacing a newer destination is the overwrite
+        // behaviour's call, exactly as when it's newer outright: only AlwaysOverwrite allows it (the sizes differ, so
+        // UpdateOnlyIfContentMatches can never match).
+        private static bool MayReplaceDestination(OverwriteBehaviour behaviour, DateTime sourceTime, DateTime destTime) =>
+            destTime <= sourceTime || behaviour == OverwriteBehaviour.AlwaysOverwrite;
+
+        // Re-reads the source's size after a short copy: true only when it can be read and is no longer the size the
+        // copy started from. A gone endpoint still aborts the run.
+        private static bool SizeChanged(IBackupFileSystem fs, string path, long sizeAtStart)
         {
             try
             {
-                return fs.GetFileSize(path);
+                return fs.GetFileSize(path) != sizeAtStart;
             }
             catch (EndpointUnavailableException)
             {
@@ -496,13 +573,9 @@ namespace BackupService.Scheduling
             }
             catch
             {
-                return null;
+                return false;
             }
         }
-
-        // True only when both sizes are readable and differ — an unreadable size never forces a re-copy.
-        private static bool SizesDiffer(SyncContext ctx, string source, string dest) =>
-            TryGetSize(ctx.SourceFs, source) is { } s && TryGetSize(ctx.TargetFs, dest) is { } d && s != d;
 
         // The crash-safe copy writes each file to a deterministic dot-prefixed temp before renaming it into
         // place ("report.pdf" -> ".report.pdf.tmp"). Centralised so the writer and the leftover-sweep agree.
@@ -526,7 +599,8 @@ namespace BackupService.Scheduling
             }
         }
 
-        private async Task DeleteOrphanDirectoryAsync(string directory, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
+        // Deletes an orphan target folder and everything in it. Returns whether the folder is now gone.
+        private async Task<bool> DeleteOrphanDirectoryAsync(string directory, SyncContext ctx, IOperationLogger log, BackupResult result, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -540,9 +614,13 @@ namespace BackupService.Scheduling
             {
                 result.Errors++;
                 await log.ErrorAsync($"Failed to access folder '{directory}'", ex);
-                return;
+                return false;
             }
 
+            // Whether everything inside was removed. Anything kept (a protected file) or not deletable has already
+            // been logged, and the folder is then left in place — a folder delete would fail on a non-empty folder
+            // locally, and on Google Drive it would silently take whatever was left with it.
+            var emptied = true;
             foreach (var file in files)
             {
                 ct.ThrowIfCancellationRequested();
@@ -552,8 +630,14 @@ namespace BackupService.Scheduling
                     result.Deleted++;
                     await log.AppendAsync($"Deleted '{file}' (not in source)");
                 }
+                catch (ProtectedFileException ex)
+                {
+                    emptied = false;
+                    await LogKeptAsync(file, ex, log, result);
+                }
                 catch (Exception ex)
                 {
+                    emptied = false;
                     result.Errors++;
                     await log.ErrorAsync($"Failed to delete '{file}'", ex);
                 }
@@ -561,19 +645,42 @@ namespace BackupService.Scheduling
 
             foreach (var sub in subDirs)
             {
-                await DeleteOrphanDirectoryAsync(sub, ctx, log, result, ct);
+                if (!await DeleteOrphanDirectoryAsync(sub, ctx, log, result, ct))
+                {
+                    emptied = false;
+                }
+            }
+
+            if (!emptied)
+            {
+                return false;
             }
 
             try
             {
                 ctx.TargetFs.DeleteDirectory(directory, recursive: false);
                 await log.AppendAsync($"Deleted folder '{directory}' (not in source)");
+                return true;
+            }
+            catch (ProtectedFileException ex)
+            {
+                await LogKeptAsync(directory, ex, log, result);
+                return false;
             }
             catch (Exception ex)
             {
                 result.Errors++;
                 await log.ErrorAsync($"Failed to delete folder '{directory}'", ex);
+                return false;
             }
+        }
+
+        // The target refused to delete or overwrite a file it protects (a Google Docs file on Drive): it's kept, and
+        // that's a warning, not an error — the backup did what it should.
+        private static async Task LogKeptAsync(string path, ProtectedFileException ex, IOperationLogger log, BackupResult result)
+        {
+            result.Warnings++;
+            await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{path}' — {ex.Reason}");
         }
 
         /// <summary>The resolved filesystems and rules for one sync run.</summary>

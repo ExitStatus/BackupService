@@ -109,7 +109,7 @@ namespace BackupService.UnitTests.Scheduling
             localFs.AddFile(@"C:\src\file.txt", RunTime, "data");
 
             var remoteFs = new FakeFileSystem();
-            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, targetConnectionId: 7, remoteFs), new ReversibleProtector());
+            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, remoteConnectionId: 7, remoteFs), new ReversibleProtector());
 
             var item = new ArchiveSyncItem
             {
@@ -130,6 +130,33 @@ namespace BackupService.UnitTests.Scheduling
             remoteFs.FileExists(archive).Should().BeTrue();              // landed on the remote target
             remoteFs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
             localFs.AllFiles.Should().NotContain(p => p.EndsWith(".zip")); // local temp build was cleaned up
+        }
+
+        [Test]
+        public async Task RemoteSource_FileThatCantBeDownloaded_IsLeftOutAsWarning_ArchiveStillCreated()
+        {
+            // Staging a remote (e.g. Drive) source used to abort the whole archive on the first unreadable file. A
+            // Google Docs file is now left out with a warning and the rest is still archived.
+            var localFs = new FakeFileSystem();
+            localFs.AddDirectory(Target);
+            var remoteFs = new FakeFileSystem();
+            remoteFs.AddFile(@"Photos\a.jpg", RunTime, "jpeg");
+            remoteFs.AddFile(@"Photos\Report", RunTime, "");
+            remoteFs.NotDownloadable.Add(@"Photos\Report");
+            var sut = new ArchiveSyncProcessor(localFs, new TwoFsArchiveFactory(localFs, remoteConnectionId: 5, remoteFs), new ReversibleProtector());
+
+            var item = KeepLastN(5);
+            item.SourceFolder = "Photos";
+
+            var result = await sut.CreateArchiveAsync(item, 5, null, 1, RunTime, _log, CancellationToken.None);
+
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            _log.Warnings.Should().ContainSingle(m => m.Contains("Report") && m.Contains("Google Docs"));
+            _log.DebugMessages.Should().ContainSingle()
+                .Which.Should().Contain("a.jpg").And.NotContain("Report");
+            localFs.FileExists(KeepName(RunTime)).Should().BeTrue();
         }
 
         [Test]
@@ -438,12 +465,12 @@ namespace BackupService.UnitTests.Scheduling
                 Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
         }
 
-        // Returns the remote filesystem for the target connection id, the local one otherwise.
-        private sealed class TwoFsArchiveFactory(IBackupFileSystem localFs, int targetConnectionId, IBackupFileSystem remoteFs) : IEndpointFileSystemFactory
+        // Returns the remote filesystem for the given connection id (a remote source or target), the local one otherwise.
+        private sealed class TwoFsArchiveFactory(IBackupFileSystem localFs, int remoteConnectionId, IBackupFileSystem remoteFs) : IEndpointFileSystemFactory
         {
             public Task<EndpointFileSystem> ResolveAsync(int? connectionId, string configuredPath, CancellationToken cancellationToken = default)
             {
-                var fs = connectionId == targetConnectionId ? remoteFs : localFs;
+                var fs = connectionId == remoteConnectionId ? remoteFs : localFs;
                 return Task.FromResult(new EndpointFileSystem(fs, configuredPath, NoopDisposable.Instance));
             }
         }
@@ -522,6 +549,9 @@ namespace BackupService.UnitTests.Scheduling
             // that can't hydrate from a session-0 service.
             public HashSet<string> Unreadable { get; } = new(FakeFsPath.Comparer);
 
+            // Files that exist but can't be downloaded at all (e.g. a Google Docs file on Drive).
+            public HashSet<string> NotDownloadable { get; } = new(FakeFsPath.Comparer);
+
             public Stream OpenRead(string path)
             {
                 if (!_files.TryGetValue(path, out var e))
@@ -531,6 +561,10 @@ namespace BackupService.UnitTests.Scheduling
                 if (Unreadable.Contains(path))
                 {
                     throw new IOException("Access to the cloud file is denied.");
+                }
+                if (NotDownloadable.Contains(path))
+                {
+                    throw new FileNotDownloadableException($"'{path}' can't be downloaded.", "it's a Google Docs file");
                 }
                 return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
             }

@@ -174,6 +174,21 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task DeletedSource_WhoseTargetIsProtected_IsKeptAsWarning()
+        {
+            _fs.AddFile(@"C:\dst\wibble.jpg", T1, "jpg");
+            _fs.Protected.Add(@"C:\dst\wibble.jpg");
+
+            var result = await Run(Item(allowDeletions: true), Settings(), changes: [], deletes: [@"C:\src\wibble.jpg"]);
+
+            _fs.FileExists(@"C:\dst\wibble.jpg").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("Kept") && m.Contains("wibble.jpg"));
+        }
+
+        [Test]
         public async Task RemoteTarget_IsWrittenThroughTheResolvedEndpoint_NotTheLocalFilesystem()
         {
             _fs.AddFile(@"C:\src\wibble.jpg", T1, "jpg");
@@ -377,8 +392,15 @@ namespace BackupService.UnitTests.Scheduling
                 _files.Remove(source);
             }
 
+            // Files the filesystem refuses to delete or overwrite (e.g. a Google Docs file on Drive).
+            public HashSet<string> Protected { get; } = new(FakeFsPath.Comparer);
+
             public void DeleteFile(string path)
             {
+                if (Protected.Contains(path))
+                {
+                    throw new ProtectedFileException($"'{path}' is protected.", "it's a Google Docs file");
+                }
                 if (!_files.Remove(path))
                 {
                     throw new FileNotFoundException(path);

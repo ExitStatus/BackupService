@@ -295,6 +295,62 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task PropagatedDeletion_OfAProtectedFile_IsKeptAsWarning()
+        {
+            // The scenario behind the guard: an empty copy of a Google Doc is deleted on one side, and the deletion
+            // would propagate to the real Doc on Drive. The Drive side refuses, so the Doc survives.
+            _fs.AddFile(@"C:\left\Report", T1, "");
+            await Run(Item());                        // baseline: Report in sync on both sides
+            _fs.Protected.Add(@"C:\right\Report");
+            _fs.DeleteFile(@"C:\left\Report");        // the user cleans up the empty copy
+
+            var result = await Run(Item(propagateDeletions: true));
+
+            _fs.FileExists(@"C:\right\Report").Should().BeTrue();
+            result.Deleted.Should().Be(0);
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("Kept") && m.Contains("Report") && m.Contains("Google Docs"));
+        }
+
+        [Test]
+        public async Task Update_OverAProtectedFile_IsKeptAsWarning()
+        {
+            _fs.AddFile(@"C:\left\Report", T1, "");
+            await Run(Item());
+            _fs.Protected.Add(@"C:\right\Report");
+            _fs.AddFile(@"C:\left\Report", T3, "local-edit"); // edited on the left — would overwrite the right
+
+            var result = await Run(Item());
+
+            _fs.ContentOf(@"C:\right\Report").Should().Be("");
+            result.Warnings.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _fs.FileExists(@"C:\right\.Report.tmp").Should().BeFalse(); // the crash-safe temp was removed
+        }
+
+        [Test]
+        public async Task FileThatCantBeDownloaded_IsSkippedAsWarning_AndNeverMistakenForADeletion()
+        {
+            // A Google Docs file on one side can't be downloaded. It's skipped as a warning and left out of the
+            // baseline — so the next run sees it as still new on that side, never as "deleted on the other side"
+            // (which, with PropagateDeletions, would delete the original).
+            _fs.AddFile(@"C:\right\Report", T1, "");
+            _fs.NotDownloadable.Add(@"C:\right\Report");
+
+            var first = await Run(Item(propagateDeletions: true));
+            var second = await Run(Item(propagateDeletions: true));
+
+            _fs.FileExists(@"C:\right\Report").Should().BeTrue();
+            _fs.FileExists(@"C:\left\Report").Should().BeFalse();
+            first.Warnings.Should().Be(1);
+            first.Errors.Should().Be(0);
+            second.Warnings.Should().Be(1);
+            second.Deleted.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("Skipped") && m.Contains("Google Docs"));
+        }
+
+        [Test]
         public async Task CountFilesAsync_CountsDistinctFilesAcrossBothSides()
         {
             _fs.AddFile(@"C:\left\a.txt", T1, "a");    // only left
@@ -427,11 +483,18 @@ namespace BackupService.UnitTests.Scheduling
                 _files[path] = e with { Time = value };
             }
 
+            // Files that exist but can't be downloaded (e.g. a Google Docs file on Drive).
+            public HashSet<string> NotDownloadable { get; } = new(FakeFsPath.Comparer);
+
             public Stream OpenRead(string path)
             {
                 if (!_files.TryGetValue(path, out var e))
                 {
                     throw new FileNotFoundException(path);
+                }
+                if (NotDownloadable.Contains(path))
+                {
+                    throw new FileNotDownloadableException($"'{path}' can't be downloaded.", "it's a Google Docs file");
                 }
                 return new MemoryStream(Encoding.UTF8.GetBytes(e.Content), writable: false);
             }
@@ -455,8 +518,15 @@ namespace BackupService.UnitTests.Scheduling
                 _files.Remove(source);
             }
 
+            // Files the filesystem refuses to delete or overwrite (e.g. a Google Docs file on Drive).
+            public HashSet<string> Protected { get; } = new(FakeFsPath.Comparer);
+
             public void DeleteFile(string path)
             {
+                if (Protected.Contains(path))
+                {
+                    throw new ProtectedFileException($"'{path}' is protected.", "it's a Google Docs file");
+                }
                 if (!_files.Remove(path))
                 {
                     throw new FileNotFoundException(path);
