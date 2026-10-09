@@ -173,6 +173,43 @@ namespace BackupService.UnitTests.Connections
         }
 
         [Test]
+        public async Task UpdateAsync_GoogleDrive_ChangingTheClientWithoutReauthorizing_IsRefused()
+        {
+            // The stored token was issued to the built-in client; with a custom one every run's refresh would fail.
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive(token: "built-in-token", useBuiltIn: true));
+
+            var act = () => _service.UpdateAsync(id, "GDrive", GDrive(secret: "custom-secret", token: null, useBuiltIn: false));
+
+            await act.Should().ThrowAsync<InvalidOperationException>();
+            await using var db = new BackupDbContext(_options);
+            (await db.GoogleDriveConnectionSettings.SingleAsync()).UsesBuiltInClient.Should().BeTrue("nothing was saved");
+        }
+
+        [Test]
+        public async Task UpdateAsync_GoogleDrive_ChangingTheClientWithANewToken_IsSaved()
+        {
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive(token: "built-in-token", useBuiltIn: true));
+
+            await _service.UpdateAsync(id, "GDrive", GDrive(secret: "custom-secret", token: "custom-token", useBuiltIn: false));
+
+            await using var db = new BackupDbContext(_options);
+            var settings = await db.GoogleDriveConnectionSettings.SingleAsync();
+            settings.UsesBuiltInClient.Should().BeFalse();
+            new ReversibleProtector().Unprotect(settings.RefreshTokenEncrypted).Should().Be("custom-token");
+        }
+
+        [Test]
+        public async Task UpdateAsync_GoogleDrive_SwitchingToACustomClientWithABlankSecret_IsRefused()
+        {
+            // A built-in connection stores no secret, so "blank keeps the stored one" would save an empty secret.
+            var id = await _service.CreateAsync("GDrive", ConnectionType.GoogleDrive, GDrive(token: "built-in-token", useBuiltIn: true));
+
+            var act = () => _service.UpdateAsync(id, "GDrive", GDrive(secret: null, token: "custom-token", useBuiltIn: false));
+
+            await act.Should().ThrowAsync<InvalidOperationException>();
+        }
+
+        [Test]
         public async Task DeleteAsync_RemovesConnection_WhenNotInUse()
         {
             var id = await _service.CreateAsync("NAS", ConnectionType.Smb, Smb());

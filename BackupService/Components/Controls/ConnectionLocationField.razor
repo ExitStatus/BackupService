@@ -76,12 +76,12 @@ else
                                         OnSelect="OnSelected"
                                         OnCancel="CancelBrowse" />
     }
-    else if (_usbBrowseRoot is not null)
+    else if (_localBrowseRoot is not null)
     {
-        <FolderBrowserDialog RootPath="_usbBrowseRoot"
-                             InitialPath="@UsbBrowseInitialPath"
+        <FolderBrowserDialog RootPath="_localBrowseRoot"
+                             InitialPath="@RootedBrowseInitialPath"
                              AllowCreateFolder="AllowCreateFolder"
-                             OnSelect="OnUsbSelected"
+                             OnSelect="OnRootedSelected"
                              OnCancel="CancelBrowse" />
     }
     else if (_usbMtpSerial is not null)

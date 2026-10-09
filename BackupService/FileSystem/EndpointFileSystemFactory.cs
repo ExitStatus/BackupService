@@ -24,6 +24,12 @@ namespace BackupService.FileSystem
         {
             if (connectionId is not { } id)
             {
+                // A relative path would resolve against the app's working directory — a folder kept from a connection
+                // after the profile was switched to this machine. Refuse it rather than back up into the app's folder.
+                if (FolderPathRules.Problem(onConnection: false, configuredPath) is { } problem)
+                {
+                    throw new InvalidOperationException($"The folder {problem}. Choose it again.");
+                }
                 return new EndpointFileSystem(localFileSystem, configuredPath, NoSession);
             }
 

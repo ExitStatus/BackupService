@@ -27,7 +27,8 @@
                 <label>
                     Profile type
                     <Dropdown TValue="ProfileType"
-                              @bind-Value="Input.Type"
+                              Value="Input.Type"
+                              ValueChanged="OnTypeChanged"
                               Items="Enum.GetValues<ProfileType>()"
                               DisplayText="t => t.GetDescription()" />
                 </label>
@@ -65,7 +66,7 @@
                    a local-only source, so that cell is left empty for them. *@
                 @if (Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync)
                 {
-                    <ConnectionLocationField Label="Source connection" ShowFolder="false"
+                    <ConnectionLocationField Label="Source connection" ShowFolder="false" AllowMtp="@SourceAllowsMtp"
                                              @bind-ConnectionId="Input.SourceConnectionId" />
                 }
                 else
@@ -204,6 +205,11 @@
 
             <ValidationSummary />
 
+            @if (_folderError is not null)
+            {
+                <span class="validation-message">@_folderError</span>
+            }
+
             <div class="modal-actions">
                 @* Handle missed sync (scheduled types only) sits at the far left, vertically centred with the
                    action buttons — a toggle with its label on the right. *@
@@ -225,7 +231,7 @@
                 {
                     <button type="button" class="btn-secondary" style="margin-left:auto" @onclick="OnCancel">Cancel</button>
                 }
-                <button type="submit">@(IsEdit ? "Save" : "Create")</button>
+                <button type="submit" disabled="@_saving">@(IsEdit ? "Save" : "Create")</button>
             </div>
         </EditForm>
         </CascadingValue>

@@ -532,6 +532,21 @@ namespace BackupService.UnitTests.Scheduling
         }
 
         [Test]
+        public async Task AReadOnlySide_IsRefusedUpFront_InsteadOfFailingEveryCopyEveryRun()
+        {
+            // An MTP phone as a two-way source: nothing can be written back to it.
+            _fs.AddFile(@"C:\right\b.txt", T1, "world");
+            _fs.IsReadOnly = true;
+
+            var result = await Run(Item());
+
+            result.Errors.Should().Be(1);
+            result.Copied.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("read-only"));
+            _fs.FileExists(@"C:\left\b.txt").Should().BeFalse();
+        }
+
+        [Test]
         public async Task CountFilesAsync_CountsDistinctFilesAcrossBothSides()
         {
             _fs.AddFile(@"C:\left\a.txt", T1, "a");    // only left
@@ -593,6 +608,8 @@ namespace BackupService.UnitTests.Scheduling
 
             private readonly Dictionary<string, Entry> _files = new(FakeFsPath.Comparer);
             private readonly HashSet<string> _dirs = new(FakeFsPath.Comparer);
+
+            public bool IsReadOnly { get; set; }
 
             public void AddDirectory(string path)
             {

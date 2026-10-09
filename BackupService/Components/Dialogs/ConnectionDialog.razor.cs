@@ -38,6 +38,7 @@ namespace BackupService.Components.Dialogs
         private GoogleDriveConnectionEditor? _googleDriveEditor;
         private readonly UsbConnectionEditor.UsbEditModel _usb = new();
         private UsbConnectionEditor? _usbEditor;
+        private bool _saving;
 
         private bool IsEdit => ConnectionId.HasValue;
 
@@ -104,7 +105,14 @@ namespace BackupService.Components.Dialogs
                 _googleDrive.RefreshToken = null; // blank = keep the stored authorization
                 _googleDrive.AccountEmail = googleDrive.AccountEmail;
                 _googleDrive.RootFolder = googleDrive.RootFolder;
-                _googleDrive.HasStoredAuth = !string.IsNullOrEmpty(googleDrive.RefreshTokenEncrypted);
+                // Which client the stored token and secret belong to, so a change of client asks for a fresh
+                // authorization (and secret) instead of saving them with a client they don't work with.
+                _googleDrive.StoredAuthClient = string.IsNullOrEmpty(googleDrive.RefreshTokenEncrypted)
+                    ? null
+                    : GoogleDriveConnectionEditor.OAuthClient.For(googleDrive.UsesBuiltInClient, googleDrive.ClientId);
+                _googleDrive.StoredCustomClientId = !googleDrive.UsesBuiltInClient && !string.IsNullOrEmpty(googleDrive.ClientSecretEncrypted)
+                    ? googleDrive.ClientId.Trim()
+                    : null;
             }
 
             if (connection.Usb is { } usb)
@@ -123,19 +131,33 @@ namespace BackupService.Components.Dialogs
 
         private async Task SubmitAsync()
         {
-            var saved = Input.Type switch
-            {
-                ConnectionType.GoogleDrive => await SubmitGoogleDriveAsync(),
-                ConnectionType.Usb => await SubmitUsbAsync(),
-                _ => await SubmitSmbAsync(),
-            };
-
-            if (!saved)
+            // A second submit (double-click) arrives while the first awaits the database — it would save twice.
+            if (_saving)
             {
                 return;
             }
 
-            await OnSaved.InvokeAsync();
+            _saving = true;
+            try
+            {
+                var saved = Input.Type switch
+                {
+                    ConnectionType.GoogleDrive => await SubmitGoogleDriveAsync(),
+                    ConnectionType.Usb => await SubmitUsbAsync(),
+                    _ => await SubmitSmbAsync(),
+                };
+
+                if (!saved)
+                {
+                    return;
+                }
+
+                await OnSaved.InvokeAsync();
+            }
+            finally
+            {
+                _saving = false;
+            }
         }
 
         private async Task<bool> SubmitGoogleDriveAsync()
@@ -149,7 +171,7 @@ namespace BackupService.Components.Dialogs
                 _googleDrive.UseBuiltInClient,
                 _googleDrive.ClientId.Trim(),
                 _googleDrive.ClientSecret,
-                _googleDrive.RefreshToken,
+                _googleDrive.HasCapturedToken ? _googleDrive.RefreshToken : null, // null keeps the stored one
                 _googleDrive.AccountEmail,
                 string.IsNullOrWhiteSpace(_googleDrive.RootFolder) ? null : _googleDrive.RootFolder);
 

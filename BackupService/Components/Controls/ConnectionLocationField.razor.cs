@@ -98,6 +98,13 @@ namespace BackupService.Components.Controls
         public string? Error { get; set; }
 
         /// <summary>
+        /// Confines Browse to this folder — relative to the connection's root, or a full path on this machine — and
+        /// returns the pick relative to it. Used by a Path exclude, which names a location inside the source folder.
+        /// </summary>
+        [Parameter]
+        public string? BrowseUnder { get; set; }
+
+        /// <summary>
         /// Optional per-profile-edit-session memory of the last folder browsed (provided by ProfileDialog).
         /// When this field's folder is still blank, the picker opens at the remembered location instead of
         /// the root. Null outside a profile edit (e.g. the scheduled-task working-directory field).
@@ -110,14 +117,18 @@ namespace BackupService.Components.Controls
         /// browsed for this connection in the current session (so the next item starts where the last ended).
         /// </summary>
         private string EffectivePath =>
-            string.IsNullOrEmpty(Path) ? BrowseMemory?.Get(ConnectionId) ?? string.Empty : Path;
+            string.IsNullOrEmpty(Path) && BrowseUnder is null ? BrowseMemory?.Get(ConnectionId) ?? string.Empty : Path;
 
         private IReadOnlyList<ConnectionSummary> _connections = [];
         private List<int?> _options = [null];
+        // The AllowUsb/AllowMtp the options were built for — the profile dialog changes them when the type changes.
+        private (bool Usb, bool Mtp)? _optionsBuiltFor;
         private bool _browsing;
         private SmbConnectionInfo? _smbInfo;
         private GoogleDriveConnectionInfo? _googleDriveInfo;
-        private string? _usbBrowseRoot;
+        // A local-filesystem picker confined to this folder, with the pick stored relative to it (a mass-storage USB
+        // connection's root, or BrowseUnder on this machine).
+        private string? _localBrowseRoot;
         private string? _usbMtpSerial;
         private string _usbMtpRoot = string.Empty;
         private string? _browseHint;
@@ -130,14 +141,29 @@ namespace BackupService.Components.Controls
             }
 
             _connections = await ConnectionService.GetSummariesAsync();
-            // The location options: null = this machine (local), then each configured connection. USB is hidden
-            // entirely when !AllowUsb; read-only MTP is hidden when !AllowMtp (so a target offers mass-storage USB
-            // but not a camera).
+            BuildOptions();
+        }
+
+        protected override void OnParametersSet()
+        {
+            // Rebuilt when the parent changes what's allowed (e.g. the profile type changed) — built once, the
+            // dropdown kept offering USB to a type that can't use it.
+            if (_optionsBuiltFor is { } built && built != (AllowUsb, AllowMtp))
+            {
+                BuildOptions();
+            }
+        }
+
+        // The location options: null = this machine (local), then each configured connection. USB is hidden entirely
+        // when !AllowUsb; read-only MTP is hidden when !AllowMtp (so a target offers mass-storage USB but not a camera).
+        private void BuildOptions()
+        {
             var selectable = _connections.Where(c =>
                 (AllowUsb || c.Type != ConnectionType.Usb)
                 && (AllowMtp || c.UsbKind != UsbDeviceKind.Mtp));
             _options = new List<int?> { null };
             _options.AddRange(selectable.Select(c => (int?)c.Id));
+            _optionsBuiltFor = (AllowUsb, AllowMtp);
         }
 
         private string LocationLabel(int? connectionId) =>
@@ -158,21 +184,45 @@ namespace BackupService.Components.Controls
         private Task OnPathChanged(ChangeEventArgs e) =>
             PathChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty);
 
+        /// <summary>Opens the picker — for a host that renders this field with neither the location nor the folder box.</summary>
+        public Task OpenBrowserAsync() => BrowseAsync();
+
         private async Task BrowseAsync()
         {
             _smbInfo = null;
             _googleDriveInfo = null;
-            _usbBrowseRoot = null;
+            _localBrowseRoot = null;
             _usbMtpSerial = null;
             _browseHint = null;
 
+            try
+            {
+                await PrepareBrowseAsync();
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                // A saved password/token that can't be decrypted (e.g. the key ring was lost after a move) — a
+                // supported state. Unhandled, it took down the whole page and every unsaved edit with it.
+                _browseHint = "This connection's saved credentials can't be read. Edit the connection and enter them again.";
+            }
+            catch (Exception ex)
+            {
+                _browseHint = $"Couldn't open the connection: {ex.Message}";
+            }
+        }
+
+        private async Task PrepareBrowseAsync()
+        {
             // Remote: resolve the connection by type (decrypting its secrets) so the right picker can list it.
             if (ConnectionId is { } id)
             {
                 switch (await ConnectionResolver.GetTypeAsync(id))
                 {
                     case ConnectionType.GoogleDrive:
-                        _googleDriveInfo = await ConnectionResolver.GetGoogleDriveInfoAsync(id);
+                        var drive = await ConnectionResolver.GetGoogleDriveInfoAsync(id);
+                        // The confined picker returns paths relative to RootFolder, so moving the root down to
+                        // BrowseUnder gives paths relative to that.
+                        _googleDriveInfo = BrowseUnder is null ? drive : drive with { RootFolder = JoinRelative(drive.RootFolder, BrowseUnder) };
                         break;
                     case ConnectionType.Usb:
                         // A USB connection is only browsable while its device is connected.
@@ -185,7 +235,7 @@ namespace BackupService.Components.Controls
                                 return;
                             }
                             _usbMtpSerial = usb.MtpSerial;
-                            _usbMtpRoot = usb.RootFolder ?? string.Empty;
+                            _usbMtpRoot = BrowseUnder is null ? usb.RootFolder ?? string.Empty : JoinRelative(usb.RootFolder, BrowseUnder);
                         }
                         else
                         {
@@ -199,59 +249,91 @@ namespace BackupService.Components.Controls
                             // A profile's folder is relative to the connection's root folder (the engine resolves
                             // mount + RootFolder + folder), so browse — and store the choice — relative to that root,
                             // as the SMB/Drive/MTP pickers do. Rooting at the drive instead applied the root twice.
-                            var rootFolder = (usb.RootFolder ?? string.Empty).Trim('\\', '/');
+                            var rootFolder = JoinRelative(usb.RootFolder, BrowseUnder);
                             var browseRoot = rootFolder.Length == 0 ? mountPath : System.IO.Path.Combine(mountPath, rootFolder);
                             if (!System.IO.Directory.Exists(browseRoot))
                             {
-                                _browseHint = $"The connection's root folder '{usb.RootFolder}' isn't on the device.";
+                                _browseHint = BrowseUnder is null
+                                    ? $"The connection's root folder '{usb.RootFolder}' isn't on the device."
+                                    : $"The folder '{BrowseUnder}' isn't on the device.";
                                 return;
                             }
-                            _usbBrowseRoot = browseRoot;
+                            _localBrowseRoot = browseRoot;
                         }
                         break;
                     default:
-                        _smbInfo = await ConnectionResolver.GetSmbInfoAsync(id);
+                        var smb = await ConnectionResolver.GetSmbInfoAsync(id);
+                        _smbInfo = BrowseUnder is null ? smb : smb with { RootFolder = JoinRelative(smb.RootFolder, BrowseUnder) };
                         break;
                 }
+            }
+            else if (BrowseUnder is not null)
+            {
+                // This machine, confined to a full local path.
+                if (!System.IO.Directory.Exists(BrowseUnder))
+                {
+                    _browseHint = $"The folder '{BrowseUnder}' doesn't exist.";
+                    return;
+                }
+                _localBrowseRoot = BrowseUnder;
             }
 
             _browsing = true;
         }
 
+        // Joins two connection-relative fragments with a single backslash.
+        private static string JoinRelative(string? root, string? path)
+        {
+            var left = (root ?? string.Empty).Replace('/', '\\').Trim('\\');
+            var right = (path ?? string.Empty).Replace('/', '\\').Trim('\\');
+            if (left.Length == 0)
+            {
+                return right;
+            }
+            return right.Length == 0 ? left : $@"{left}\{right}";
+        }
+
         private async Task OnSelected(string path)
         {
-            // Remember this level so the next item's browse (this session) starts here.
-            BrowseMemory?.Set(ConnectionId, path);
+            // Remember this level so the next item's browse (this session) starts here — not a pick under
+            // BrowseUnder, which is relative to a different folder.
+            if (BrowseUnder is null)
+            {
+                BrowseMemory?.Set(ConnectionId, path);
+            }
             await PathChanged.InvokeAsync(path);
             CancelBrowse();
         }
 
-        // The USB picker returns an absolute path on the current drive; store it relative to the connection's root.
-        private async Task OnUsbSelected(string absolutePath)
+        // The rooted picker returns an absolute local path; store it relative to its root.
+        private async Task OnRootedSelected(string absolutePath)
         {
-            if (_usbBrowseRoot is not null)
+            if (_localBrowseRoot is not null)
             {
-                var relative = System.IO.Path.GetRelativePath(_usbBrowseRoot, absolutePath);
+                var relative = System.IO.Path.GetRelativePath(_localBrowseRoot, absolutePath);
                 var stored = relative is "." or "" ? string.Empty : relative;
-                BrowseMemory?.Set(ConnectionId, stored);
+                if (BrowseUnder is null)
+                {
+                    BrowseMemory?.Set(ConnectionId, stored);
+                }
                 await PathChanged.InvokeAsync(stored);
             }
 
             CancelBrowse();
         }
 
-        // The USB picker takes an absolute path on the current drive; seed it from this field's folder or,
-        // when blank, the remembered relative path for this connection (both relative to the connection's root).
-        private string? UsbBrowseInitialPath => _usbBrowseRoot is null
+        // The rooted picker takes an absolute local path; seed it from this field's folder or, when blank, the
+        // remembered relative path for this connection (both relative to the picker's root).
+        private string? RootedBrowseInitialPath => _localBrowseRoot is null
             ? null
-            : string.IsNullOrEmpty(EffectivePath) ? _usbBrowseRoot : System.IO.Path.Combine(_usbBrowseRoot, EffectivePath);
+            : string.IsNullOrEmpty(EffectivePath) ? _localBrowseRoot : System.IO.Path.Combine(_localBrowseRoot, EffectivePath);
 
         private void CancelBrowse()
         {
             _browsing = false;
             _smbInfo = null;
             _googleDriveInfo = null;
-            _usbBrowseRoot = null;
+            _localBrowseRoot = null;
             _usbMtpSerial = null;
         }
     }

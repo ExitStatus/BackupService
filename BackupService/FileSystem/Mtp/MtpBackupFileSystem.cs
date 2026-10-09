@@ -148,6 +148,8 @@ namespace BackupService.FileSystem.Mtp
 
         // ---- write/archive members: unsupported (USB is source-only / read-only) ----
 
+        public bool IsReadOnly => true;
+
         public void CreateDirectory(string path) => throw ReadOnly();
         public void DeleteDirectory(string path, bool recursive) => throw ReadOnly();
         public void SetLastWriteTimeUtc(string path, DateTime value) => throw ReadOnly();

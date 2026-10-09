@@ -4,6 +4,7 @@ using BackupService.Connections;
 using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
+using BackupService.FileSystem;
 using BackupService.Groups;
 using BackupService.Profiles;
 using BackupService.Scheduling;
@@ -65,6 +66,8 @@ namespace BackupService.Components.Dialogs
         private bool _showSchedule;
         private bool _showDeleteConfirm;
         private bool _lightroomFolderError;
+        private string? _folderError;
+        private bool _saving;
         private IReadOnlyDictionary<int, ConnectionType> _connectionTypes = new Dictionary<int, ConnectionType>();
         private IReadOnlyDictionary<int, UsbDeviceKind> _connectionUsbKinds = new Dictionary<int, UsbDeviceKind>();
 
@@ -114,6 +117,9 @@ namespace BackupService.Components.Dialogs
         // OneWaySync/ArchiveSync may target a read/write USB mass-storage drive (read-only MTP is excluded by the
         // target picker).
         private bool TargetAllowsUsb => Input.Type is ProfileType.OneWaySync or ProfileType.ArchiveSync or ProfileType.TwoWaySync;
+
+        // A read-only MTP device can be a source only where nothing is written back to it — two-way sync writes both ways.
+        private bool SourceAllowsMtp => Input.Type != ProfileType.TwoWaySync;
 
         // A OneWaySync/ArchiveSync profile whose (profile-level) source OR target is a USB connection is run when the
         // device is plugged in, not on a schedule — so the Schedule field is replaced with a note and no cron is
@@ -327,23 +333,94 @@ namespace BackupService.Components.Dialogs
             _showSchedule = false;
         }
 
+        // A type change can leave connections the new type can't use: a USB target on a watcher-driven type, or a
+        // read-only MTP source on two-way sync (which writes to both sides). Put those back to this machine.
+        private void OnTypeChanged(ProfileType type)
+        {
+            Input.Type = type;
+            if (!TargetAllowsUsb && IsUsbConnection(Input.TargetConnectionId))
+            {
+                Input.TargetConnectionId = null;
+            }
+            if (!SourceAllowsMtp && IsMtpConnection(Input.SourceConnectionId))
+            {
+                Input.SourceConnectionId = null;
+            }
+        }
+
+        private bool IsMtpConnection(int? connectionId) =>
+            connectionId is { } id && _connectionUsbKinds.TryGetValue(id, out var kind) && kind == UsbDeviceKind.Mtp;
+
         private async Task SubmitAsync()
         {
-            var saved = Input.Type switch
-            {
-                ProfileType.InstantSync => await SubmitInstantSyncAsync(),
-                ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
-                ProfileType.LightroomArchive => await SubmitLightroomArchiveAsync(),
-                ProfileType.TwoWaySync => await SubmitTwoWaySyncAsync(),
-                _ => await SubmitOneWaySyncItemAsync(),
-            };
-
-            if (!saved)
+            // Blazor dispatches a second submit while the first is still awaiting the database, so a double-click
+            // would otherwise create the profile twice.
+            if (_saving)
             {
                 return;
             }
 
-            await OnSaved.InvokeAsync();
+            _folderError = FolderProblem();
+            if (_folderError is not null)
+            {
+                _activeTab = "actions";
+                return;
+            }
+
+            _saving = true;
+            try
+            {
+                var saved = Input.Type switch
+                {
+                    ProfileType.InstantSync => await SubmitInstantSyncAsync(),
+                    ProfileType.ArchiveSync => await SubmitArchiveSyncAsync(),
+                    ProfileType.LightroomArchive => await SubmitLightroomArchiveAsync(),
+                    ProfileType.TwoWaySync => await SubmitTwoWaySyncAsync(),
+                    _ => await SubmitOneWaySyncItemAsync(),
+                };
+
+                if (!saved)
+                {
+                    return;
+                }
+
+                await OnSaved.InvokeAsync();
+            }
+            finally
+            {
+                _saving = false;
+            }
+        }
+
+        // Each action's folders must fit the profile's connections (see FolderPathRules). An action keeps its folders
+        // when the profile's connection is changed, so a folder chosen for the old connection is caught here —
+        // otherwise e.g. a share-relative "PC1" used on this machine would back up into the app's own folder.
+        private string? FolderProblem()
+        {
+            var sourceOnConnection = !IsWatcherDriven && Input.SourceConnectionId is not null;
+            var targetOnConnection = Input.TargetConnectionId is not null;
+            IEnumerable<(string Name, string Source, string Target)> rows = Input.Type switch
+            {
+                ProfileType.InstantSync => _instantSyncItems.Select(i => (i.Name, i.SourceFolder, i.TargetFolder)),
+                ProfileType.ArchiveSync => _archiveSyncItems.Select(i => (i.Name, i.SourceFolder, i.TargetFolder)),
+                ProfileType.LightroomArchive => _lightroomArchiveItems.Select(i => (i.Name, i.SourceFolder, i.TargetFolder)),
+                ProfileType.TwoWaySync => _twoWaySyncItems.Select(i => (i.Name, i.SourceFolder, i.TargetFolder)),
+                _ => _oneWaySyncItems.Select(i => (i.Name, i.SourceFolder, i.TargetFolder)),
+            };
+
+            foreach (var (name, source, target) in rows)
+            {
+                if (FolderPathRules.Problem(sourceOnConnection, source) is { } sourceProblem)
+                {
+                    return $"Action '{name}': the source folder {sourceProblem}. Edit the action and choose it again.";
+                }
+                if (FolderPathRules.Problem(targetOnConnection, target) is { } targetProblem)
+                {
+                    return $"Action '{name}': the target folder {targetProblem}. Edit the action and choose it again.";
+                }
+            }
+
+            return null;
         }
 
         private async Task<bool> SubmitOneWaySyncItemAsync()

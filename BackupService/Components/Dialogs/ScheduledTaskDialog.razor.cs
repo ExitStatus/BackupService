@@ -31,6 +31,7 @@ namespace BackupService.Components.Dialogs
         private readonly List<ScheduledTaskStepModel> _steps = [];
         private ScheduledTaskStepsControl? _stepsControl;
         private ScheduleDefinition? _schedule;
+        private bool _saving;
         private string? _existingScheduleCron;
         private bool _showSchedule;
 
@@ -91,7 +92,8 @@ namespace BackupService.Components.Dialogs
 
         private async Task SubmitAsync()
         {
-            if (_stepsControl is null || !_stepsControl.Validate())
+            // A second submit (double-click) arrives while the first awaits the database — it would create the task twice.
+            if (_saving || _stepsControl is null || !_stepsControl.Validate())
             {
                 return;
             }
@@ -107,16 +109,24 @@ namespace BackupService.Components.Dialogs
                     s.Arguments, s.WorkingDirectory, s.RunViaShell, s.Kind, s.Script))
                 .ToList();
 
-            if (TaskId is { } id)
+            _saving = true;
+            try
             {
-                await TaskService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, steps, Input.HandleMissedSync);
-            }
-            else
-            {
-                await TaskService.CreateAsync(Input.Name, Input.Description, scheduleCron, Input.Enabled, steps, Input.HandleMissedSync);
-            }
+                if (TaskId is { } id)
+                {
+                    await TaskService.UpdateAsync(id, Input.Name, Input.Description, scheduleCron, Input.Enabled, steps, Input.HandleMissedSync);
+                }
+                else
+                {
+                    await TaskService.CreateAsync(Input.Name, Input.Description, scheduleCron, Input.Enabled, steps, Input.HandleMissedSync);
+                }
 
-            await OnSaved.InvokeAsync();
+                await OnSaved.InvokeAsync();
+            }
+            finally
+            {
+                _saving = false;
+            }
         }
 
         public sealed class InputModel

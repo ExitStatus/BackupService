@@ -85,6 +85,35 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task UpdateSettingsAsync_ClampsAVeryLargeValue_ToTheMaximum()
+        {
+            await _service.UpdateSettingsAsync(999_999, int.MaxValue);
+
+            var settings = await _service.GetSettingsAsync();
+            settings.AuthenticationLogRetentionDays.Should().Be(LogRetentionService.MaxRetentionDays);
+            settings.OperationLogRetentionDays.Should().Be(LogRetentionService.MaxRetentionDays);
+        }
+
+        [Test]
+        public async Task PurgeIfDueAsync_AVeryLargeSavedRetention_DoesNotStopTheOtherPurge()
+        {
+            // 999,999 days puts the cutoff before year 1, which threw — and the operation-log purge (run after the
+            // authentication one) never happened again.
+            using (var db = new BackupDbContext(_options))
+            {
+                db.LogRetentionSettings.Add(new LogRetentionSettings { AuthenticationLogRetentionDays = 999_999, OperationLogRetentionDays = 30 });
+                db.OperationLogs.Add(new OperationLog { Name = "old", TimestampUtc = Now.AddDays(-40) });
+                db.OperationLogs.Add(new OperationLog { Name = "recent", TimestampUtc = Now.AddDays(-5) });
+                db.SaveChanges();
+            }
+
+            await _service.PurgeIfDueAsync();
+
+            await using var verify = new BackupDbContext(_options);
+            (await verify.OperationLogs.ToListAsync()).Should().ContainSingle().Which.Name.Should().Be("recent");
+        }
+
+        [Test]
         public async Task PurgeIfDueAsync_DeletesRowsOlderThanRetention_KeepsNewer()
         {
             // Defaults: auth 7 days, operation 30 days. Insert oldest first so Id order matches time.

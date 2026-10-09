@@ -109,5 +109,81 @@ namespace BackupService.UnitTests.Scheduling
         {
             ScheduleDefinition.FromCron("not a cron").Should().BeNull();
         }
+
+        [TestCase(ScheduleMode.EveryNMinutes)]
+        [TestCase(ScheduleMode.Hourly)]
+        [TestCase(ScheduleMode.Daily)]
+        [TestCase(ScheduleMode.Weekly)]
+        [TestCase(ScheduleMode.Monthly)]
+        public void TheDefaultForEveryMode_IsValid(ScheduleMode mode)
+        {
+            new ScheduleDefinition { Mode = mode }.GetValidationError().Should().BeNull();
+        }
+
+        [Test]
+        public void OutOfRangeValues_AreRefused_SoNothingThatCantRunIsSaved()
+        {
+            // Each of these used to be saved, after which the scheduler dropped it without a word.
+            new ScheduleDefinition { Mode = ScheduleMode.Hourly, Minute = 75 }.GetValidationError().Should().NotBeNull();
+            new ScheduleDefinition { Mode = ScheduleMode.EveryNMinutes, IntervalMinutes = 0 }.GetValidationError().Should().NotBeNull();
+            new ScheduleDefinition { Mode = ScheduleMode.Daily, Hour = 24 }.GetValidationError().Should().NotBeNull();
+            new ScheduleDefinition { Mode = ScheduleMode.Monthly, DayOfMonth = 0 }.GetValidationError().Should().NotBeNull();
+            new ScheduleDefinition { Mode = ScheduleMode.Monthly, DayOfMonth = 32 }.GetValidationError().Should().NotBeNull();
+            new ScheduleDefinition { Mode = ScheduleMode.Weekly, DaysOfWeek = [] }.GetValidationError().Should().NotBeNull();
+        }
+
+        [Test]
+        public void AnIntervalThatDoesNotDivideTheHour_IsRefused_AndDescribedAsWhatItReallyDoes()
+        {
+            // "*/45" restarts every hour: it runs at :00 and :45, not every 45 minutes.
+            var def = new ScheduleDefinition { Mode = ScheduleMode.EveryNMinutes, IntervalMinutes = 45 };
+
+            def.GetValidationError().Should().NotBeNull();
+            ScheduleDefinition.Describe("*/45 * * * *").Should().Be("Every hour at minutes 00, 45");
+        }
+
+        [Test]
+        public void EveryIntervalOffered_DividesTheHour()
+        {
+            ScheduleDefinition.EvenIntervals.Should().OnlyContain(n => 60 % n == 0);
+        }
+
+        [Test]
+        public void LastDayOfTheMonth_RunsAtTheEndOfEveryMonth_AndRoundTrips()
+        {
+            var def = new ScheduleDefinition { Mode = ScheduleMode.Monthly, LastDayOfMonth = true, Hour = 23, Minute = 0 };
+
+            def.ToCron().Should().Be("0 23 L * *");
+            def.GetValidationError().Should().BeNull();
+            def.ToHumanReadable().Should().Be("On the last day of every month at 11:00 PM");
+            ScheduleDefinition.FromCron(def.ToCron())!.LastDayOfMonth.Should().BeTrue();
+
+            var next = CronExpression.Parse(def.ToCron()).GetNextOccurrence(new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+            next.Should().Be(new DateTime(2026, 2, 28, 23, 0, 0, DateTimeKind.Utc));
+        }
+
+        [Test]
+        public void ADayThatSomeMonthsLack_SaysThoseMonthsAreSkipped()
+        {
+            new ScheduleDefinition { Mode = ScheduleMode.Monthly, DayOfMonth = 31, Hour = 4 }.ToHumanReadable()
+                .Should().Be("On day 31 of each month that has one at 04:00 AM");
+        }
+
+        [TestCase("75 * * * *")]
+        [TestCase("*/0 * * * *")]
+        [TestCase("0 2 32 * *")]
+        public void Describe_AStoredCronThatCantRun_SaysSo(string cron)
+        {
+            ScheduleDefinition.Describe(cron).Should().Be("Invalid schedule — not running");
+        }
+
+        [TestCase("75 * * * *")]
+        [TestCase("75 2 * * *")]
+        [TestCase("0 25 * * *")]
+        [TestCase("0 2 0 * *")]
+        public void FromCron_OutOfRangeValues_ReturnNull_RatherThanADefinitionThatCrashesWhenShown(string cron)
+        {
+            ScheduleDefinition.FromCron(cron).Should().BeNull();
+        }
     }
 }

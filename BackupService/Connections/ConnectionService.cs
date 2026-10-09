@@ -137,6 +137,24 @@ namespace BackupService.Connections
                 return;
             }
 
+            // A refresh token only works with the OAuth client that issued it, and a blank secret box only stands in for
+            // the secret of the same custom client. Saving either across a client change would make every run fail
+            // to refresh its token (the editor checks this too).
+            if (connection.GoogleDrive is { } stored)
+            {
+                var sameClient = stored.UsesBuiltInClient == googleDrive.UseBuiltInClient
+                    && (googleDrive.UseBuiltInClient || string.Equals(stored.ClientId, googleDrive.ClientId, StringComparison.Ordinal));
+                if (!sameClient && string.IsNullOrEmpty(googleDrive.RefreshToken) && !string.IsNullOrEmpty(stored.RefreshTokenEncrypted))
+                {
+                    throw new InvalidOperationException("The saved Google authorization belongs to a different OAuth client. Authorize again before saving.");
+                }
+                if (!googleDrive.UseBuiltInClient && string.IsNullOrEmpty(googleDrive.ClientSecret)
+                    && !(sameClient && !string.IsNullOrEmpty(stored.ClientSecretEncrypted)))
+                {
+                    throw new InvalidOperationException("Enter the client secret for this OAuth client.");
+                }
+            }
+
             var oldName = connection.Name;
             connection.Name = name;
 

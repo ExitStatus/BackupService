@@ -14,8 +14,11 @@
         {
             case ScheduleMode.EveryNMinutes:
                 <label>
-                    Run every (minutes)
-                    <input type="number" min="1" max="59" @bind="_def.IntervalMinutes" />
+                    Run every
+                    <Dropdown TValue="int"
+                              @bind-Value="_def.IntervalMinutes"
+                              Items="IntervalOptions"
+                              DisplayText="IntervalLabel" />
                 </label>
                 break;
 
@@ -54,13 +57,25 @@
             case ScheduleMode.Monthly:
                 <label>
                     On day of month
-                    <input type="number" min="1" max="31" @bind="_def.DayOfMonth" />
+                    <Dropdown TValue="int"
+                              @bind-Value="MonthDay"
+                              Items="MonthDays"
+                              DisplayText="MonthDayLabel" />
                 </label>
+                @if (!_def.LastDayOfMonth && _def.DayOfMonth > 28)
+                {
+                    <div class="help-text">Months without a day @_def.DayOfMonth are skipped. Choose "Last day of the month" to run at the end of every month.</div>
+                }
                 <label>
                     At time
                     <TimePicker @bind-Value="ScheduleTime" />
                 </label>
                 break;
+        }
+
+        @if (_error is not null)
+        {
+            <span class="validation-message">@_error</span>
         }
 
         <div class="modal-actions">

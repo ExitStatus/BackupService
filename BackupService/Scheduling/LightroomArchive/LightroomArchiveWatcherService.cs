@@ -274,6 +274,8 @@ namespace BackupService.Scheduling
             private readonly HashSet<string> _pendingDeletes = new(StringComparer.OrdinalIgnoreCase);
             private bool _catchUpNeeded;
             private int _retryAttempt;
+            // Flushes that have failed outright in a row; only the first is logged (see InstantSyncWatcherService).
+            private int _failedFlushes;
             private DateTime _backoffUntilUtc = DateTime.MinValue;
             private bool _processing;
             private bool _disposed;
@@ -638,10 +640,24 @@ namespace BackupService.Scheduling
                 }
                 catch (Exception ex)
                 {
-                    await log.ErrorAsync($"Lightroom archive '{_item.Name}' failed — it will be retried", ex);
-                    await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
-                    await log.SetSummaryAsync($"Lightroom Archive '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
+                    if (_failedFlushes++ == 0)
+                    {
+                        await log.ErrorAsync($"Lightroom archive '{_item.Name}' failed — it will be retried until it succeeds (further failures aren't logged)", ex);
+                        await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
+                        await log.SetSummaryAsync($"Lightroom Archive '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(ex, "Lightroom archive item '{Item}' (profile {ProfileId}): retry {Attempt} failed; retrying later.",
+                            _item.Name, _profileId, _failedFlushes - 1);
+                    }
                     return FlushOutcome.RetryChanges;
+                }
+
+                if (_failedFlushes > 0)
+                {
+                    await log.AppendAsync($"Lightroom archive '{_item.Name}' is working again after {_failedFlushes} failed attempt(s)");
+                    _failedFlushes = 0;
                 }
 
                 var owing = result.Errors > 0 || result.Warnings > 0 ? FlushOutcome.RetryWithCatchUp : FlushOutcome.Done;

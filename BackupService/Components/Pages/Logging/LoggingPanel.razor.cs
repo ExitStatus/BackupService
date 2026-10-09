@@ -36,9 +36,10 @@ namespace BackupService.Components.Pages.Logging
                 return;
             }
 
-            if (_model.AuthenticationLogRetentionDays < 1 || _model.OperationLogRetentionDays < 1)
+            if (_model.AuthenticationLogRetentionDays is < 1 or > LogRetentionService.MaxRetentionDays
+                || _model.OperationLogRetentionDays is < 1 or > LogRetentionService.MaxRetentionDays)
             {
-                _error = "Retention must be at least 1 day.";
+                _error = $"Retention must be between 1 and {LogRetentionService.MaxRetentionDays:N0} days (100 years).";
                 return;
             }
 

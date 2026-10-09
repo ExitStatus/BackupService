@@ -171,6 +171,10 @@ namespace BackupService.DatabaseBackup
         public async Task<IReadOnlyList<DatabaseBackupInfo>> ListBackupsAsync(CancellationToken cancellationToken = default)
         {
             var settings = await GetSettingsAsync(cancellationToken);
+            if (settings.TargetConnectionId is null && string.IsNullOrWhiteSpace(settings.TargetFolder))
+            {
+                return []; // no target chosen yet
+            }
 
             var endpoint = await endpointFactory.ResolveAsync(settings.TargetConnectionId, settings.TargetFolder, cancellationToken);
             using (endpoint.Session)

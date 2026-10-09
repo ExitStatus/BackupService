@@ -52,10 +52,11 @@
     }
 
     <div class="gdrive-auth-row">
-        <button type="button" class="btn-secondary" @onclick="AuthorizeAsync" disabled="@_busy">
-            @(_authorizing ? "Waiting for Google…" : "Authorize with Google")
+        <button type="button" class="btn-secondary" @onclick="AuthorizeAsync" disabled="@_busy"
+                title="@(_authorizing ? "Stop waiting for this authorization" : null)">
+            @(_authorizing ? "Waiting for Google… (cancel)" : "Authorize with Google")
         </button>
-        <span class="gdrive-auth-status @(Model.HasStoredAuth ? "ok" : "")">@AuthStatusText</span>
+        <span class="gdrive-auth-status @(Model.IsAuthorized ? "ok" : "")">@AuthStatusText</span>
     </div>
     @if (_authUrl is not null)
     {

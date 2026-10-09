@@ -31,13 +31,20 @@ namespace BackupService.Components.Controls
         [Parameter]
         public string? SourceFolder { get; set; }
 
+        /// <summary>
+        /// The profile's source connection (null = this machine). A Path exclude on a source on a connection is
+        /// browsed on that connection — the local picker can't see it.
+        /// </summary>
+        [Parameter]
+        public int? SourceConnectionId { get; set; }
+
         private const int PageSize = 8;
 
         private string _pattern = string.Empty;
         private string _selectedType = "file";
         private string? _error;
         private int _page = 1;
-        private bool _browsing;
+        private ConnectionLocationField? _browser;
         private readonly string _radioName = Guid.NewGuid().ToString("N");
 
         private bool IsInclude => Direction == FilterDirection.Include;
@@ -45,7 +52,11 @@ namespace BackupService.Components.Controls
         // The Path type (a relative-path exclude) gets a Browse button rooted at the source folder.
         private bool ShowBrowse => !IsInclude && _selectedType == "path";
 
-        private bool CanBrowse => !string.IsNullOrWhiteSpace(SourceFolder);
+        // A source on a connection may be the connection's root (a blank folder); one on this machine needs a folder.
+        private bool CanBrowse => SourceConnectionId is not null || !string.IsNullOrWhiteSpace(SourceFolder);
+
+        // Browsing is confined to the source folder, and the pick comes back relative to it.
+        private string BrowseUnder => SourceFolder ?? string.Empty;
 
         private int TotalPages => Math.Max(1, (int)Math.Ceiling(Entries.Count / (double)PageSize));
 
@@ -118,7 +129,7 @@ namespace BackupService.Components.Controls
                 return;
             }
 
-            var error = FilterValidation.Validate(kind, pattern, Entries, OtherEntries);
+            var error = FilterValidation.Validate(kind, pattern, Entries, OtherEntries, IsInclude);
             if (error is not null)
             {
                 _error = error;
@@ -146,21 +157,15 @@ namespace BackupService.Components.Controls
             }
         }
 
-        private void OpenBrowse() => _browsing = true;
+        private Task OpenBrowseAsync() => _browser?.OpenBrowserAsync() ?? Task.CompletedTask;
 
-        // The folder browser returns an absolute path inside the source; store it relative to the source root.
-        private void OnPathSelected(string absolutePath)
+        // The picker is confined to the source folder (on this machine or the source's connection) and returns the
+        // choice relative to it — exactly what a Path exclude stores.
+        private void OnPathPicked(string relative)
         {
-            _browsing = false;
-            if (string.IsNullOrWhiteSpace(SourceFolder))
+            if (string.IsNullOrEmpty(relative))
             {
-                return;
-            }
-
-            var relative = Path.GetRelativePath(SourceFolder, absolutePath);
-            if (relative is "." || relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
-            {
-                // Selecting the source root itself, or somehow outside it, isn't a valid sub-path.
+                // The source folder itself isn't a sub-path to leave out.
                 _error = "Choose a folder inside the source folder.";
                 return;
             }

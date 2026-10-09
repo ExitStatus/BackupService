@@ -18,7 +18,7 @@
             <input type="text" class="no-enter-submit" placeholder="@Placeholder" @bind="_pattern" @bind:event="oninput" @onkeydown="OnKeyDown" />
             @if (ShowBrowse)
             {
-                <button type="button" class="btn-secondary" @onclick="OpenBrowse" disabled="@(!CanBrowse)"
+                <button type="button" class="btn-secondary" @onclick="OpenBrowseAsync" disabled="@(!CanBrowse)"
                         title="@(CanBrowse ? "Browse the source folder" : "Set the source folder first")">Browse</button>
             }
             <button type="button" class="btn-secondary" @onclick="Add">Add</button>
@@ -76,8 +76,11 @@
     }
 </div>
 
-@if (_browsing)
+@* No location or folder box — just the connection-aware pickers (and any "plug the device in" hint), opened by
+   the Browse button above. *@
+@if (ShowBrowse)
 {
-    <FolderBrowserDialog RootPath="@SourceFolder" InitialPath="@SourceFolder"
-                         OnSelect="OnPathSelected" OnCancel="() => _browsing = false" />
+    <ConnectionLocationField @ref="_browser" ShowLocation="false" ShowFolder="false"
+                             ConnectionId="SourceConnectionId" BrowseUnder="@BrowseUnder"
+                             PathChanged="OnPathPicked" />
 }

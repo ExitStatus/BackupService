@@ -81,6 +81,16 @@ namespace BackupService.Components.Controls
                 _browseInfo = await BuildInfoAsync();
                 _showBrowser = true;
             }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                // The stored password can't be decrypted (e.g. the key ring was lost after a move). Unhandled, this
+                // took down the page along with every unsaved edit.
+                _testResult = ConnectionTestResult.Failure("The saved password can't be read. Enter the password again.");
+            }
+            catch (Exception ex)
+            {
+                _testResult = ConnectionTestResult.Failure($"Couldn't open the share: {ex.Message}");
+            }
             finally
             {
                 _busy = false;

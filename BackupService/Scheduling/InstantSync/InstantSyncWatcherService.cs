@@ -296,6 +296,10 @@ namespace BackupService.Scheduling
             private readonly HashSet<string> _pendingDeletes = new(StringComparer.OrdinalIgnoreCase);
             private bool _catchUpNeeded;
             private int _retryAttempt;
+            // Flushes that have failed outright in a row. Only the first is logged (and recorded as a failed run): a
+            // target that's offline for a day would otherwise add an Error log and a Failed run every 30 minutes.
+            // Touched only by the flush itself, and flushes never overlap.
+            private int _failedFlushes;
             private DateTime _backoffUntilUtc = DateTime.MinValue;
             private bool _processing;
             private bool _disposed;
@@ -673,10 +677,25 @@ namespace BackupService.Scheduling
                 }
                 catch (Exception ex)
                 {
-                    await log.ErrorAsync($"Instant sync '{_item.Name}' failed — it will be retried", ex);
-                    await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
-                    await log.SetSummaryAsync($"Instant Sync '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
+                    if (_failedFlushes++ == 0)
+                    {
+                        await log.ErrorAsync($"Instant sync '{_item.Name}' failed — it will be retried until it succeeds (further failures aren't logged)", ex);
+                        await RecordRunAsync(startedUtc, stopwatch, new BackupResult { Errors = 1 }, RunOutcome.Failed, log.OperationLogId);
+                        await log.SetSummaryAsync($"Instant Sync '{_item.Name}' failed in {FormatDuration(stopwatch.Elapsed)}", OperationLogLevel.Error);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(ex, "Instant sync item '{Item}' (profile {ProfileId}): retry {Attempt} failed; retrying later.",
+                            _item.Name, _profileId, _failedFlushes - 1);
+                    }
                     return FlushOutcome.RetryChanges;
+                }
+
+                if (_failedFlushes > 0)
+                {
+                    // Closes the failure that was logged: the changes held back since then are going through now.
+                    await log.AppendAsync($"Instant sync '{_item.Name}' is working again after {_failedFlushes} failed attempt(s)");
+                    _failedFlushes = 0;
                 }
 
                 var owing = result.Errors > 0 || result.Warnings > 0 ? FlushOutcome.RetryWithCatchUp : FlushOutcome.Done;

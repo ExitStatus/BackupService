@@ -33,6 +33,9 @@ namespace BackupService.FileSystem
         /// </summary>
         bool IsDirectoryLink(string path) => false;
 
+        /// <summary>True when nothing can be written here (an MTP device) — every write member throws.</summary>
+        bool IsReadOnly => false;
+
         DateTime GetLastWriteTimeUtc(string path);
 
         /// <summary>The size of <paramref name="path"/> in bytes.</summary>

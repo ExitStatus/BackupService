@@ -51,6 +51,16 @@ namespace BackupService.Scheduling.TwoWaySync
                 var right = await endpointFactory.ResolveAsync(targetConnectionId, item.TargetFolder, cancellationToken);
                 try
                 {
+                    // Two-way sync writes to both sides. A read-only side (an MTP phone or camera) fails every copy
+                    // and deletion towards it, every run — refuse the item up front instead.
+                    if (left.FileSystem.IsReadOnly || right.FileSystem.IsReadOnly)
+                    {
+                        result.Errors++;
+                        await log.AppendAsync(OperationLogLevel.Error,
+                            $"Two way sync '{item.Name}': the {(left.FileSystem.IsReadOnly ? "source" : "target")} is read-only (a portable device), and two-way sync has to write to both sides. Use a one way sync for it.");
+                        return result; // baseline left as it was
+                    }
+
                     // A side whose folder can't be found would otherwise read as empty — and against a baseline that
                     // lists files, "empty" means "everything was deleted there", which would then be propagated to
                     // the other side. An unplugged drive, a renamed folder or a share that denies access must never

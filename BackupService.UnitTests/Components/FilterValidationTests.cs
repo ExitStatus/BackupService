@@ -71,5 +71,33 @@ namespace BackupService.UnitTests.Components
 
             FilterValidation.Validate(FilterKind.File, "notes.txt", sameTab, []).Should().Contain("already in this list");
         }
+
+        [TestCase(@"Docs\report.docx", true)]
+        [TestCase("Docs/report.docx", true)]
+        [TestCase(@"bin\Debug", false)]
+        public void ANameWithAFolderInIt_IsRejected_BecauseNamesAreMatchedWithoutTheirFolder(string pattern, bool include)
+        {
+            // An include like this matched nothing, so the backup copied no files at all, with no error.
+            var kind = include ? FilterKind.File : FilterKind.Folder;
+
+            FilterValidation.Validate(kind, pattern, [], [], include).Should().NotBeNull();
+        }
+
+        [TestCase(@"C:\Data\logs")]
+        [TestCase(@"\\server\share\logs")]
+        [TestCase(@"..\elsewhere")]
+        [TestCase(@"logs\..\..\x")]
+        public void APathThatIsntInsideTheSourceFolder_IsRejected(string pattern)
+        {
+            FilterValidation.Validate(FilterKind.Path, pattern, [], []).Should().NotBeNull();
+        }
+
+        [TestCase(@"logs\archive")]
+        [TestCase(@"\logs\archive")]
+        [TestCase("logs/archive")]
+        public void ARelativePath_IsAllowed(string pattern)
+        {
+            FilterValidation.Validate(FilterKind.Path, pattern, [], []).Should().BeNull();
+        }
     }
 }

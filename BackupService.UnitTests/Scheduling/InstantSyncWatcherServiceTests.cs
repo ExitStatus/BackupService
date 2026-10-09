@@ -28,6 +28,7 @@ namespace BackupService.UnitTests.Scheduling
         private FakeProcessor _processor = null!;
         private Mock<IOneWaySyncSynchronizer> _synchronizer = null!;
         private ConcurrentQueue<OneWaySyncItem> _reconciles = null!;
+        private ConcurrentQueue<RunOutcome> _recordedRuns = null!;
         private InstantSyncWatcherService _sut = null!;
         private string _root = null!;
         private string _source = null!;
@@ -57,8 +58,16 @@ namespace BackupService.UnitTests.Scheduling
                 .Callback((OneWaySyncItem pair, int? _, int? _, IOperationLogger _, CancellationToken _, IProgress<int>? _, Action<string?>? _) => _reconciles.Enqueue(pair))
                 .ReturnsAsync(new BackupResult());
 
+            _recordedRuns = new ConcurrentQueue<RunOutcome>();
+            var runRecorder = new Mock<IBackupRunRecorder>();
+            runRecorder
+                .Setup(r => r.RecordAsync(It.IsAny<int>(), It.IsAny<ProfileType>(), It.IsAny<bool>(), It.IsAny<DateTimeOffset>(),
+                    It.IsAny<double>(), It.IsAny<BackupResult>(), It.IsAny<RunOutcome>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+                .Callback((int _, ProfileType _, bool _, DateTimeOffset _, double _, BackupResult _, RunOutcome outcome, int? _, CancellationToken _) => _recordedRuns.Enqueue(outcome))
+                .Returns(Task.CompletedTask);
+
             _sut = new InstantSyncWatcherService(_dbFactory, _processor, _synchronizer.Object,
-                new OperationLogFactory(_dbFactory, _logStore.Store), Mock.Of<IBackupRunRecorder>(),
+                new OperationLogFactory(_dbFactory, _logStore.Store), runRecorder.Object,
                 NullLogger<InstantSyncWatcherService>.Instance)
             {
                 RetryBaseDelay = TimeSpan.FromMilliseconds(100),
@@ -150,6 +159,23 @@ namespace BackupService.UnitTests.Scheduling
 
             await WaitUntilAsync(() => _processor.Calls.Count >= 2);
             _processor.Calls.ElementAt(1).Changes.Should().Contain(file);
+        }
+
+        [Test]
+        public async Task ATargetThatStaysDown_IsLoggedAsOneFailure_NotOnePerRetry()
+        {
+            // A NAS offline for a day would otherwise add an Error log and a Failed run every 30 minutes.
+            _processor.Behaviour = (call, _) => call <= 3
+                ? throw new IOException("The target is unavailable.")
+                : Task.FromResult(new BackupResult { Copied = 1 });
+            await _sut.SyncAsync(SeedProfile());
+
+            WriteSourceFile("a.txt");
+
+            await WaitUntilAsync(() => _processor.Calls.Count >= 4 && _recordedRuns.Count >= 2);
+            _recordedRuns.Should().Equal(RunOutcome.Failed, RunOutcome.Success);
+            using var db = new BackupDbContext(_options);
+            db.OperationLogs.Count(l => l.Level == OperationLogLevel.Error).Should().Be(1);
         }
 
         [Test]

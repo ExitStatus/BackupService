@@ -25,6 +25,7 @@ namespace BackupService.Components.Dialogs
         public EventCallback OnSaved { get; set; }
 
         private InputModel Input { get; set; } = new();
+        private bool _saving;
 
         private bool IsEdit => GroupId.HasValue;
 
@@ -50,18 +51,31 @@ namespace BackupService.Components.Dialogs
 
         private async Task SubmitAsync()
         {
+            // A second submit (double-click) arrives while the first awaits the database — it would create the group twice.
+            if (_saving)
+            {
+                return;
+            }
+
             var name = Input.Name.Trim();
-
-            if (GroupId is { } id)
+            _saving = true;
+            try
             {
-                await GroupService.UpdateAsync(id, name, Input.Concurrency);
-            }
-            else
-            {
-                await GroupService.CreateAsync(name, Input.Concurrency);
-            }
+                if (GroupId is { } id)
+                {
+                    await GroupService.UpdateAsync(id, name, Input.Concurrency);
+                }
+                else
+                {
+                    await GroupService.CreateAsync(name, Input.Concurrency);
+                }
 
-            await OnSaved.InvokeAsync();
+                await OnSaved.InvokeAsync();
+            }
+            finally
+            {
+                _saving = false;
+            }
         }
 
         public sealed class InputModel

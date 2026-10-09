@@ -123,11 +123,11 @@
             }
             else if (_activeTab == "includes")
             {
-                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" SourceFolder="@Model.SourceFolder" />
+                <FilterListEditor @key="@("includes")" Direction="FilterDirection.Include" Entries="Model.Includes" OtherEntries="Model.Excludes" SourceFolder="@Model.SourceFolder" SourceConnectionId="SourceConnectionId" />
             }
             else
             {
-                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" SourceFolder="@Model.SourceFolder" />
+                <FilterListEditor @key="@("excludes")" Direction="FilterDirection.Exclude" Entries="Model.Excludes" OtherEntries="Model.Includes" SourceFolder="@Model.SourceFolder" SourceConnectionId="SourceConnectionId" />
             }
         </div>
 

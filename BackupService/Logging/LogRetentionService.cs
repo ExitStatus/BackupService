@@ -17,6 +17,12 @@ namespace BackupService.Logging
         TimeProvider timeProvider,
         ILogger<LogRetentionService> logger) : ILogRetentionService
     {
+        /// <summary>
+        /// The longest retention accepted (100 years) — "keep forever" in practice. Much longer and the purge's cutoff
+        /// date falls before year 1, which throws; the purge then failed on every log write and stopped altogether.
+        /// </summary>
+        public const int MaxRetentionDays = 36500;
+
         private readonly object _gate = new();
         private DateOnly? _lastPurgedUtcDate;
         private bool _purging;
@@ -32,8 +38,8 @@ namespace BackupService.Logging
             await using var db = contextFactory.CreateDbContext();
 
             var settings = await GetOrSeedAsync(db, cancellationToken);
-            settings.AuthenticationLogRetentionDays = Math.Max(1, authenticationLogRetentionDays);
-            settings.OperationLogRetentionDays = Math.Max(1, operationLogRetentionDays);
+            settings.AuthenticationLogRetentionDays = Math.Clamp(authenticationLogRetentionDays, 1, MaxRetentionDays);
+            settings.OperationLogRetentionDays = Math.Clamp(operationLogRetentionDays, 1, MaxRetentionDays);
             await db.SaveChangesAsync(cancellationToken);
         }
 
@@ -98,8 +104,9 @@ namespace BackupService.Logging
             var settings = await GetOrSeedAsync(db, cancellationToken);
             var now = timeProvider.GetUtcNow();
 
-            await PurgeAuthenticationAsync(db, now.AddDays(-settings.AuthenticationLogRetentionDays), cancellationToken);
-            await PurgeOperationAsync(db, now.AddDays(-settings.OperationLogRetentionDays), cancellationToken);
+            // Clamped here too, for a value saved before the limit existed.
+            await PurgeAuthenticationAsync(db, now.AddDays(-Math.Clamp(settings.AuthenticationLogRetentionDays, 1, MaxRetentionDays)), cancellationToken);
+            await PurgeOperationAsync(db, now.AddDays(-Math.Clamp(settings.OperationLogRetentionDays, 1, MaxRetentionDays)), cancellationToken);
         }
 
         private async Task PurgeAuthenticationAsync(BackupDbContext db, DateTimeOffset cutoff, CancellationToken cancellationToken)
