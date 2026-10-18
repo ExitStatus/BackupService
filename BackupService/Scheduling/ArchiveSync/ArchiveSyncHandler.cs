@@ -106,7 +106,7 @@ namespace BackupService.Scheduling
                 // and clean — treat it like a cancellation (a warning, profile returns to Idle) and don't re-throw,
                 // so the run winds down through the finally. Archives already created are intact.
                 disconnected = true;
-                await log.AppendAsync(OperationLogLevel.Warning, $"Source device disconnected — run stopped. {ex.Message}");
+                await log.AppendAsync(OperationLogLevel.Warning, $"A source or target became unreachable — run stopped. {ex.Message}");
             }
             catch (Exception ex)
             {

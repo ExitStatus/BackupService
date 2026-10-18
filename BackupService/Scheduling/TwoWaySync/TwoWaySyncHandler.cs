@@ -102,7 +102,7 @@ namespace BackupService.Scheduling.TwoWaySync
                 // A side went away mid-run (e.g. a USB drive unplugged). Stop fast and clean — work done so far
                 // is valid, and the baseline for the in-flight item wasn't saved, so it re-reconciles next run.
                 disconnected = true;
-                await log.AppendAsync(OperationLogLevel.Warning, $"A device disconnected — run stopped. {ex.Message}");
+                await log.AppendAsync(OperationLogLevel.Warning, $"A source or target became unreachable — run stopped. {ex.Message}");
             }
             catch (Exception ex)
             {

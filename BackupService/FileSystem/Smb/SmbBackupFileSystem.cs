@@ -20,19 +20,45 @@ namespace BackupService.FileSystem.Smb
     /// </summary>
     public sealed class SmbBackupFileSystem : IBackupFileSystem, IDisposable
     {
-        private readonly SMB2Client _client;
-        private readonly ISMBFileStore _store;
+        // Waits before each reconnect attempt after the session drops (a NAS waking, a network blip). Every attempt
+        // failing ends the run with one EndpointUnavailableException instead of an error per remaining folder.
+        private static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)];
+
+        private readonly SmbConnectionInfo? _info; // null ⇒ no reconnect (the unit-test constructor)
+        private readonly Func<SmbConnectionInfo, (SMB2Client Client, ISMBFileStore Store)> _open;
+        private readonly Action<TimeSpan> _wait;
+        private readonly Func<SMB2Client, bool> _isConnected;
+        private readonly object _reconnectGate = new();
+        private SMB2Client _client;
+        private ISMBFileStore _store;
         private bool _disposed;
 
-        // Internal (not private) so the status handling can be unit-tested against a mocked file store.
-        internal SmbBackupFileSystem(SMB2Client client, ISMBFileStore store)
+        // Internal (not private) so the status handling can be unit-tested against a mocked file store. Passing
+        // info + open lets a test exercise the reconnect path too.
+        internal SmbBackupFileSystem(
+            SMB2Client client,
+            ISMBFileStore store,
+            SmbConnectionInfo? info = null,
+            Func<SmbConnectionInfo, (SMB2Client, ISMBFileStore)>? open = null,
+            Action<TimeSpan>? wait = null,
+            Func<SMB2Client, bool>? isConnected = null)
         {
             _client = client;
             _store = store;
+            _info = info;
+            _open = open ?? Open;
+            _wait = wait ?? Thread.Sleep;
+            _isConnected = isConnected ?? (c => c.IsConnected);
         }
 
         /// <summary>Connects, authenticates and tree-connects the share, returning a ready filesystem.</summary>
         public static SmbBackupFileSystem Connect(SmbConnectionInfo info)
+        {
+            var (client, store) = Open(info);
+            return new SmbBackupFileSystem(client, store, info);
+        }
+
+        private static (SMB2Client Client, ISMBFileStore Store) Open(SmbConnectionInfo info)
         {
             var address = Resolve(info.Host);
             var client = new SMB2Client();
@@ -55,7 +81,7 @@ namespace BackupService.FileSystem.Smb
                     throw new SmbBrowseException($"Could not open share '{info.Share}' ({treeStatus}).");
                 }
 
-                return new SmbBackupFileSystem(client, store);
+                return (client, store);
             }
             catch
             {
@@ -65,11 +91,13 @@ namespace BackupService.FileSystem.Smb
             }
         }
 
-        public bool DirectoryExists(string path) => Exists(path, directory: true);
+        public bool DirectoryExists(string path) => Run(() => Exists(path, directory: true));
 
-        public bool FileExists(string path) => Exists(path, directory: false);
+        public bool FileExists(string path) => Run(() => Exists(path, directory: false));
 
-        public void CreateDirectory(string path)
+        public void CreateDirectory(string path) => Run(() => CreateDirectoryCore(path)); // FILE_OPEN_IF ⇒ safe to retry
+
+        private void CreateDirectoryCore(string path)
         {
             // Make each missing segment in turn (mkdir -p).
             var segments = Normalize(path).Split('\\', StringSplitOptions.RemoveEmptyEntries);
@@ -84,7 +112,7 @@ namespace BackupService.FileSystem.Smb
                     CreateDisposition.FILE_OPEN_IF, CreateOptions.FILE_DIRECTORY_FILE, null);
                 if (status != NTStatus.STATUS_SUCCESS)
                 {
-                    throw new IOException($"Could not create remote folder '{current}' ({status}).");
+                    throw SmbStatusErrors.Create(status, $"Could not create remote folder '{current}' ({status}).");
                 }
                 _store.CloseFile(handle);
             }
@@ -104,12 +132,12 @@ namespace BackupService.FileSystem.Smb
                 }
             }
 
-            DeleteEntry(path, directory: true);
+            Run(() => DeleteEntry(path, directory: true));
         }
 
-        public IReadOnlyList<string> GetFiles(string directory) => List(directory, wantDirectories: false);
+        public IReadOnlyList<string> GetFiles(string directory) => Run(() => List(directory, wantDirectories: false));
 
-        public IReadOnlyList<string> GetDirectories(string directory) => List(directory, wantDirectories: true);
+        public IReadOnlyList<string> GetDirectories(string directory) => Run(() => List(directory, wantDirectories: true));
 
         public DateTime GetLastWriteTimeUtc(string path)
         {
@@ -133,7 +161,9 @@ namespace BackupService.FileSystem.Smb
             return new FileStat(DateTime.SpecifyKind(lastWrite, DateTimeKind.Utc), info.EndOfFile);
         }
 
-        public void SetLastWriteTimeUtc(string path, DateTime value)
+        public void SetLastWriteTimeUtc(string path, DateTime value) => Run(() => SetLastWriteTimeUtcCore(path, value));
+
+        private void SetLastWriteTimeUtcCore(string path, DateTime value)
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(path),
@@ -152,7 +182,9 @@ namespace BackupService.FileSystem.Smb
             }
         }
 
-        public Stream OpenRead(string path)
+        public Stream OpenRead(string path) => Run(() => OpenReadCore(path));
+
+        private Stream OpenReadCore(string path)
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(path),
@@ -163,7 +195,9 @@ namespace BackupService.FileSystem.Smb
             return new SmbReadStream(_store, handle, (int)_client.MaxReadSize);
         }
 
-        public Stream OpenWrite(string path)
+        public Stream OpenWrite(string path) => Run(() => OpenWriteCore(path));
+
+        private Stream OpenWriteCore(string path)
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(path),
@@ -181,7 +215,9 @@ namespace BackupService.FileSystem.Smb
             src.CopyTo(dst);
         }
 
-        public void MoveFile(string source, string destination, bool overwrite)
+        public void MoveFile(string source, string destination, bool overwrite) => Run(() => MoveFileCore(source, destination, overwrite));
+
+        private void MoveFileCore(string source, string destination, bool overwrite)
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(source),
@@ -204,7 +240,7 @@ namespace BackupService.FileSystem.Smb
             }
         }
 
-        public void DeleteFile(string path) => DeleteEntry(path, directory: false);
+        public void DeleteFile(string path) => Run(() => DeleteEntry(path, directory: false));
 
         public bool FilesContentEqual(string a, string b)
         {
@@ -234,7 +270,7 @@ namespace BackupService.FileSystem.Smb
 
                 const int maxComment = 65535;
                 var window = (int)Math.Min(size, 22 + maxComment);
-                var tail = ReadTail(path, size - window, window);
+                var tail = Run(() => ReadTail(path, size - window, window));
                 return ParseEocdComment(tail);
             }
             catch (Exception ex) when (ex is IOException or SmbBrowseException)
@@ -310,9 +346,84 @@ namespace BackupService.FileSystem.Smb
             }
             _disposed = true;
 
-            try { _store.Disconnect(); } catch { /* best-effort */ }
-            try { _client.Logoff(); } catch { /* best-effort */ }
-            _client.Disconnect();
+            lock (_reconnectGate)
+            {
+                TearDown(_client, _store);
+            }
+        }
+
+        // ---- reconnect ----
+
+        // Runs one SMB operation. If the session has dropped, reconnects and runs it once more; a second drop (or a
+        // reconnect that can't get through) surfaces as EndpointUnavailableException, which the engines treat as
+        // fatal — the run stops with one clear error rather than failing every remaining folder against a dead client.
+        private T Run<T>(Func<T> operation)
+        {
+            var client = _client;
+            try
+            {
+                return operation();
+            }
+            catch (Exception ex) when (_info is not null && !_disposed && IsConnectionLost(ex, client))
+            {
+                Reconnect(client, ex);
+            }
+
+            try
+            {
+                return operation();
+            }
+            catch (Exception ex) when (_info is not null && IsConnectionLost(ex, _client))
+            {
+                throw new EndpointUnavailableException($"The SMB connection to {_info.Host} keeps dropping.", ex);
+            }
+        }
+
+        private void Run(Action operation) => Run(() => { operation(); return true; });
+
+        // SMBLibrary reports a dropped socket by message on later calls, but the call that hit the drop may just fail
+        // with a status — so also ask the client whether it's still connected.
+        private bool IsConnectionLost(Exception ex, SMB2Client client) =>
+            SmbStatusErrors.IsConnectionLost(ex) || !_isConnected(client);
+
+        // Swaps in a fresh connection. `failed` is the client the operation ran on: if another caller has already
+        // replaced it, there's nothing to do.
+        private void Reconnect(SMB2Client failed, Exception cause)
+        {
+            lock (_reconnectGate)
+            {
+                if (!ReferenceEquals(failed, _client))
+                {
+                    return;
+                }
+
+                TearDown(_client, _store);
+
+                Exception last = cause;
+                foreach (var delay in ReconnectDelays)
+                {
+                    _wait(delay);
+                    try
+                    {
+                        (_client, _store) = _open(_info!);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        last = ex;
+                    }
+                }
+
+                throw new EndpointUnavailableException(
+                    $"The SMB connection to {_info!.Host} was lost and could not be re-established: {last.Message}", last);
+            }
+        }
+
+        private static void TearDown(SMB2Client client, ISMBFileStore store)
+        {
+            try { store.Disconnect(); } catch { /* best-effort */ }
+            try { client.Logoff(); } catch { /* best-effort */ }
+            try { client.Disconnect(); } catch { /* best-effort */ }
         }
 
         // ---- helpers ----
@@ -350,7 +461,7 @@ namespace BackupService.FileSystem.Smb
             // Anything else (access denied, a timeout, a dropped session…) says nothing about whether the entry exists.
             // Reporting "doesn't exist" would let a two-way sync read a live file — or a whole folder — as deleted and
             // propagate that, so surface it as an error instead.
-            throw new IOException($"SMB could not check whether '{path}' exists ({status}).");
+            throw SmbStatusErrors.Create(status, $"SMB could not check whether '{path}' exists ({status}).");
         }
 
         // The statuses that genuinely mean "there's no such file/folder here". Opening a folder as a file (or vice
@@ -378,7 +489,7 @@ namespace BackupService.FileSystem.Smb
                 var queryStatus = _store.QueryDirectory(out var entries, handle, "*", FileInformationClass.FileDirectoryInformation);
                 if (queryStatus != NTStatus.STATUS_SUCCESS && queryStatus != NTStatus.STATUS_NO_MORE_FILES)
                 {
-                    throw new IOException($"Could not list '{directory}' ({queryStatus}).");
+                    throw SmbStatusErrors.Create(queryStatus, $"Could not list '{directory}' ({queryStatus}).");
                 }
 
                 var results = new List<string>();
@@ -402,7 +513,9 @@ namespace BackupService.FileSystem.Smb
             }
         }
 
-        private FileInformation GetInfo(string path, FileInformationClass infoClass)
+        private FileInformation GetInfo(string path, FileInformationClass infoClass) => Run(() => GetInfoCore(path, infoClass));
+
+        private FileInformation GetInfoCore(string path, FileInformationClass infoClass)
         {
             var status = _store.CreateFile(
                 out var handle, out _, Normalize(path),

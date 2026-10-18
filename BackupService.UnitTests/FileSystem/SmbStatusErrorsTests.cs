@@ -27,5 +27,25 @@ namespace BackupService.UnitTests.FileSystem
 
             FileLock.IsSkippableReadError(error, out _).Should().BeFalse();
         }
+
+        [TestCase(NTStatus.STATUS_USER_SESSION_DELETED)]
+        [TestCase(NTStatus.STATUS_NETWORK_NAME_DELETED)]
+        public void ALostSession_IsAConnectionLoss(NTStatus status)
+        {
+            SmbStatusErrors.IsConnectionLost(SmbStatusErrors.Create(status, "x")).Should().BeTrue();
+        }
+
+        [Test]
+        public void SmbLibrarysDisconnectedMessage_IsAConnectionLoss()
+        {
+            SmbStatusErrors.IsConnectionLost(new InvalidOperationException("The client is no longer connected")).Should().BeTrue();
+        }
+
+        [Test]
+        public void AnOrdinaryFailure_IsNotAConnectionLoss()
+        {
+            SmbStatusErrors.IsConnectionLost(SmbStatusErrors.Create(NTStatus.STATUS_ACCESS_DENIED, "x")).Should().BeFalse();
+            SmbStatusErrors.IsConnectionLost(new InvalidOperationException("Something else")).Should().BeFalse();
+        }
     }
 }

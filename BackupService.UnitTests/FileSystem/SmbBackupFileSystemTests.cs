@@ -1,3 +1,6 @@
+using BackupService.Connections;
+using BackupService.Connections.Smb;
+using BackupService.FileSystem;
 using BackupService.FileSystem.Smb;
 using FluentAssertions;
 using Moq;
@@ -86,6 +89,87 @@ namespace BackupService.UnitTests.FileSystem
             using var stream = FileSystemOver(store.Object).OpenRead(@"Backups\a.txt");
 
             stream.ReadByte().Should().Be(-1);
+        }
+
+        // ---- reconnect after the session drops ----
+
+        private static readonly SmbConnectionInfo Info = new("nas", 445, "files", null, "user", "pw", null);
+
+        private static Mock<ISMBFileStore> StoreThrowingDisconnected()
+        {
+            var store = new Mock<ISMBFileStore>();
+            object handle = new();
+            FileStatus fileStatus;
+            store.Setup(s => s.CreateFile(out handle, out fileStatus, It.IsAny<string>(), It.IsAny<AccessMask>(),
+                    It.IsAny<SMBLibrary.FileAttributes>(), It.IsAny<ShareAccess>(), It.IsAny<CreateDisposition>(),
+                    It.IsAny<CreateOptions>(), It.IsAny<SecurityContext>()))
+                .Throws(new InvalidOperationException("The client is no longer connected"));
+            return store;
+        }
+
+        private static SmbBackupFileSystem Reconnecting(
+            ISMBFileStore store, Func<SmbConnectionInfo, (SMB2Client, ISMBFileStore)> open, List<TimeSpan>? waits = null) =>
+            new(new SMB2Client(), store, Info, open, d => waits?.Add(d), isConnected: _ => true);
+
+        [Test]
+        public void AfterTheConnectionDrops_ItReconnects_AndCarriesOn()
+        {
+            // The 00:01:30 run: one dropped session used to fail every remaining folder of the run.
+            var fresh = StoreReturning(NTStatus.STATUS_SUCCESS);
+            var opens = 0;
+            var waits = new List<TimeSpan>();
+            var fs = Reconnecting(StoreThrowingDisconnected().Object, _ => { opens++; return (new SMB2Client(), fresh.Object); }, waits);
+
+            fs.DirectoryExists("Backups").Should().BeTrue();
+            fs.DirectoryExists("Backups").Should().BeTrue();
+
+            opens.Should().Be(1, "the second call runs on the new session");
+            waits.Should().HaveCount(1);
+        }
+
+        [TestCase(NTStatus.STATUS_USER_SESSION_DELETED)]
+        [TestCase(NTStatus.STATUS_NETWORK_NAME_DELETED)]
+        public void AnExpiredSession_AlsoReconnects(NTStatus status)
+        {
+            var opens = 0;
+            var fs = Reconnecting(StoreReturning(status).Object, _ => { opens++; return (new SMB2Client(), StoreReturning(NTStatus.STATUS_SUCCESS).Object); });
+
+            fs.FileExists(@"Backups\a.txt").Should().BeTrue();
+            opens.Should().Be(1);
+        }
+
+        [Test]
+        public void AnOrdinaryFailure_DoesNotReconnect()
+        {
+            var opens = 0;
+            var fs = Reconnecting(StoreReturning(NTStatus.STATUS_ACCESS_DENIED).Object, _ => { opens++; return (new SMB2Client(), StoreReturning(NTStatus.STATUS_SUCCESS).Object); });
+
+            var act = () => fs.DirectoryExists("Backups");
+
+            act.Should().Throw<IOException>();
+            opens.Should().Be(0);
+        }
+
+        [Test]
+        public void WhenTheServerCantBeReached_TheRunEndsWithOneEndpointUnavailable()
+        {
+            var attempts = 0;
+            var fs = Reconnecting(StoreThrowingDisconnected().Object, _ => { attempts++; throw new SmbBrowseException("Could not connect to nas."); });
+
+            var act = () => fs.CreateDirectory(@"Backups\a");
+
+            act.Should().Throw<EndpointUnavailableException>().WithMessage("*nas*could not be re-established*");
+            attempts.Should().Be(3);
+        }
+
+        [Test]
+        public void WhenTheNewSessionDropsToo_TheRunEndsWithEndpointUnavailable()
+        {
+            var fs = Reconnecting(StoreThrowingDisconnected().Object, _ => (new SMB2Client(), StoreThrowingDisconnected().Object));
+
+            var act = () => fs.GetFiles("Backups");
+
+            act.Should().Throw<EndpointUnavailableException>().WithMessage("*keeps dropping*");
         }
     }
 }

@@ -112,7 +112,7 @@ namespace BackupService.Scheduling
                 // returns to Idle) rather than a failure, and don't re-throw so the run winds down through the
                 // finally. Files already copied are intact; nothing partial is left behind.
                 disconnected = true;
-                await log.AppendAsync(OperationLogLevel.Warning, $"Source device disconnected — run stopped. {ex.Message}");
+                await log.AppendAsync(OperationLogLevel.Warning, $"A source or target became unreachable — run stopped. {ex.Message}");
             }
             catch (Exception ex)
             {
