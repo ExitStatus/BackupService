@@ -28,7 +28,7 @@ namespace BackupService.FileSystem.Smb
                 var slice = new byte[size];
                 Array.Copy(buffer, offset + written, slice, 0, size);
 
-                var status = store.WriteFile(out var bytesWritten, handle, _position, slice);
+                var (status, bytesWritten) = SmbStatusErrors.OnHandle(() => (store.WriteFile(out var w, handle, _position, slice), w));
                 if (status != NTStatus.STATUS_SUCCESS)
                 {
                     throw SmbStatusErrors.Create(status, $"SMB write failed ({status}).");

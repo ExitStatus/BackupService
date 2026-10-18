@@ -19,6 +19,9 @@ namespace BackupService.UnitTests.Scheduling
         private static readonly DateTime T2 = new(2026, 1, 2, 10, 0, 0, DateTimeKind.Utc); // newer than T1
         private static readonly DateTime T3 = new(2026, 1, 3, 10, 0, 0, DateTimeKind.Utc); // newer than T2
 
+        // Retries a dropped copy straight away, so the retry tests don't wait out the real 5s delay.
+        private static readonly CopyRetryPolicy NoWaitRetry = new(3, TimeSpan.Zero);
+
         private FakeFileSystem _fs = null!;
         private CapturingLogger _log = null!;
         private string _stateDir = null!;
@@ -34,7 +37,7 @@ namespace BackupService.UnitTests.Scheduling
             _log = new CapturingLogger();
             _stateDir = Path.Combine(Path.GetTempPath(), "twoway-tests-" + Guid.NewGuid().ToString("N"));
             _store = new TwoWaySyncStateStore(_stateDir);
-            _sut = new TwoWaySyncEngine(new SingleFsEndpointFactory(_fs), _store);
+            _sut = new TwoWaySyncEngine(new SingleFsEndpointFactory(_fs), _store, NoWaitRetry);
         }
 
         [TearDown]
@@ -505,6 +508,23 @@ namespace BackupService.UnitTests.Scheduling
             _fs.FileExists(@"C:\right\a.txt").Should().BeFalse();
             _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
             result.Errors.Should().Be(1);
+        }
+
+        [Test]
+        public async Task ACopyCutOffByADroppedConnection_IsRetried_AndSucceeds()
+        {
+            _fs.AddFile(@"C:\left\a.txt", T1, "hello");
+            var opens = 0;
+            _fs.OpenReadOverride = _ => ++opens == 1
+                ? throw new ConnectionLostException("The SMB connection was lost mid-transfer")
+                : new MemoryStream(Encoding.UTF8.GetBytes("hello"), writable: false);
+
+            var result = await Run(Item());
+
+            opens.Should().Be(2);
+            _fs.ContentOf(@"C:\right\a.txt").Should().Be("hello");
+            result.Errors.Should().Be(0);
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
         }
 
         // ---- Temp files ----

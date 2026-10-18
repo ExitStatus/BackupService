@@ -15,8 +15,10 @@ namespace BackupService.Scheduling
     /// copy streams from the source filesystem into a crash-safe temp on the target filesystem before
     /// renaming. All filesystem access goes through the abstraction so the decision logic is testable.
     /// </summary>
-    public sealed class OneWaySyncSynchronizer(IEndpointFileSystemFactory endpointFactory) : IOneWaySyncSynchronizer
+    public sealed class OneWaySyncSynchronizer(IEndpointFileSystemFactory endpointFactory, CopyRetryPolicy? retryPolicy = null) : IOneWaySyncSynchronizer
     {
+        private readonly CopyRetryPolicy _retry = retryPolicy ?? CopyRetryPolicy.Default;
+
         public async Task<BackupResult> SyncAsync(OneWaySyncItem pair, int? sourceConnectionId, int? targetConnectionId, IOperationLogger log, CancellationToken cancellationToken, IProgress<int>? fileProgress = null, Action<string?>? onCurrentFile = null)
         {
             var result = new BackupResult();
@@ -445,96 +447,110 @@ namespace BackupService.Scheduling
             var tempPath = Path.Combine(targetDir, CrashSafeTempName(Path.GetFileName(dest)!));
             // Surface the file about to be copied to the View Progress dialog (best-effort, UI only).
             ctx.OnCurrentFile?.Invoke(Path.GetFileName(dest));
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                var sourceStat = knownSourceStat ?? ctx.SourceFs.GetFileStat(source);
-
-                long written;
-                using (var input = ctx.SourceFs.OpenRead(source, ct))
-                using (var output = ctx.TargetFs.OpenWrite(tempPath))
+                try
                 {
-                    // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch below
-                    // removes the partial temp, so nothing is left behind). Counting the bytes as they stream
-                    // saves a metadata round trip on the target to find out how much was written.
-                    try
+                    var sourceStat = knownSourceStat ?? ctx.SourceFs.GetFileStat(source);
+
+                    long written;
+                    using (var input = ctx.SourceFs.OpenRead(source, ct))
+                    using (var output = ctx.TargetFs.OpenWrite(tempPath))
                     {
-                        written = await CopyCountingAsync(input, output, ct);
+                        // Pass the token so a Stop mid-copy interrupts a large file promptly (the catch below
+                        // removes the partial temp, so nothing is left behind). Counting the bytes as they stream
+                        // saves a metadata round trip on the target to find out how much was written.
+                        try
+                        {
+                            written = await CopyCountingAsync(input, output, ct);
+                        }
+                        catch
+                        {
+                            AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                            throw;
+                        }
                     }
-                    catch
+
+                    // Never commit a short copy: a source stream that ended early (e.g. a flaky transfer) would
+                    // otherwise be renamed into place and stamped with the source's time, so later runs would see it
+                    // as unchanged. A file that grew mid-copy (a live log) is larger, not smaller, so only short counts.
+                    if (sourceStat.Size > 0 && written < sourceStat.Size)
                     {
-                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
-                        throw;
+                        if (SizeChanged(ctx.SourceFs, source, sourceStat.Size))
+                        {
+                            // The source itself shrank while it was being read (a save or truncation mid-copy), so what
+                            // was read may mix old and new content. Skip it as a warning, like a locked file.
+                            TryDeleteTemp(ctx, tempPath);
+                            result.Warnings++;
+                            await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — it changed while it was being copied (it will be retried on the next run)");
+                            return false;
+                        }
+
+                        throw new IncompleteCopyException($"Incomplete copy: only {written} of {sourceStat.Size} bytes were transferred.");
                     }
+
+                    // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
+                    // timestamp across (a fresh-write "now" timestamp would look newer on the next run).
+                    TryStampWriteTime(ctx.TargetFs, tempPath, sourceStat.LastWriteTimeUtc);
+
+                    // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                    ctx.TargetFs.MoveFile(tempPath, dest, overwrite: true);
+                    result.BytesCopied += written;
+                    return true;
                 }
-
-                // Never commit a short copy: a source stream that ended early (e.g. a flaky transfer) would
-                // otherwise be renamed into place and stamped with the source's time, so later runs would see it
-                // as unchanged. A file that grew mid-copy (a live log) is larger, not smaller, so only short counts.
-                if (sourceStat.Size > 0 && written < sourceStat.Size)
+                catch (OperationCanceledException)
                 {
-                    if (SizeChanged(ctx.SourceFs, source, sourceStat.Size))
+                    // Stopped mid-copy — drop the partial temp and let cancellation unwind the run. Not
+                    // counted as an error or warning (it isn't a problem with the file).
+                    TryDeleteTemp(ctx, tempPath);
+                    throw;
+                }
+                catch (EndpointUnavailableException)
+                {
+                    // The source endpoint went away (e.g. the camera was switched off). Clean up and let it
+                    // propagate so the whole run aborts fast rather than failing every remaining file.
+                    TryDeleteTemp(ctx, tempPath);
+                    throw;
+                }
+                catch (ProtectedFileException ex)
+                {
+                    // The target refused to replace the destination (a Google Docs file on Drive) — keep it.
+                    TryDeleteTemp(ctx, tempPath);
+                    await LogKeptAsync(dest, ex, log, result);
+                    return false;
+                }
+                catch (Exception ex) when (_retry.ShouldRetry(ex, attempt))
+                {
+                    // The connection dropped mid-transfer, or the copy came up short — usually a passing network fault.
+                    // Drop the partial temp, give the link a moment, and copy the file again from scratch (the next open
+                    // goes through a fresh session). Info, not Warning: a recovered copy isn't a problem with the run.
+                    TryDeleteTemp(ctx, tempPath);
+                    await log.AppendAsync(OperationLogLevel.Info,
+                        $"Copy of '{source}' failed ({ex.Message}) — retrying in {_retry.Delay.TotalSeconds:0}s (attempt {attempt + 1} of {_retry.MaxAttempts})");
+                    await Task.Delay(_retry.Delay, ct);
+                    knownSourceStat = null; // re-read: the file may have changed while the link was down
+                }
+                catch (Exception ex)
+                {
+                    TryDeleteTemp(ctx, tempPath);
+                    if (ex is FileNotFoundException or DirectoryNotFoundException && !StillExists(ctx.SourceFs, source))
                     {
-                        // The source itself shrank while it was being read (a save or truncation mid-copy), so what
-                        // was read may mix old and new content. Skip it as a warning, like a locked file.
-                        TryDeleteTemp(ctx, tempPath);
+                        return false; // the source was deleted after the folder was listed — nothing to back up
+                    }
+                    if (FileLock.IsSkippableReadError(ex, out var reason))
+                    {
+                        // The file couldn't be read (locked, or an unavailable cloud file) — skip it this run
+                        // as a non-fatal warning rather than failing the run.
                         result.Warnings++;
-                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — it changed while it was being copied (it will be retried on the next run)");
-                        return false;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — {reason}");
                     }
-
-                    throw new IOException($"Incomplete copy: only {written} of {sourceStat.Size} bytes were transferred.");
+                    else
+                    {
+                        result.Errors++;
+                        await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
+                    }
+                    return false;
                 }
-
-                // The sync engine compares LastWriteTimeUtc to decide copy/skip, so carry the source's
-                // timestamp across (a fresh-write "now" timestamp would look newer on the next run).
-                TryStampWriteTime(ctx.TargetFs, tempPath, sourceStat.LastWriteTimeUtc);
-
-                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
-                ctx.TargetFs.MoveFile(tempPath, dest, overwrite: true);
-                result.BytesCopied += written;
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                // Stopped mid-copy — drop the partial temp and let cancellation unwind the run. Not
-                // counted as an error or warning (it isn't a problem with the file).
-                TryDeleteTemp(ctx, tempPath);
-                throw;
-            }
-            catch (EndpointUnavailableException)
-            {
-                // The source endpoint went away (e.g. the camera was switched off). Clean up and let it
-                // propagate so the whole run aborts fast rather than failing every remaining file.
-                TryDeleteTemp(ctx, tempPath);
-                throw;
-            }
-            catch (ProtectedFileException ex)
-            {
-                // The target refused to replace the destination (a Google Docs file on Drive) — keep it.
-                TryDeleteTemp(ctx, tempPath);
-                await LogKeptAsync(dest, ex, log, result);
-                return false;
-            }
-            catch (Exception ex)
-            {
-                TryDeleteTemp(ctx, tempPath);
-                if (ex is FileNotFoundException or DirectoryNotFoundException && !StillExists(ctx.SourceFs, source))
-                {
-                    return false; // the source was deleted after the folder was listed — nothing to back up
-                }
-                if (FileLock.IsSkippableReadError(ex, out var reason))
-                {
-                    // The file couldn't be read (locked, or an unavailable cloud file) — skip it this run
-                    // as a non-fatal warning rather than failing the run.
-                    result.Warnings++;
-                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{source}' — {reason}");
-                }
-                else
-                {
-                    result.Errors++;
-                    await log.ErrorAsync($"Failed to copy '{source}' -> '{dest}'", ex);
-                }
-                return false;
             }
         }
 

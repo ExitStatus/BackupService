@@ -41,7 +41,7 @@ namespace BackupService.FileSystem.Smb
 
         private bool FillBuffer()
         {
-            var status = store.ReadFile(out var data, handle, _position, Math.Max(1, maxReadSize));
+            var (status, data) = SmbStatusErrors.OnHandle(() => (store.ReadFile(out var d, handle, _position, Math.Max(1, maxReadSize)), d));
 
             // The status must be checked before the data: SMBLibrary leaves data null on ANY failure (a timeout, a
             // lock conflict, an expired session), and treating that as end-of-file silently truncated the copy.

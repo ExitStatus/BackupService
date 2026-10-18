@@ -17,6 +17,9 @@ namespace BackupService.UnitTests.Scheduling
         private static readonly DateTime T1 = new(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         private static readonly DateTime T2 = new(2026, 1, 2, 10, 0, 0, DateTimeKind.Utc); // newer than T1
 
+        // Retries a dropped copy straight away, so the retry tests don't wait out the real 5s delay.
+        private static readonly CopyRetryPolicy NoWaitRetry = new(3, TimeSpan.Zero);
+
         private FakeFileSystem _fs = null!;
         private CapturingLogger _log = null!;
         private OneWaySyncSynchronizer _sut = null!;
@@ -27,7 +30,7 @@ namespace BackupService.UnitTests.Scheduling
             _fs = new FakeFileSystem();
             _fs.AddDirectory(Source);
             _log = new CapturingLogger();
-            _sut = new OneWaySyncSynchronizer(new SingleFsEndpointFactory(_fs));
+            _sut = new OneWaySyncSynchronizer(new SingleFsEndpointFactory(_fs), NoWaitRetry);
         }
 
         private static OneWaySyncItem Pair(
@@ -169,6 +172,67 @@ namespace BackupService.UnitTests.Scheduling
             result.Copied.Should().Be(0);
             result.Errors.Should().Be(1);
             _log.Errors.Should().Contain(m => m.Contains("Incomplete copy"));
+        }
+
+        [Test]
+        public async Task ACopyCutOffByADroppedConnection_IsRetried_AndSucceeds()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            var opens = 0;
+            _fs.OpenReadOverride = _ => ++opens == 1
+                ? throw new ConnectionLostException("The SMB connection was lost mid-transfer")
+                : new MemoryStream(Encoding.UTF8.GetBytes("hello"), writable: false);
+
+            var result = await Run(Pair());
+
+            opens.Should().Be(2);
+            _fs.ContentOf(@"C:\dst\a.txt").Should().Be("hello");
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+            _log.Messages.Should().Contain(m => m.Contains("retrying") && m.Contains("attempt 2 of 3"));
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        [Test]
+        public async Task AShortCopy_IsRetried_AndSucceeds()
+        {
+            _fs.AddFile(@"C:\src\photo.arw", T1, "full-content");
+            var opens = 0;
+            _fs.OpenReadOverride = _ => new MemoryStream(Encoding.UTF8.GetBytes(++opens == 1 ? "full" : "full-content"), writable: false);
+
+            var result = await Run(Pair());
+
+            _fs.ContentOf(@"C:\dst\photo.arw").Should().Be("full-content");
+            result.Copied.Should().Be(1);
+            result.Errors.Should().Be(0);
+        }
+
+        [Test]
+        public async Task ACopyThatKeepsDropping_IsAnErrorAfterTheLastAttempt()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            var opens = 0;
+            _fs.OpenReadOverride = _ => { opens++; throw new ConnectionLostException("The SMB connection was lost mid-transfer"); };
+
+            var result = await Run(Pair());
+
+            opens.Should().Be(3);
+            result.Errors.Should().Be(1);
+            _fs.FileExists(@"C:\dst\a.txt").Should().BeFalse();
+            _fs.AllFiles.Should().NotContain(p => p.EndsWith(".tmp"));
+        }
+
+        [Test]
+        public async Task AnOrdinaryCopyFailure_IsNotRetried()
+        {
+            _fs.AddFile(@"C:\src\a.txt", T1, "hello");
+            var opens = 0;
+            _fs.OpenReadOverride = _ => { opens++; return new FailingReadStream(); };
+
+            var result = await Run(Pair());
+
+            opens.Should().Be(1);
+            result.Errors.Should().Be(1);
         }
 
         [Test]
@@ -964,7 +1028,7 @@ namespace BackupService.UnitTests.Scheduling
             var targetFs = new FakeFileSystem();
             targetFs.AddDirectory(Target);
 
-            var sut = new OneWaySyncSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs));
+            var sut = new OneWaySyncSynchronizer(new TwoFsEndpointFactory(sourceFs, Source, targetFs), NoWaitRetry);
 
             var result = await sut.SyncAsync(Pair(), null, null, _log, CancellationToken.None);
 

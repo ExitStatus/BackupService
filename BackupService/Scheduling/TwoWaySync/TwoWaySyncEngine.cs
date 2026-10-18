@@ -20,8 +20,10 @@ namespace BackupService.Scheduling.TwoWaySync
     /// leaves the previous baseline intact. Copies are crash-safe (dot-temp → stamp mtime → rename) and stream
     /// across the two filesystems in either direction.
     /// </summary>
-    public sealed class TwoWaySyncEngine(IEndpointFileSystemFactory endpointFactory, ITwoWaySyncStateStore stateStore) : ITwoWaySyncEngine
+    public sealed class TwoWaySyncEngine(IEndpointFileSystemFactory endpointFactory, ITwoWaySyncStateStore stateStore, CopyRetryPolicy? retryPolicy = null) : ITwoWaySyncEngine
     {
+        private readonly CopyRetryPolicy _retry = retryPolicy ?? CopyRetryPolicy.Default;
+
         // FAT/exFAT (USB) store 2-second-granularity times; treat write-times within this window as equal (like
         // robocopy /FFT) so a round-tripped file isn't seen as "modified" on the next run.
         private static readonly TimeSpan WriteTimeTolerance = TimeSpan.FromSeconds(2);
@@ -545,79 +547,91 @@ namespace BackupService.Scheduling.TwoWaySync
             var destPath = Path.Combine(toDir, toName);
             var tempPath = Path.Combine(toDir, CrashSafeTempName(toName));
             onCurrentFile?.Invoke(toName);
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                long written;
-                using (var input = fromFs.OpenRead(fromPath, ct))
-                using (var output = toFs.OpenWrite(tempPath))
+                try
                 {
-                    try
+                    long written;
+                    using (var input = fromFs.OpenRead(fromPath, ct))
+                    using (var output = toFs.OpenWrite(tempPath))
                     {
-                        written = await CopyCountingAsync(input, output, ct);
+                        try
+                        {
+                            written = await CopyCountingAsync(input, output, ct);
+                        }
+                        catch
+                        {
+                            AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
+                            throw;
+                        }
                     }
-                    catch
+
+                    // Never commit a short copy. In a two-way sync a truncated copy stamped with the source's time would
+                    // later look like the side that changed, and be copied back over the intact original.
+                    if (from.Size > 0 && written < from.Size)
                     {
-                        AbandonableWrite.Abandon(output); // a partial copy isn't uploaded on the way out
-                        throw;
+                        if (SizeChanged(fromFs, fromPath, from.Size))
+                        {
+                            // The file shrank while it was being read (a save mid-copy) — retry next run, like a locked file.
+                            TryDeleteTemp(toFs, tempPath);
+                            result.Warnings++;
+                            await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{fromPath}' — it changed while it was being copied (it will be retried on the next run)");
+                            return false;
+                        }
+
+                        throw new IncompleteCopyException($"Incomplete copy: only {written} of {from.Size} bytes were transferred.");
                     }
+
+                    TryStampWriteTime(toFs, tempPath, from.Mtime);
+
+                    // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
+                    toFs.MoveFile(tempPath, destPath, overwrite: true);
+                    result.BytesCopied += written;
+                    return true;
                 }
-
-                // Never commit a short copy. In a two-way sync a truncated copy stamped with the source's time would
-                // later look like the side that changed, and be copied back over the intact original.
-                if (from.Size > 0 && written < from.Size)
+                catch (OperationCanceledException)
                 {
-                    if (SizeChanged(fromFs, fromPath, from.Size))
-                    {
-                        // The file shrank while it was being read (a save mid-copy) — retry next run, like a locked file.
-                        TryDeleteTemp(toFs, tempPath);
-                        result.Warnings++;
-                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{fromPath}' — it changed while it was being copied (it will be retried on the next run)");
-                        return false;
-                    }
-
-                    throw new IOException($"Incomplete copy: only {written} of {from.Size} bytes were transferred.");
+                    TryDeleteTemp(toFs, tempPath);
+                    throw;
                 }
-
-                TryStampWriteTime(toFs, tempPath, from.Mtime);
-
-                // One overwrite-rename: deleting the old copy first lost both if the rename then failed.
-                toFs.MoveFile(tempPath, destPath, overwrite: true);
-                result.BytesCopied += written;
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                TryDeleteTemp(toFs, tempPath);
-                throw;
-            }
-            catch (EndpointUnavailableException)
-            {
-                TryDeleteTemp(toFs, tempPath);
-                throw;
-            }
-            catch (ProtectedFileException ex)
-            {
-                // The destination side refused to replace its file (a Google Docs file on Drive) — keep it. Not
-                // baselined, so it's re-evaluated next run rather than treated as in sync.
-                TryDeleteTemp(toFs, tempPath);
-                result.Warnings++;
-                await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{destPath}' — {ex.Reason}");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                TryDeleteTemp(toFs, tempPath);
-                if (FileLock.IsSkippableReadError(ex, out var reason))
+                catch (EndpointUnavailableException)
                 {
+                    TryDeleteTemp(toFs, tempPath);
+                    throw;
+                }
+                catch (ProtectedFileException ex)
+                {
+                    // The destination side refused to replace its file (a Google Docs file on Drive) — keep it. Not
+                    // baselined, so it's re-evaluated next run rather than treated as in sync.
+                    TryDeleteTemp(toFs, tempPath);
                     result.Warnings++;
-                    await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{fromPath}' — {reason}");
+                    await log.AppendAsync(OperationLogLevel.Warning, $"Kept '{destPath}' — {ex.Reason}");
+                    return false;
                 }
-                else
+                catch (Exception ex) when (_retry.ShouldRetry(ex, attempt))
                 {
-                    result.Errors++;
-                    await log.ErrorAsync($"Failed to copy '{fromPath}' -> '{destPath}'", ex);
+                    // The connection dropped mid-transfer, or the copy came up short — usually a passing network fault.
+                    // Drop the partial temp, give the link a moment, and copy again from scratch on a fresh session.
+                    TryDeleteTemp(toFs, tempPath);
+                    await log.AppendAsync(OperationLogLevel.Info,
+                        $"Copy of '{fromPath}' failed ({ex.Message}) — retrying in {_retry.Delay.TotalSeconds:0}s (attempt {attempt + 1} of {_retry.MaxAttempts})");
+                    await Task.Delay(_retry.Delay, ct);
                 }
-                return false;
+                catch (Exception ex)
+                {
+                    TryDeleteTemp(toFs, tempPath);
+                    if (FileLock.IsSkippableReadError(ex, out var reason))
+                    {
+                        result.Warnings++;
+                        await log.AppendAsync(OperationLogLevel.Warning, $"Skipped '{fromPath}' — {reason}");
+                    }
+                    else
+                    {
+                        result.Errors++;
+                        await log.ErrorAsync($"Failed to copy '{fromPath}' -> '{destPath}'", ex);
+                    }
+                    return false;
+                }
             }
         }
 
