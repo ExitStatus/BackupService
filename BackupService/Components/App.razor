@@ -48,6 +48,13 @@
             if (el) { el.scrollTop = el.scrollHeight; }
         };
 
+        // Scroll an element (by id) into the middle of its scroll container — the Logs row a Profiles
+        // Last Status chip opened.
+        window.scrollElementIntoView = function (id) {
+            var el = document.getElementById(id);
+            if (el) { el.scrollIntoView({ block: 'center' }); }
+        };
+
         // Drag-resize the folder browser's sidebar (.fb-splitter sits between .fb-sidebar and
         // .fb-details inside .fb-body — see FolderBrowserDialog.razor). Delegated on document
         // since the dialog is added/removed from the DOM dynamically.

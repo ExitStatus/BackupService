@@ -4,7 +4,7 @@
 <PageTitle>Backup Service</PageTitle>
 
 <div class="workspace">
-    <BackupServiceSidebar @bind-SelectedKey="_selectedKey" />
+    <BackupServiceSidebar SelectedKey="@_selectedKey" SelectedKeyChanged="OnSectionChanged" />
 
     <div class="workspace-content">
         @switch (_selectedKey)
@@ -14,7 +14,7 @@
                 break;
 
             case "profiles":
-                <Profiles />
+                <Profiles OnOpenLog="OpenLog" />
                 break;
 
             case "scheduledtasks":
@@ -22,7 +22,7 @@
                 break;
 
             case "logs":
-                <Logs />
+                <Logs FocusLogId="_focusLogId" />
                 break;
 
             case "connections":

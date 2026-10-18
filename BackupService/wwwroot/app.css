@@ -1721,6 +1721,28 @@ label.header-check input {
 .log-level-error { background: var(--danger); color: #1a1a1a; }
 .log-level-debug { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
 
+/* A clickable level pill (the Profiles grid's Last Status chip, which opens that run's log). Undo the global button
+   look, and keep each level's colour on hover — the generic button:hover would otherwise turn it accent-blue. */
+button.log-level {
+    border: none;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: inherit;
+    cursor: pointer;
+}
+button.log-level-info, button.log-level-info:hover { background: var(--notify-success); }
+button.log-level-warning, button.log-level-warning:hover { background: var(--notify-warning); }
+button.log-level-error, button.log-level-error:hover { background: var(--danger); }
+button.log-level-debug, button.log-level-debug:hover { background: var(--surface); }
+button.log-level:hover { filter: brightness(1.15); text-decoration: underline; }
+
+/* The log a Last Status chip opened, picked out until the Logs section is left. */
+.table tbody tr.log-row-focus td {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 /* "Running" chip shown after a profile name in the Logs table while that profile is running. */
 .running-chip {
     display: inline-block;

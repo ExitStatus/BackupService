@@ -77,9 +77,9 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
-        public async Task GetLastRunLevelsAsync_IsEachProfilesNewestRunLog_IgnoringNonRunLogs()
+        public async Task GetLastRunStatusesAsync_IsEachProfilesNewestRunLog_IgnoringNonRunLogs()
         {
-            int failing, recovered, purged, neverRun;
+            int failing, recovered, purged, neverRun, failedLog;
             using (var context = new BackupDbContext(_options))
             {
                 Profile NewProfile(string name) => new() { Name = name, Type = ProfileType.OneWaySync };
@@ -104,7 +104,8 @@ namespace BackupService.UnitTests.Logging
                 // A: an older success, then a failed run — then an "enabled" log (Info) that must not mask it.
                 Run(failing, RunOutcome.Success, Log(failing, OperationLogLevel.Info).Id);
                 await context.SaveChangesAsync();
-                Run(failing, RunOutcome.CompletedWithErrors, Log(failing, OperationLogLevel.Error).Id);
+                failedLog = Log(failing, OperationLogLevel.Error).Id;
+                Run(failing, RunOutcome.CompletedWithErrors, failedLog);
                 await context.SaveChangesAsync();
                 Log(failing, OperationLogLevel.Info);
 
@@ -118,12 +119,12 @@ namespace BackupService.UnitTests.Logging
                 await context.SaveChangesAsync();
             }
 
-            var levels = await _service.GetLastRunLevelsAsync([failing, recovered, purged, neverRun]);
+            var statuses = await _service.GetLastRunStatusesAsync([failing, recovered, purged, neverRun]);
 
-            levels[failing].Should().Be(OperationLogLevel.Error);
-            levels[recovered].Should().Be(OperationLogLevel.Warning);
-            levels[purged].Should().Be(OperationLogLevel.Error);
-            levels.Should().NotContainKey(neverRun);
+            statuses[failing].Should().Be(new LastRunStatus(OperationLogLevel.Error, failedLog));
+            statuses[recovered].Level.Should().Be(OperationLogLevel.Warning);
+            statuses[purged].Should().Be(new LastRunStatus(OperationLogLevel.Error, null)); // nothing to open
+            statuses.Should().NotContainKey(neverRun);
         }
 
         [Test]

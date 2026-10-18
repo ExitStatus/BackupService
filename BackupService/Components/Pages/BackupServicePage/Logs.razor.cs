@@ -4,6 +4,7 @@ using BackupService.Extensions;
 using BackupService.Logging;
 using BackupService.Profiles;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace BackupService.Components.Pages.BackupServicePage
 {
@@ -33,6 +34,20 @@ namespace BackupService.Components.Pages.BackupServicePage
         // runs are shown — a live run is followed in the View Progress dialog). Not subscribed: the page is static.
         [Inject]
         private IProfileStatusService StatusService { get; set; } = default!;
+
+        [Inject]
+        private IJSRuntime JS { get; set; } = default!;
+
+        /// <summary>
+        /// A log to open on arrival — expanded, highlighted and scrolled into view. Set by the host when a Profiles
+        /// Last Status chip is clicked; read once, on the first load.
+        /// </summary>
+        [Parameter]
+        public int? FocusLogId { get; set; }
+
+        // The opened log (highlighted), and whether its row still needs scrolling to once it has rendered.
+        private int? _focusedId;
+        private bool _scrollToFocus;
 
         private PagedResult<OperationLog>? _logs;
         private bool _disposed;
@@ -248,6 +263,25 @@ namespace BackupService.Components.Pages.BackupServicePage
             _profileOptions = [null, .. summaries.Select(s => (int?)s.Id)];
 
             await LoadAsync();
+
+            if (FocusLogId is { } focus && _logs?.Items.Any(l => l.Id == focus) == true)
+            {
+                _focusedId = focus;
+                _scrollToFocus = true;
+                if (_logs.Items.First(l => l.Id == focus).LogFile is not null)
+                {
+                    await ToggleAsync(focus); // expand it, loading the end of the log
+                }
+            }
+        }
+
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            if (_scrollToFocus && _focusedId is { } id)
+            {
+                _scrollToFocus = false;
+                await JS.InvokeVoidAsync("scrollElementIntoView", $"log-row-{id}");
+            }
         }
 
         // Only the latest load is applied: with "Include Messages" a load scans every log file, so an earlier,

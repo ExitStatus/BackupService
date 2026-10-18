@@ -13,12 +13,12 @@ namespace BackupService.Logging
         IDatabaseContextFactory contextFactory,
         IOperationLogFileStore fileStore) : IOperationLogService
     {
-        public async Task<IReadOnlyDictionary<int, OperationLogLevel>> GetLastRunLevelsAsync(
+        public async Task<IReadOnlyDictionary<int, LastRunStatus>> GetLastRunStatusesAsync(
             IReadOnlyCollection<int> profileIds, CancellationToken cancellationToken = default)
         {
             if (profileIds.Count == 0)
             {
-                return new Dictionary<int, OperationLogLevel>();
+                return new Dictionary<int, LastRunStatus>();
             }
 
             await using var db = contextFactory.CreateDbContext();
@@ -37,11 +37,13 @@ namespace BackupService.Logging
                 {
                     ProfileId = r.ProfileId!.Value,
                     r.Outcome,
-                    LogLevel = db.OperationLogs.Where(l => l.Id == r.OperationLogId).Select(l => (OperationLogLevel?)l.Level).FirstOrDefault(),
+                    Log = db.OperationLogs.Where(l => l.Id == r.OperationLogId).Select(l => new { l.Id, l.Level }).FirstOrDefault(),
                 })
                 .ToListAsync(cancellationToken);
 
-            return runs.ToDictionary(r => r.ProfileId, r => r.LogLevel ?? LevelFor(r.Outcome));
+            return runs.ToDictionary(
+                r => r.ProfileId,
+                r => r.Log is { } log ? new LastRunStatus(log.Level, log.Id) : new LastRunStatus(LevelFor(r.Outcome), null));
         }
 
         // The level a run's log ends at for its outcome — used when retention has already purged the log itself.

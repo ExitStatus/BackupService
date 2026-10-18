@@ -60,7 +60,7 @@ else
             @foreach (var log in _logs.Items)
             {
                 var expanded = _expanded.Contains(log.Id);
-                <tr>
+                <tr id="log-row-@log.Id" class="@(log.Id == _focusedId ? "log-row-focus" : null)">
                     <td class="expand-col">
                         @if (!string.IsNullOrEmpty(log.LogFile))
                         {

@@ -68,8 +68,12 @@ namespace BackupService.Components.Pages.BackupServicePage
         private bool _descending;
         private PagedResult<Profile>? _profiles;
 
-        // The Last Status chip per profile on the current page: its newest run log's level (absent = never run).
-        private IReadOnlyDictionary<int, OperationLogLevel> _lastRunLevels = new Dictionary<int, OperationLogLevel>();
+        // The Last Status chip per profile on the current page: its newest run log (absent = never run).
+        private IReadOnlyDictionary<int, LastRunStatus> _lastRuns = new Dictionary<int, LastRunStatus>();
+
+        /// <summary>Raised with a log id when a Last Status chip is clicked — the host switches to that log in Logs.</summary>
+        [Parameter]
+        public EventCallback<int> OnOpenLog { get; set; }
 
         // "Arrange by Type" grouped view. _initialised gates the body until the first interactive render has
         // read the persisted preference (localStorage is unavailable during prerender), avoiding a flash of the
@@ -215,7 +219,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             var typeFilter = _arrangeByType ? (HasAnyProfiles ? (ProfileType?)_activeType : null) : _filterType;
             _profiles = await ProfileService.GetPageAsync(
                 1, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled, _filterConnection);
-            _lastRunLevels = await LogService.GetLastRunLevelsAsync(_profiles.Items.Select(p => p.Id).ToList());
+            _lastRuns = await LogService.GetLastRunStatusesAsync(_profiles.Items.Select(p => p.Id).ToList());
         }
 
         private async Task OnFilterTextChanged(ChangeEventArgs e)

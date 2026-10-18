@@ -162,9 +162,18 @@ else
             <td>@ScheduleCell(profile)</td>
             <td>@(profile.DateLastRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
             <td>
-                @if (_lastRunLevels.TryGetValue(profile.Id, out var lastLevel))
+                @if (_lastRuns.TryGetValue(profile.Id, out var lastRun))
                 {
-                    <span class="log-level log-level-@lastLevel.ToString().ToLowerInvariant()">@lastLevel.GetDescription()</span>
+                    var levelClass = $"log-level log-level-{lastRun.Level.ToString().ToLowerInvariant()}";
+                    @if (lastRun.LogId is { } logId)
+                    {
+                        <button type="button" class="@levelClass log-level-link" title="Open this run's log"
+                                @onclick="() => OnOpenLog.InvokeAsync(logId)">@lastRun.Level.GetDescription()</button>
+                    }
+                    else
+                    {
+                        <span class="@levelClass" title="This run's log has been removed by log retention">@lastRun.Level.GetDescription()</span>
+                    }
                 }
                 else
                 {
