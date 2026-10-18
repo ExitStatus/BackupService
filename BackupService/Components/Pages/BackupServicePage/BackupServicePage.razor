@@ -4,10 +4,10 @@
 <PageTitle>Backup Service</PageTitle>
 
 <div class="workspace">
-    <BackupServiceSidebar SelectedKey="@_selectedKey" SelectedKeyChanged="OnSectionChanged" />
+    <BackupServiceSidebar SelectedKey="@SelectedKey" SelectedKeyChanged="OnSectionChanged" />
 
     <div class="workspace-content">
-        @switch (_selectedKey)
+        @switch (SelectedKey)
         {
             case "dashboard":
                 <Dashboard />
@@ -22,7 +22,7 @@
                 break;
 
             case "logs":
-                <Logs FocusLogId="_focusLogId" />
+                <Logs FocusLogId="FocusLogId" />
                 break;
 
             case "connections":

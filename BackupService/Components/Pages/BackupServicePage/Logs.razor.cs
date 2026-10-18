@@ -275,6 +275,15 @@ namespace BackupService.Components.Pages.BackupServicePage
             }
         }
 
+        protected override void OnParametersSet()
+        {
+            // Still on Logs but the URL no longer names a log (the sidebar's Logs item was clicked): stop picking it out.
+            if (FocusLogId is null)
+            {
+                _focusedId = null;
+            }
+        }
+
         protected override async Task OnAfterRenderAsync(bool firstRender)
         {
             if (_scrollToFocus && _focusedId is { } id)
