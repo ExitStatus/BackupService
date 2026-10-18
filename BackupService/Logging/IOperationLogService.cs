@@ -48,5 +48,13 @@ namespace BackupService.Logging
         /// returning at most <paramref name="maxMatches"/> matching lines and the total match count.
         /// </summary>
         Task<OperationLogSearch> SearchDetailsAsync(int operationLogId, string? text, IReadOnlyCollection<OperationLogLevel>? levels, int maxMatches, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// The header level of each profile's most recent <b>run</b> log (via its newest <c>BackupRun</c>), keyed
+        /// by profile id — the Profiles grid's Last Status chip. Run logs only, so an enable/edit log (always Info)
+        /// doesn't mask a failed run. A run whose log was purged falls back to its outcome; a profile that has
+        /// never run is absent.
+        /// </summary>
+        Task<IReadOnlyDictionary<int, OperationLogLevel>> GetLastRunLevelsAsync(IReadOnlyCollection<int> profileIds, CancellationToken cancellationToken = default);
     }
 }

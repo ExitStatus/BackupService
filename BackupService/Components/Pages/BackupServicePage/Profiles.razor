@@ -91,6 +91,7 @@ else
                 }
                 <th>Schedule</th>
                 <th><button class="sort-header" @onclick="() => SortByAsync(ProfileSortColumn.DateLastRun)">Date last run@(SortIndicator(ProfileSortColumn.DateLastRun))</button></th>
+                <th>Last status</th>
                 <th>Status</th>
                 <th class="action-col"></th>
             </tr>
@@ -160,6 +161,16 @@ else
             }
             <td>@ScheduleCell(profile)</td>
             <td>@(profile.DateLastRun?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never")</td>
+            <td>
+                @if (_lastRunLevels.TryGetValue(profile.Id, out var lastLevel))
+                {
+                    <span class="log-level log-level-@lastLevel.ToString().ToLowerInvariant()">@lastLevel.GetDescription()</span>
+                }
+                else
+                {
+                    <span class="muted">—</span>
+                }
+            </td>
             <td>@StatusText(profile.Id)</td>
             <td class="action-col">
                 <div class="row-actions">

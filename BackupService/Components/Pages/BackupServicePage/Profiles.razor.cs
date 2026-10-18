@@ -5,6 +5,7 @@ using BackupService.Database;
 using BackupService.Enumerations;
 using BackupService.Extensions;
 using BackupService.Groups;
+using BackupService.Logging;
 using BackupService.Profiles;
 using BackupService.Scheduling;
 using Microsoft.AspNetCore.Components;
@@ -50,6 +51,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         private IBackupRunner BackupRunner { get; set; } = default!;
 
         [Inject]
+        private IOperationLogService LogService { get; set; } = default!;
+
+        [Inject]
         private IJSRuntime JS { get; set; } = default!;
 
         private bool _showDialog;
@@ -63,6 +67,9 @@ namespace BackupService.Components.Pages.BackupServicePage
         private ProfileSortColumn _sortColumn = ProfileSortColumn.Name;
         private bool _descending;
         private PagedResult<Profile>? _profiles;
+
+        // The Last Status chip per profile on the current page: its newest run log's level (absent = never run).
+        private IReadOnlyDictionary<int, OperationLogLevel> _lastRunLevels = new Dictionary<int, OperationLogLevel>();
 
         // "Arrange by Type" grouped view. _initialised gates the body until the first interactive render has
         // read the persisted preference (localStorage is unavailable during prerender), avoiding a flash of the
@@ -208,6 +215,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             var typeFilter = _arrangeByType ? (HasAnyProfiles ? (ProfileType?)_activeType : null) : _filterType;
             _profiles = await ProfileService.GetPageAsync(
                 1, PageSize, _sortColumn, _descending, typeFilter, _filterText, _filterEnabled, _filterConnection);
+            _lastRunLevels = await LogService.GetLastRunLevelsAsync(_profiles.Items.Select(p => p.Id).ToList());
         }
 
         private async Task OnFilterTextChanged(ChangeEventArgs e)
@@ -362,7 +370,7 @@ namespace BackupService.Components.Pages.BackupServicePage
             2                                  // Enabled + Name
             + (_arrangeByType ? 0 : 1)          // Type (hidden when arranged by type)
             + (_arrangeByGroup ? 0 : 1)         // Group (hidden when arranged by group)
-            + 3                                 // Schedule + Date last run + Status
+            + 4                                 // Schedule + Date last run + Last status + Status
             + 1;                                // actions
 
         // The profiles grouped into sections for "Arrange by Group": one section per group (alphabetical by

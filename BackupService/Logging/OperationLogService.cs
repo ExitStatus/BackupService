@@ -13,6 +13,45 @@ namespace BackupService.Logging
         IDatabaseContextFactory contextFactory,
         IOperationLogFileStore fileStore) : IOperationLogService
     {
+        public async Task<IReadOnlyDictionary<int, OperationLogLevel>> GetLastRunLevelsAsync(
+            IReadOnlyCollection<int> profileIds, CancellationToken cancellationToken = default)
+        {
+            if (profileIds.Count == 0)
+            {
+                return new Dictionary<int, OperationLogLevel>();
+            }
+
+            await using var db = contextFactory.CreateDbContext();
+            var ids = profileIds.ToList();
+
+            // Newest run per profile by Id (monotonic with insertion — SQLite can't order a DateTimeOffset).
+            var latestRunIds = await db.BackupRuns
+                .Where(r => r.ProfileId != null && ids.Contains(r.ProfileId.Value))
+                .GroupBy(r => r.ProfileId!.Value)
+                .Select(g => g.Max(r => r.Id))
+                .ToListAsync(cancellationToken);
+
+            var runs = await db.BackupRuns
+                .Where(r => latestRunIds.Contains(r.Id))
+                .Select(r => new
+                {
+                    ProfileId = r.ProfileId!.Value,
+                    r.Outcome,
+                    LogLevel = db.OperationLogs.Where(l => l.Id == r.OperationLogId).Select(l => (OperationLogLevel?)l.Level).FirstOrDefault(),
+                })
+                .ToListAsync(cancellationToken);
+
+            return runs.ToDictionary(r => r.ProfileId, r => r.LogLevel ?? LevelFor(r.Outcome));
+        }
+
+        // The level a run's log ends at for its outcome — used when retention has already purged the log itself.
+        private static OperationLogLevel LevelFor(RunOutcome outcome) => outcome switch
+        {
+            RunOutcome.Success => OperationLogLevel.Info,
+            RunOutcome.CompletedWithWarnings => OperationLogLevel.Warning,
+            _ => OperationLogLevel.Error,
+        };
+
         public async Task<PagedResult<OperationLog>> GetPageAsync(
             int pageNumber,
             int pageSize,

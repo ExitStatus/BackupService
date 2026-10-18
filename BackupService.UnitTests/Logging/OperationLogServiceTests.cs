@@ -77,6 +77,56 @@ namespace BackupService.UnitTests.Logging
         }
 
         [Test]
+        public async Task GetLastRunLevelsAsync_IsEachProfilesNewestRunLog_IgnoringNonRunLogs()
+        {
+            int failing, recovered, purged, neverRun;
+            using (var context = new BackupDbContext(_options))
+            {
+                Profile NewProfile(string name) => new() { Name = name, Type = ProfileType.OneWaySync };
+                var a = NewProfile("A"); var b = NewProfile("B"); var c = NewProfile("C"); var d = NewProfile("D");
+                context.Profiles.AddRange(a, b, c, d);
+                await context.SaveChangesAsync();
+                (failing, recovered, purged, neverRun) = (a.Id, b.Id, c.Id, d.Id);
+
+                OperationLog Log(int profileId, OperationLogLevel level)
+                {
+                    var log = new OperationLog { Name = "run", TimestampUtc = DateTimeOffset.UtcNow, Level = level, ProfileId = profileId };
+                    context.OperationLogs.Add(log);
+                    context.SaveChanges();
+                    return log;
+                }
+                void Run(int profileId, RunOutcome outcome, int? logId) => context.BackupRuns.Add(new BackupRun
+                {
+                    Kind = RunKind.Backup, ProfileId = profileId, Type = ProfileType.OneWaySync,
+                    StartedUtc = DateTimeOffset.UtcNow, Outcome = outcome, OperationLogId = logId,
+                });
+
+                // A: an older success, then a failed run — then an "enabled" log (Info) that must not mask it.
+                Run(failing, RunOutcome.Success, Log(failing, OperationLogLevel.Info).Id);
+                await context.SaveChangesAsync();
+                Run(failing, RunOutcome.CompletedWithErrors, Log(failing, OperationLogLevel.Error).Id);
+                await context.SaveChangesAsync();
+                Log(failing, OperationLogLevel.Info);
+
+                // B: an older error, then a run that ended with warnings.
+                Run(recovered, RunOutcome.Failed, Log(recovered, OperationLogLevel.Error).Id);
+                await context.SaveChangesAsync();
+                Run(recovered, RunOutcome.CompletedWithWarnings, Log(recovered, OperationLogLevel.Warning).Id);
+
+                // C: its run's log has been purged by retention — fall back to the outcome.
+                Run(purged, RunOutcome.Failed, logId: 9999);
+                await context.SaveChangesAsync();
+            }
+
+            var levels = await _service.GetLastRunLevelsAsync([failing, recovered, purged, neverRun]);
+
+            levels[failing].Should().Be(OperationLogLevel.Error);
+            levels[recovered].Should().Be(OperationLogLevel.Warning);
+            levels[purged].Should().Be(OperationLogLevel.Error);
+            levels.Should().NotContainKey(neverRun);
+        }
+
+        [Test]
         public async Task GetDetailsAsync_ReturnsOnlyTargetLogLinesInFileOrder()
         {
             int targetId;
